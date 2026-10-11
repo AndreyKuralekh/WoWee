@@ -44,6 +44,20 @@
 - [ ] RenderDoc-снимок кадра в городе → раздел в `module-map.md`.
 - [ ] `git push` ветки `vr` — только с согласия пользователя.
 
+### hello_xr в шлеме (2026-10-11, Quest 3 через Virtual Desktop)
+- `hello_xr -g Vulkan2` и `-g Vulkan`: в обоих режимах сессия создана и дошла до `XR_SESSION_STATE_FOCUSED`,
+  ошибок нет, `Vulkan2` завершился штатно с кодом 0. Логи — `..\logs\hello_xr-Vulkan2-headset.log`, `…-Vulkan-headset.log`.
+- Система `Meta Quest 3`, `PRIMARY_STEREO`, `FovMutable=True`, рекомендуемый размер глаза **2688×2880**, 1 сэмпл
+  (максимум 16384×16384, 4 сэмпла), длина swapchain 2, до 16 слоёв, blend mode только `OPAQUE`.
+- Форматы swapchain (VkFormat): цвет 43 `R8G8B8A8_SRGB` (выбран), 50 `B8G8R8A8_SRGB`, 37 `R8G8B8A8_UNORM`,
+  44 `B8G8R8A8_UNORM`, 97 `R16G16B16A16_SFLOAT`; глубина 126 `D32_SFLOAT` (выбран), 130, 129, 124.
+- Reference spaces: `VIEW`, `LOCAL`, `STAGE`. Контроллеры: профиль Touch (grip, grip pose, menu, haptics).
+- `XR_KHR_vulkan_enable` (v1) просит у приложения instance-расширения `VK_KHR_external_memory_capabilities`,
+  `…_semaphore_capabilities`, `…_fence_capabilities`, `VK_KHR_get_physical_device_properties2` и device-расширения
+  `VK_KHR_dedicated_allocation`, `VK_KHR_get_memory_requirements2`, `VK_KHR_external_memory(+_win32)`,
+  `VK_KHR_timeline_semaphore`, `VK_KHR_external_semaphore(+_win32)` — всё это ядро Vulkan 1.1/1.2 или есть у NVIDIA.
+- Картинка в шлеме подтверждена пользователем: кубики видны.
+
 ### Потеря устройства на экране выбора персонажа (2026-10-11)
 - Симптом: через секунду после появления экрана выбора персонажа — `Device lost`, `fault 0: invalid write at 0x0`.
   Авторизация, список realm'ов и список персонажей к этому моменту проходят.
@@ -87,6 +101,13 @@
   отдаёт английские тексты. Кнопки русские, потому что FrameXML взят из ruRU-архивов. Не исправлялось.
 - `..\tools\repro-login.ps1 -EnterWorld -Screenshot <png>` — автоматический вход в мир первым персонажем и снимок
   экрана; в отчёте число ошибок создания изображений и ненайденных текстур.
+
+### Открыто: эффекты частиц (2026-10-11)
+- На стоковых данных пламя свечей (`GENERALCANDELABRA01.m2`) рисуется непрозрачными жёлтыми квадратами, а снаряд
+  файрбола не виден совсем; костёр во дворе аббатства при этом выглядит правильно. Ошибок в логе нет, частицы
+  создаются. Снимок — `..\Docs\Screenshots\WrongCandlesFire.png`.
+- Не выяснено, дефект ли это upstream или нашей сборки/обходов: автоматические снимки не помогли (камера при входе
+  вращается). Проверяется глазами: `..\run.cmd official` запускает официальную сборку v3.1.42 на тех же данных.
 
 ### Известные проблемы и заметки
 - В клиенте пользователя стоят HD-моды (архивы от 2024-04-28: `patch-4/8/C/Z`, `Patch-ruRU-A…X`). Модель персонажа
