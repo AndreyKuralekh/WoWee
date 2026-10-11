@@ -6,6 +6,7 @@ build-android/
 build-android-deps/
 build-debug/
 build-sanitize/
+build-vr/
 bin/
 lib/
 
