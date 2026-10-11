@@ -1274,6 +1274,7 @@ if(WOWEE_VR)
     find_package(OpenXR CONFIG REQUIRED)
     target_sources(wowee PRIVATE
         src/xr/xr_platform.cpp
+        src/xr/xr_session.cpp
         src/xr/xr_system.cpp
         include/xr/xr_platform.hpp
         include/xr/xr_system.hpp

@@ -185,6 +185,7 @@ bool XrSystem::findHeadset() {
 }
 
 void XrSystem::shutdown() {
+    destroySession();
     if (instance_ != XR_NULL_HANDLE) {
         xrDestroyInstance(instance_);
         instance_ = XR_NULL_HANDLE;

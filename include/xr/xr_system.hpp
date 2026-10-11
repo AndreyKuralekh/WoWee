@@ -19,10 +19,15 @@
  */
 
 #include <openxr/openxr.h>
+#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <string>
 #include <vector>
+
+namespace wowee::rendering {
+class VkContext;
+}
 
 namespace wowee::xr {
 
@@ -59,12 +64,52 @@ public:
     /// An XrResult by name, for the log.
     [[nodiscard]] std::string resultName(XrResult result) const;
 
+    // --- What the runtime asks of the Vulkan context (XR_KHR_vulkan_enable) ---
+    //
+    // All three answer with nothing when VR is not available, so the places in
+    // VkContext that ask need no test of their own.
+
+    /// Instance extensions the runtime needs enabled.
+    [[nodiscard]] std::vector<std::string> vulkanInstanceExtensions() const;
+
+    /// Device extensions the runtime needs enabled.
+    [[nodiscard]] std::vector<std::string> vulkanDeviceExtensions() const;
+
+    /// The GPU the headset is driven from. With two cards in the machine the
+    /// session can only be created on this one.
+    [[nodiscard]] VkPhysicalDevice vulkanGraphicsDevice(VkInstance vkInstance) const;
+
+    // --- Session ---
+
+    /// Creates the session on the client's Vulkan device, and its reference
+    /// spaces. On failure VR is shut down and the client stays flat.
+    bool createSession(const rendering::VkContext& ctx);
+
+    /// Has to happen before the Vulkan device is destroyed.
+    void destroySession();
+
+    /// Drains the runtime's event queue. Once per frame, with SDL's.
+    void pollEvents();
+
+    [[nodiscard]] XrSession session() const { return session_; }
+    [[nodiscard]] XrSessionState sessionState() const { return sessionState_; }
+    [[nodiscard]] XrSpace localSpace() const { return localSpace_; }
+    /// XR_NULL_HANDLE when the runtime has no stage space.
+    [[nodiscard]] XrSpace stageSpace() const { return stageSpace_; }
+
 private:
     bool createInstance();
     bool findHeadset();
+    bool createReferenceSpaces();
+    void onSessionStateChanged(XrSessionState newState);
+    [[nodiscard]] std::vector<std::string> vulkanExtensionList(const char* functionName) const;
 
     XrInstance instance_ = XR_NULL_HANDLE;
     XrSystemId systemId_ = XR_NULL_SYSTEM_ID;
+    XrSession session_ = XR_NULL_HANDLE;
+    XrSessionState sessionState_ = XR_SESSION_STATE_UNKNOWN;
+    XrSpace localSpace_ = XR_NULL_HANDLE;
+    XrSpace stageSpace_ = XR_NULL_HANDLE;
     std::vector<std::string> runtimeExtensions_;
     uint32_t eyeWidth_ = 0;
     uint32_t eyeHeight_ = 0;

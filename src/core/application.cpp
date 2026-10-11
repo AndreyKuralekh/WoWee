@@ -279,6 +279,9 @@ bool Application::initialize() {
         LOG_FATAL("Failed to initialize window");
         return false;
     }
+#ifdef WOWEE_VR
+    if (xr::system().available()) xr::system().createSession(*window->getVkContext());
+#endif
 
     // Controllers, which are a window's business rather than a renderer's:
     // SDL delivers their events on the same queue, and a pad plugged in later
@@ -1452,6 +1455,10 @@ void Application::run() {
             }
         }
 
+#ifdef WOWEE_VR
+        xr::system().pollEvents();
+#endif
+
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             // Sound in Background. Off in the real client and off here: losing
@@ -2097,6 +2104,10 @@ void Application::shutdown() {
     LOG_DEBUG("Resetting uiManager...");
     uiManager.reset();
     LOG_DEBUG("Resetting window...");
+#ifdef WOWEE_VR
+    // The session lives on the Vulkan device, so it goes before the window does.
+    xr::system().destroySession();
+#endif
     window.reset();
 #ifdef WOWEE_VR
     xr::system().shutdown();

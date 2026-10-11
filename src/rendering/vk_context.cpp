@@ -7,6 +7,9 @@
 #include <fstream>
 #include "rendering/vk_utils.hpp"
 #include "core/logger.hpp"
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 #include "pipeline/blp_loader.hpp"
 #include <VkBootstrap.h>
 #include <SDL3/SDL_vulkan.h>
@@ -404,6 +407,25 @@ bool VkContext::createInstance([[maybe_unused]] SDL_Window* window) {
         builder.enable_extension(ext);
     }
 
+#ifdef WOWEE_VR
+    // What the OpenXR runtime needs of the instance; empty unless VR is up.
+    // Only what the loader actually has is asked for: a missing one fails the
+    // session later, which leaves a flat client, instead of the instance now.
+    // Declared out here because the builder keeps the pointers until build().
+    const std::vector<std::string> xrInstanceExts = xr::system().vulkanInstanceExtensions();
+    if (!xrInstanceExts.empty()) {
+        if (auto systemInfo = vkb::SystemInfo::get_system_info()) {
+            for (const std::string& ext : xrInstanceExts) {
+                if (systemInfo.value().is_extension_available(ext.c_str())) {
+                    builder.enable_extension(ext.c_str());
+                } else {
+                    LOG_WARNING("VR: Vulkan instance extension ", ext, " is not available");
+                }
+            }
+        }
+    }
+#endif
+
     // Allow turning validation on in a release build via env var, so the
     // Khronos validation layer's messages (e.g. the exact VK error behind an
     // FSR3 pipeline-creation failure) get routed to our log via debugCallback.
@@ -527,6 +549,24 @@ bool VkContext::selectPhysicalDevice() {
     }
 
     vkbPhysicalDevice_ = physRet.value();
+#ifdef WOWEE_VR
+    // A headset is driven from one particular GPU and its session can be
+    // created on no other, so in VR the runtime's choice replaces the first
+    // suitable device. If its GPU is not among the suitable ones the choice
+    // stands, and the session refuses itself later.
+    if (const VkPhysicalDevice wanted = xr::system().vulkanGraphicsDevice(instance);
+        wanted != VK_NULL_HANDLE && wanted != vkbPhysicalDevice_.physical_device) {
+        if (auto candidates = selector.select_devices()) {
+            for (const vkb::PhysicalDevice& candidate : candidates.value()) {
+                if (candidate.physical_device == wanted) {
+                    vkbPhysicalDevice_ = candidate;
+                    LOG_WARNING("VR: using the GPU the headset is driven from");
+                    break;
+                }
+            }
+        }
+    }
+#endif
     physicalDevice = vkbPhysicalDevice_.physical_device;
 
     VkPhysicalDeviceProperties props;
@@ -754,6 +794,16 @@ bool VkContext::createLogicalDevice() {
                  : forceSoftware   ? "compute tracer (WOWEE_RT_FORCE_SOFTWARE)"
                                    : "compute tracer (no hardware ray queries)");
     }
+
+#ifdef WOWEE_VR
+    // What the OpenXR runtime needs of the device; empty unless VR is up.
+    // Here because, like the rest, it has to precede the DeviceBuilder.
+    for (const std::string& ext : xr::system().vulkanDeviceExtensions()) {
+        if (!vkbPhysicalDevice_.enable_extension_if_present(ext.c_str())) {
+            LOG_WARNING("VR: Vulkan device extension ", ext, " is not available");
+        }
+    }
+#endif
 
     vkb::DeviceBuilder deviceBuilder{vkbPhysicalDevice_};
 
