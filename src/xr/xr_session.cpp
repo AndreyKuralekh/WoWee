@@ -10,7 +10,9 @@
 #include <openxr/openxr_platform.h>
 
 #include <algorithm>
+#include <chrono>
 #include <sstream>
+#include <thread>
 
 namespace wowee::xr {
 
@@ -101,8 +103,9 @@ VkPhysicalDevice XrSystem::vulkanGraphicsDevice(VkInstance vkInstance) const {
     return device;
 }
 
-bool XrSystem::createSession(const rendering::VkContext& ctx) {
+bool XrSystem::createSession(rendering::VkContext& ctx) {
     if (!available()) return false;
+    ctx_ = &ctx;
 
     // From here on a failure means VR cannot run on the context the client
     // has already built, so all of it goes and the client stays flat.
@@ -155,6 +158,7 @@ bool XrSystem::createSession(const rendering::VkContext& ctx) {
     }
 
     if (!createReferenceSpaces()) return giveUp("the runtime gave no local reference space");
+    if (!createEyeSwapchains()) return giveUp("the eye swapchains could not be created");
 
     LOG_WARNING("VR: session created");
     return true;
@@ -193,6 +197,19 @@ bool XrSystem::createReferenceSpaces() {
 }
 
 void XrSystem::destroySession() {
+    if (running_) {
+        // Asked to stop rather than cut off: the runtime answers with STOPPING,
+        // which is where the session may be ended, and it is given a second to.
+        // A runtime that says nothing in that time is destroyed as it stands.
+        xrRequestExitSession(session_);
+        for (int i = 0; i < 100 && running_; ++i) {
+            pollEvents();
+            if (running_) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        if (session_ == XR_NULL_HANDLE) return;  // EXITING arrived and already did all of this
+        endSession();
+    }
+    destroyEyeSwapchains();
     if (localSpace_ != XR_NULL_HANDLE) xrDestroySpace(localSpace_);
     if (stageSpace_ != XR_NULL_HANDLE) xrDestroySpace(stageSpace_);
     localSpace_ = XR_NULL_HANDLE;
@@ -203,6 +220,7 @@ void XrSystem::destroySession() {
         if (debug_) LOG_WARNING("VR: session destroyed");
     }
     sessionState_ = XR_SESSION_STATE_UNKNOWN;
+    ctx_ = nullptr;
 }
 
 void XrSystem::pollEvents() {
@@ -238,9 +256,11 @@ void XrSystem::onSessionStateChanged(XrSessionState newState) {
     }
     sessionState_ = newState;
 
-    // READY is where the frame loop will begin the session, and STOPPING where
-    // it will end it. Neither exists yet, so the session rests at READY.
-    if (newState == XR_SESSION_STATE_EXITING || newState == XR_SESSION_STATE_LOSS_PENDING) {
+    if (newState == XR_SESSION_STATE_READY) {
+        beginSession();
+    } else if (newState == XR_SESSION_STATE_STOPPING) {
+        endSession();
+    } else if (newState == XR_SESSION_STATE_EXITING || newState == XR_SESSION_STATE_LOSS_PENDING) {
         LOG_WARNING("VR: the runtime ended the session - continuing as the flat client");
         destroySession();
     }

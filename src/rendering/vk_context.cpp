@@ -23,6 +23,14 @@
 namespace wowee {
 namespace rendering {
 
+#ifdef WOWEE_VR
+// While a headset session runs, its runtime paces the frame. A window that
+// also waited for its own display would hold both to the slower of the two.
+static bool windowPresentWaits(bool vsync) { return vsync && !xr::system().sessionRunning(); }
+#else
+static bool windowPresentWaits(bool vsync) { return vsync; }
+#endif
+
 VkContext* VkContext::sInstance_ = nullptr;
 
 // Hash a VkSamplerCreateInfo into a 64-bit key for the sampler cache.
@@ -1291,7 +1299,7 @@ bool VkContext::createSwapchain(int width, int height) {
 
     presentsOffNativeTransform_ = requestIdentityTransform(builder, physicalDevice, surface);
 
-    if (vsync_) {
+    if (windowPresentWaits(vsync_)) {
         builder.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR);
     } else {
         builder.set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR);
@@ -2681,7 +2689,7 @@ bool VkContext::recreateSwapchain(int width, int height) {
 
     presentsOffNativeTransform_ = requestIdentityTransform(builder, physicalDevice, surface);
 
-    if (vsync_) {
+    if (windowPresentWaits(vsync_)) {
         builder.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR);
     } else {
         builder.set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR);
@@ -2977,12 +2985,25 @@ VkCommandBuffer VkContext::beginFrame(uint32_t& imageIndex) {
         cmdPipelineBarrier2(frame.commandBuffer, memDep);
     }
 
+#ifdef WOWEE_VR
+    // Last, once this frame is certain to reach endFrame: the headset's frame
+    // is begun here and ended there, and the two have to pair up.
+    xr::system().beginFrame();
+#endif
+
     return frame.commandBuffer;
 }
 
 void VkContext::endFrame(VkCommandBuffer cmd, uint32_t imageIndex) {
     static int endFrameCounter = 0;
     endFrameCounter++;
+
+#ifdef WOWEE_VR
+    // Every pass has ended and the window image is finished: copy it to the
+    // headset. Here rather than in the renderer so the loading screen, which
+    // records its own frames, is covered too.
+    xr::system().recordMirror(cmd, swapchainImages[imageIndex], swapchainExtent);
+#endif
 
     VkResult endResult = vkEndCommandBuffer(cmd);
     if (endResult != VK_SUCCESS) {
@@ -3082,6 +3103,9 @@ void VkContext::endFrame(VkCommandBuffer cmd, uint32_t imageIndex) {
         // advancing past this one was for.
         resetFrameSyncState();
         swapchainDirty = true;
+#ifdef WOWEE_VR
+        xr::system().endFrame(false);
+#endif
         // Never presented, and their semaphores were remade with everyone
         // else's (see syncResetGeneration).
         for (const ExtraPresent& extra : extras) {
@@ -3089,6 +3113,10 @@ void VkContext::endFrame(VkCommandBuffer cmd, uint32_t imageIndex) {
         }
         return;
     }
+
+#ifdef WOWEE_VR
+    xr::system().endFrame(true);
+#endif
 
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;

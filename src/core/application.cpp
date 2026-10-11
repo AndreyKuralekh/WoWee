@@ -1410,7 +1410,13 @@ void Application::run() {
         // it paces rather than a stall the next one has to absorb. Sleep
         // granularity is a millisecond or so, which is close enough for a
         // cap and far cheaper than spinning.
-        if (window) {
+#ifdef WOWEE_VR
+        // In VR the headset's runtime paces the frame, in xrWaitFrame.
+        const bool vrPaces = xr::system().sessionRunning();
+#else
+        const bool vrPaces = false;
+#endif
+        if (window && !vrPaces) {
             pacer.waitForCap(window->frameCap());
         }
 
@@ -1454,10 +1460,6 @@ void Application::run() {
                 }
             }
         }
-
-#ifdef WOWEE_VR
-        xr::system().pollEvents();
-#endif
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -1898,7 +1900,7 @@ void Application::run() {
             : std::chrono::microseconds(4167);
         const auto deadline = frameStart + targetFrame;
         const auto now = std::chrono::steady_clock::now();
-        if (now < deadline) {
+        if (now < deadline && !vrPaces) {
             std::this_thread::sleep_until(deadline);
         }
     }
@@ -1983,6 +1985,11 @@ void Application::updateMapWindow() {
 
 void Application::shutdown() {
     LOG_DEBUG("Shutting down application...");
+#ifdef WOWEE_VR
+    // First, before anything on the Vulkan device is torn down: the headset's
+    // runtime shares that device and its queue for as long as the session lives.
+    xr::system().destroySession();
+#endif
 
     // Before the window, whose destructor takes SDL down with it.
     ui::gamepadControls().setKeyRouter(nullptr);
@@ -2104,10 +2111,6 @@ void Application::shutdown() {
     LOG_DEBUG("Resetting uiManager...");
     uiManager.reset();
     LOG_DEBUG("Resetting window...");
-#ifdef WOWEE_VR
-    // The session lives on the Vulkan device, so it goes before the window does.
-    xr::system().destroySession();
-#endif
     window.reset();
 #ifdef WOWEE_VR
     xr::system().shutdown();

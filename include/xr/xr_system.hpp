@@ -22,6 +22,7 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,9 @@ namespace wowee::xr {
 
 class XrSystem {
 public:
+    XrSystem();
+    ~XrSystem();
+
     /// Creates the instance and looks for a head mounted display.
     ///
     /// Call before the Vulkan context exists: the runtime has a say in which
@@ -83,13 +87,35 @@ public:
 
     /// Creates the session on the client's Vulkan device, and its reference
     /// spaces. On failure VR is shut down and the client stays flat.
-    bool createSession(const rendering::VkContext& ctx);
+    bool createSession(rendering::VkContext& ctx);
 
     /// Has to happen before the Vulkan device is destroyed.
     void destroySession();
 
-    /// Drains the runtime's event queue. Once per frame, with SDL's.
+    /// Drains the runtime's event queue. beginFrame does it every frame.
     void pollEvents();
+
+    /// Whether the session has been begun and frames go to the headset. While
+    /// it is, the runtime paces the frame and the client's own limiter and the
+    /// window's vsync stand down.
+    [[nodiscard]] bool sessionRunning() const { return running_; }
+
+    // --- Frame ---
+    //
+    // Called by VkContext around every frame it records, the loading screen's
+    // included, so whatever reaches the window reaches the headset.
+
+    /// Waits for the runtime's frame slot and begins the frame. Call once the
+    /// frame's command buffer is certain to be submitted.
+    void beginFrame();
+
+    /// Records the copy of the finished window image into both eyes. `cmd` is
+    /// outside any render pass and `windowImage` is in PRESENT_SRC layout.
+    void recordMirror(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent);
+
+    /// Hands the frame to the runtime. `submitted` is whether the command
+    /// buffer made it to the queue; if not the frame goes out with no layer.
+    void endFrame(bool submitted);
 
     [[nodiscard]] XrSession session() const { return session_; }
     [[nodiscard]] XrSessionState sessionState() const { return sessionState_; }
@@ -101,6 +127,10 @@ private:
     bool createInstance();
     bool findHeadset();
     bool createReferenceSpaces();
+    bool createEyeSwapchains();
+    void destroyEyeSwapchains();
+    void beginSession();
+    void endSession();
     void onSessionStateChanged(XrSessionState newState);
     [[nodiscard]] std::vector<std::string> vulkanExtensionList(const char* functionName) const;
 
@@ -110,6 +140,12 @@ private:
     XrSessionState sessionState_ = XR_SESSION_STATE_UNKNOWN;
     XrSpace localSpace_ = XR_NULL_HANDLE;
     XrSpace stageSpace_ = XR_NULL_HANDLE;
+    rendering::VkContext* ctx_ = nullptr;
+    bool running_ = false;
+
+    // Swapchains, the frame in progress and its statistics; xr_frame.cpp.
+    struct FrameData;
+    std::unique_ptr<FrameData> frame_;
     std::vector<std::string> runtimeExtensions_;
     uint32_t eyeWidth_ = 0;
     uint32_t eyeHeight_ = 0;
