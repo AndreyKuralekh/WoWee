@@ -146,8 +146,9 @@
 - обе конфигурации собираются (`build`, `build-vr`), новых предупреждений в `src/xr` нет;
 - `run-vr.cmd` без шлема: `VR: OpenXR runtime VirtualDesktopXR 1.0.10` → `no headset is connected to the runtime` →
   `not available - continuing as the flat client`, клиент доходит до экрана логина;
-- плоская сборка и VR-сборка без `WOWEE_VR` не пишут ни одной строки `VR:`.
+- плоская сборка и VR-сборка без `WOWEE_VR` не пишут ни одной строки `VR:`;
+- `run-vr.cmd` в надетом шлеме (пользователь, 2026-10-12): `VR: headset Meta Quest 3, up to 16384x16384 and 16 layers`,
+  `VR: recommended eye image 2688x2880, up to 4 samples`, ошибок нет, клиент дошёл до экрана логина.
 
 Не проверено:
-- ветка «шлем подключён» (строки `VR: headset …` и `VR: recommended eye image …`) — нужен надетый шлем;
 - Android-ветка `xr_platform.cpp` не компилировалась.
