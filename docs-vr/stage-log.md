@@ -152,3 +152,28 @@
 
 Не проверено:
 - Android-ветка `xr_platform.cpp` не компилировалась.
+
+### Пункт 2 — сессия и выбор видеокарты (2026-10-12)
+- `src/xr/xr_session.cpp`: запросы к рантайму по `XR_KHR_vulkan_enable` (`vulkanInstanceExtensions`,
+  `vulkanDeviceExtensions`, `vulkanGraphicsDevice`), `createSession` на устройстве клиента, пространства LOCAL и STAGE,
+  `pollEvents` (смена состояния сессии, потеря instance), `destroySession`.
+- Вставки в `src/rendering/vk_context.cpp` (под `#ifdef WOWEE_VR`): расширения instance в `createInstance` (только
+  те, что есть у загрузчика Vulkan), замена выбранного устройства на устройство рантайма в `selectPhysicalDevice`
+  (через `select_devices()`), расширения device перед `DeviceBuilder` в `createLogicalDevice`.
+- Вставки в `src/core/application.cpp`: `createSession` после `window->initialize()`, `pollEvents()` перед циклом
+  `SDL_PollEvent`, `destroySession()` перед `window.reset()`.
+- Сессия остаётся в состоянии READY: `xrBeginSession` и кадры — пункт 3.
+
+Проверено в шлеме (пользователь, `run-vr.cmd`, лог `wowee-vr-20261012-001724.log`):
+- рантайм просит 4 расширения instance (`VK_KHR_external_{memory,semaphore,fence}_capabilities`,
+  `VK_KHR_get_physical_device_properties2`) и 7 расширений device (`VK_KHR_dedicated_allocation`,
+  `VK_KHR_get_memory_requirements2`, `VK_KHR_external_memory(+_win32)`, `VK_KHR_timeline_semaphore`,
+  `VK_KHR_external_semaphore(+_win32)`); принимает Vulkan от 1.1.0 до 2.0.0;
+- `session on NVIDIA GeForce RTX 3090` → `reference spaces LOCAL and STAGE` → `session created` →
+  `UNKNOWN -> IDLE -> READY`; через минуту работы клиента — `session destroyed`, штатный выход, ошибок нет;
+- слой `VK_LAYER_KHRONOS_profiles` (скрытый `VK_EXT_host_image_copy`) созданию сессии не мешает.
+
+Проверено без шлема: плоская сборка и VR-сборка с `WOWEE_VR=1` входят в мир автоматическим сценарием без ошибок.
+
+Не проверено: ветка замены устройства (рантайм назвал ту же RTX 3090, что клиент выбрал бы и сам, строки
+`using the GPU the headset is driven from` в логе нет); поведение при снятии шлема во время работы.
