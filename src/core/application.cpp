@@ -24,6 +24,9 @@
 #include <limits>
 #include <utility>
 #include "core/logger.hpp"
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 #include "core/memory_monitor.hpp"
 #include "rendering/renderer.hpp"
 #include "rendering/loot_sparkles.hpp"
@@ -255,6 +258,12 @@ bool Application::initialize() {
 
     // Initialize memory monitoring for dynamic cache sizing
     core::MemoryMonitor::getInstance().initialize();
+
+#ifdef WOWEE_VR
+    // Before the window: the OpenXR runtime has a say in how the Vulkan
+    // context is created. Never fatal - without a headset this is the flat client.
+    xr::system().initialize();
+#endif
 
     // Create window
     WindowConfig windowConfig;
@@ -2089,6 +2098,9 @@ void Application::shutdown() {
     uiManager.reset();
     LOG_DEBUG("Resetting window...");
     window.reset();
+#ifdef WOWEE_VR
+    xr::system().shutdown();
+#endif
 
     running = false;
     LOG_DEBUG("Application shutdown complete");

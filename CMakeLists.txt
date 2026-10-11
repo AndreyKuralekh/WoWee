@@ -28,6 +28,7 @@ option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 option(WOWEE_BUILD_TESTS "Build tests" ON)
 option(WOWEE_ENABLE_ASAN "Enable AddressSanitizer + UBSan (applied to all build configs; pairs well with Debug)" OFF)
 option(WOWEE_ENABLE_TRACY "Enable Tracy profiler instrumentation" OFF)
+option(WOWEE_VR "Build the OpenXR VR mode (src/xr); needs the OpenXR loader" OFF)
 # AMD's FidelityFX SDK backends, off by default.
 #
 # They give neither a performance nor a quality gain here today, and FSR3 frame
@@ -1265,6 +1266,21 @@ if(WOWEE_ENABLE_TRACY)
     target_compile_definitions(wowee PRIVATE TRACY_ENABLE)
     target_include_directories(wowee SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/extern/tracy/public)
     message(STATUS "Tracy profiler: ENABLED")
+endif()
+
+# OpenXR VR mode. With WOWEE_VR off none of src/xr is compiled and nothing
+# links the loader, so the flat client is the same binary it was.
+if(WOWEE_VR)
+    find_package(OpenXR CONFIG REQUIRED)
+    target_sources(wowee PRIVATE
+        src/xr/xr_platform.cpp
+        src/xr/xr_system.cpp
+        include/xr/xr_platform.hpp
+        include/xr/xr_system.hpp
+    )
+    target_compile_definitions(wowee PRIVATE WOWEE_VR)
+    target_link_libraries(wowee PRIVATE OpenXR::openxr_loader)
+    message(STATUS "OpenXR VR mode: ENABLED")
 endif()
 
 if(TARGET opcodes-generate)
