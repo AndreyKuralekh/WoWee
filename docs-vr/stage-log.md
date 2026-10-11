@@ -123,3 +123,31 @@
 - У клиента нет аргументов командной строки: флаги `--vr*` из плана — либо разбор `argv`, либо `WOWEE_VR*`.
 - `XR_KHR_vulkan_enable2` не встраивается в vk-bootstrap напрямую (`module-map.md`, раздел 2).
 - В `login.cfg` хранится хеш, равносильный паролю: `userdata\` не выкладывать.
+
+## Этап 1. Минимальный VR (начат 2026-10-12)
+
+План (согласован с пользователем): 1) каркас; 2) сессия OpenXR и выбор GPU; 3) цикл кадра и моно-копия в шлем;
+4) стерео двумя проходами; 5) VR-профиль качества; 6) UI-панель; 7) контроллеры; 8) отладка (статистика, дамп кадров).
+Решения — `decisions.md` п. 8–11.
+
+### Пункт 1 — каркас (2026-10-12)
+- Опция CMake `WOWEE_VR` (OFF по умолчанию): при ON собираются `src/xr/xr_system.cpp`, `src/xr/xr_platform.cpp`,
+  определяется `WOWEE_VR`, линкуется `OpenXR::openxr_loader` (vcpkg). При OFF в сборке нет ни файлов, ни loader'а.
+- `xr::XrSystem` (`xr::system()`): при `WOWEE_VR=1` создаёт instance с `XR_KHR_vulkan_enable`, пишет в лог рантайм,
+  шлем, рекомендуемый размер глаза; при `WOWEE_VR_DEBUG=1` — полный список расширений рантайма. Любая неудача —
+  одно предупреждение и плоский режим.
+- Вставки в чужой код: `CMakeLists.txt` (опция и блок `if(WOWEE_VR)`), `src/core/application.cpp` — include,
+  `xr::system().initialize()` перед созданием окна и `shutdown()` после `window.reset()`, всё под `#ifdef WOWEE_VR`.
+- Лаунчеры: `..\run-vr.cmd` = `run.cmd vr` (сборка `build-vr`, `WOWEE_VR=1`, `WOWEE_VR_DEBUG=1`, лог `wowee-vr-*.log`).
+- Сообщено автору upstream: комментарий в issue #154, новые issue #155 (R8 и `VK_EXT_host_image_copy`) и #156
+  (пламя свечей и снаряд файрбола).
+
+Проверено:
+- обе конфигурации собираются (`build`, `build-vr`), новых предупреждений в `src/xr` нет;
+- `run-vr.cmd` без шлема: `VR: OpenXR runtime VirtualDesktopXR 1.0.10` → `no headset is connected to the runtime` →
+  `not available - continuing as the flat client`, клиент доходит до экрана логина;
+- плоская сборка и VR-сборка без `WOWEE_VR` не пишут ни одной строки `VR:`.
+
+Не проверено:
+- ветка «шлем подключён» (строки `VR: headset …` и `VR: recommended eye image …`) — нужен надетый шлем;
+- Android-ветка `xr_platform.cpp` не компилировалась.
