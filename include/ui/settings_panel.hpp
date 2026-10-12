@@ -229,6 +229,13 @@ public:
     bool pendingPOM = true;             // on by default
     bool pendingSharpStars = true;
     bool pendingSunShafts = true;       // screen-space rays from the sun
+    // The headset's interface panel. Fields in every build, though only one
+    // with WOWEE_VR offers or uses them: a client built without it still has to
+    // carry them through settings.cfg, or playing once on the monitor would
+    // put the panel back where it started.
+    int pendingVrPanelFollow = 0;           // 0=in front (yaw), 1=lazy, 2=fixed to view
+    float pendingVrPanelDistance = 1.5f;    // metres
+    float pendingVrPanelWidth = 2.0f;       // metres
     int pendingPOMQuality = 1;          // 0=Low(16), 1=Medium(32), 2=High(64)
     bool pendingFSR = false;
     int pendingUpscalingMode = 0;       // 0=Off, 1=FSR1, 2=FSR3

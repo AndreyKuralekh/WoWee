@@ -25,6 +25,12 @@ std::string versionString(XrVersion v) {
 
 }  // namespace
 
+void XrSystem::setPanelPlacement(PanelFollow follow, float distanceMetres, float widthMetres) {
+    if (!panelFollowFromEnv_) panelFollow_ = follow;
+    if (!panelDistanceFromEnv_) panelDistance_ = std::clamp(distanceMetres, 0.3f, 10.0f);
+    if (!panelWidthFromEnv_) panelWidth_ = std::clamp(widthMetres, 0.2f, 20.0f);
+}
+
 XrSystem& system() {
     static XrSystem instance;
     return instance;
@@ -76,7 +82,10 @@ bool XrSystem::initialize() {
     dumpFrames_ = core::envIntClamped("WOWEE_VR_DUMP_FRAMES", 0, 0, 10000);
     panelDistance_ = static_cast<float>(core::envIntClamped("WOWEE_VR_PANEL_DISTANCE", 150, 30, 1000)) / 100.0f;
     panelWidth_ = static_cast<float>(core::envIntClamped("WOWEE_VR_PANEL_WIDTH", 200, 20, 2000)) / 100.0f;
+    panelDistanceFromEnv_ = std::getenv("WOWEE_VR_PANEL_DISTANCE") != nullptr;
+    panelWidthFromEnv_ = std::getenv("WOWEE_VR_PANEL_WIDTH") != nullptr;
     if (const char* follow = std::getenv("WOWEE_VR_PANEL_FOLLOW"); follow && *follow) {
+        panelFollowFromEnv_ = true;
         const std::string mode = follow;
         if (mode == "head") panelFollow_ = PanelFollow::Head;
         else if (mode == "lazy") panelFollow_ = PanelFollow::Lazy;

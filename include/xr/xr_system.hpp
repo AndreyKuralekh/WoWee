@@ -184,8 +184,13 @@ public:
     /// XR_NULL_HANDLE when the runtime has no stage space.
     [[nodiscard]] XrSpace stageSpace() const { return stageSpace_; }
 
-    /// How the interface panel keeps up with the head.
-    enum class PanelFollow { Lazy, Yaw, Head };
+    /// How the interface panel keeps up with the head. In the order the
+    /// setting lists them, which is the order they are saved by.
+    enum class PanelFollow { Yaw, Lazy, Head };
+
+    /// Where the panel stands, from the settings page. A value the environment
+    /// set at start is left alone: that is how one is tried without saving it.
+    void setPanelPlacement(PanelFollow follow, float distanceMetres, float widthMetres);
 
 private:
     bool createInstance();
@@ -208,6 +213,9 @@ private:
     XrSpace stageSpace_ = XR_NULL_HANDLE;
     XrSpace viewSpace_ = XR_NULL_HANDLE;  // the head itself; what a head-fixed panel is placed in
     PanelFollow panelFollow_ = PanelFollow::Yaw;
+    bool panelFollowFromEnv_ = false;
+    bool panelDistanceFromEnv_ = false;
+    bool panelWidthFromEnv_ = false;
     rendering::VkContext* ctx_ = nullptr;
     bool running_ = false;
     bool fake_ = false;

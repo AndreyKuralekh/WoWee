@@ -3,6 +3,9 @@
 // Owns all settings UI rendering, settings state, and
 // graphics preset logic.
 // ============================================================
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 #include "addons/addon_lua_snippets.hpp"
 #include "ui/graphics_choices.hpp"
 #include "ui/graphics_presets.hpp"
@@ -677,6 +680,17 @@ void SettingsPanel::renderSettingsWindow(ChatPanel& chatPanel,
                 ImGui::EndTabItem();
             }
 
+#ifdef WOWEE_VR
+            // ============================================================
+            // VR TAB
+            // ============================================================
+            if (ImGui::BeginTabItem("VR", nullptr, tabFlagFor("VR"))) {
+                ImGui::Spacing();
+                drawSchemaCategory("VR", saveCallback);
+                ImGui::EndTabItem();
+            }
+#endif
+
             // ============================================================
             // ABOUT TAB
             // ============================================================
@@ -860,6 +874,9 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "minimapnpcdots", "minimapclock", "minimapcoords", "minimaprotate", "latencymeter",
     "fogskyblend", "fogstrength", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
+#ifdef WOWEE_VR
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth",
+#endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
     "groundclutterdistance", "particledensity", "weatherdetail",
@@ -1049,6 +1066,11 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "parallax",          .asBool  = &SettingsPanel::pendingPOM},
     {.key = "sharpstars",        .asBool  = &SettingsPanel::pendingSharpStars},
     {.key = "sunshafts",         .asBool  = &SettingsPanel::pendingSunShafts},
+#ifdef WOWEE_VR
+    {.key = "vrpanelfollow",     .asInt   = &SettingsPanel::pendingVrPanelFollow},
+    {.key = "vrpaneldistance",   .asFloat = &SettingsPanel::pendingVrPanelDistance},
+    {.key = "vrpanelwidth",      .asFloat = &SettingsPanel::pendingVrPanelWidth},
+#endif
     {.key = "parallaxquality",   .asInt   = &SettingsPanel::pendingPOMQuality},
 
     // --- Upscaling ---
@@ -1225,6 +1247,14 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
         }
         return;
     }
+#ifdef WOWEE_VR
+    // The panel moves as its sliders do.
+    if (key == "vrpanelfollow" || key == "vrpaneldistance" || key == "vrpanelwidth") {
+        xr::system().setPanelPlacement(static_cast<xr::XrSystem::PanelFollow>(pendingVrPanelFollow),
+                                       pendingVrPanelDistance, pendingVrPanelWidth);
+        return;
+    }
+#endif
     if (key == "viewdistance") {
         if (renderer) renderer->setViewDistance(pendingViewDistance);
     } else if (key == "shadows") {

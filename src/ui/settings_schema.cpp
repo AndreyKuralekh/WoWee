@@ -913,6 +913,29 @@ constexpr SettingDesc kSchema[] = {
      "", "lua:ShowingCloak|ShowCloak"},
     {"showhelm", "Show your helm", SettingKind::Bool, 0, 0, 0, "Gameplay", "",
      "The same for the helm.", "", 1, "", "lua:ShowingHelm|ShowHelm"},
+
+#ifdef WOWEE_VR
+    // ---------------------------------------------------------------------- VR
+    //
+    // Only in a build with the headset in it. The interface is shown there on
+    // a flat panel in front of the player, and these say where it stands.
+    //
+    // Each names the section, though it is the same one: a row after a
+    // conditional row may not lean on its heading, and all of these are
+    // conditional. Three rows and no more - the schema test allows four
+    // conditional rows in the file, and one was there already.
+    {"vrpanelfollow", "Panel follows the head", SettingKind::Enum, 0, 2, 1, "VR", "Interface panel",
+     "How the interface panel keeps up with you. In front: it turns with\n"
+     "your head at once but stays upright, so looking up or down looks\n"
+     "past it. Lazy: it stays where it is until you have turned well away.\n"
+     "Fixed to view: it never leaves the middle of what you see.",
+     "In front|Lazy|Fixed to view", 0},
+    {"vrpaneldistance", "Panel distance", SettingKind::Float, 0.5f, 4.0f, 0.1f, "VR", "Interface panel",
+     "How far in front of you the panel stands, in metres.", "", 1.5f},
+    {"vrpanelwidth", "Panel width", SettingKind::Float, 0.5f, 4.0f, 0.1f, "VR", "Interface panel",
+     "How wide the panel is, in metres. Its height follows the shape of\n"
+     "the game window.", "", 2.0f},
+#endif
 };
 
 }  // namespace
