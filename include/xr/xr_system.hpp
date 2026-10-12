@@ -202,6 +202,12 @@ public:
     /// that it lies over everything on the panel.
     void drawFrameRate();
 
+    /// Draws the pointer on the panel: a point of light where the mouse is,
+    /// in place of the arrow, which belongs on a desk. Brighter and warmer
+    /// where the interface would have shown a hand. Same place in the frame
+    /// as drawFrameRate.
+    void drawPointer();
+
     /// Whether the world is seen from the character's own eyes, with the
     /// character itself left out, rather than from where the game put its
     /// camera behind it.

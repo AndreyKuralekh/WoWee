@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
 #include <thread>
 
 namespace wowee::xr {
@@ -288,7 +289,6 @@ void XrSystem::endSession() {
     if (frame_ && frame_->begun) endFrame(false);
     xrEndSession(session_);
     running_ = false;
-    if (ImGui::GetCurrentContext()) ImGui::GetIO().MouseDrawCursor = false;
     if (ctx_) ctx_->markSwapchainDirty();
     LOG_WARNING("VR: session stopped");
 }
@@ -477,9 +477,8 @@ void XrSystem::beginFrame() {
         return;
     }
 
-    // The pointer is the system's, and the system's is not in the picture:
-    // have the interface draw its own while the picture is in the headset.
-    if (ImGui::GetCurrentContext()) ImGui::GetIO().MouseDrawCursor = true;
+    // The pointer is the system's, and the system's is not in the picture;
+    // drawPointer draws one that is.
 
     const auto imagesStart = std::chrono::steady_clock::now();
     for (EyeSwapchain& eye : f.eyes) {
@@ -591,6 +590,29 @@ void XrSystem::recordFakePreview(VkCommandBuffer cmd, VkImage windowImage, VkExt
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
     }
     transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+}
+
+void XrSystem::drawPointer() {
+    if (!running_ || !ImGui::GetCurrentContext()) return;
+    const ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 at = io.MousePos;
+    if (at.x < 0.0f || at.y < 0.0f || at.x > io.DisplaySize.x || at.y > io.DisplaySize.y) return;
+
+    // The interface asks for a hand over what can be clicked in the world and
+    // over a link; the point says the same by its colour and its size.
+    const bool hand = ImGui::GetMouseCursor() == ImGuiMouseCursor_Hand;
+    const float scale = std::max(1.0f, io.DisplaySize.y / 1080.0f) * (hand ? 1.3f : 1.0f);
+    const int r = hand ? 255 : 120;
+    const int g = hand ? 215 : 215;
+    const int b = hand ? 110 : 255;
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    // A glow: rings fainter the wider they are, and a white middle.
+    constexpr float kRadii[] = {13.0f, 9.5f, 6.5f, 4.5f};
+    constexpr int kAlpha[] = {26, 46, 90, 200};
+    for (size_t i = 0; i < std::size(kRadii); ++i) {
+        draw->AddCircleFilled(at, kRadii[i] * scale, IM_COL32(r, g, b, kAlpha[i]), 32);
+    }
+    draw->AddCircleFilled(at, 2.2f * scale, IM_COL32(255, 255, 255, 255), 16);
 }
 
 void XrSystem::drawFrameRate() {

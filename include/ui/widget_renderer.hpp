@@ -54,6 +54,15 @@ public:
     void layout(WidgetTree& tree, float screenW, float screenH);
     void draw(WidgetTree& tree, float screenW, float screenH);
 
+    /// Measure and solve the tree only every so many layout() calls, and draw
+    /// from the last answer in between. 1, the default, is every call.
+    ///
+    /// For a frame that cannot afford it each time: in a headset the world is
+    /// drawn twice and the interface is a sheet in front of it, where a rect
+    /// two frames old is not seen. While a mouse button is down every call
+    /// solves, so that what is being dragged keeps up with the hand.
+    void setSolveInterval(int calls) { solveInterval_ = calls; }
+
     /// What is on screen, and what should be but is not - the instrumentation
     /// the FrameXML transition is being carried out with. Draws nothing.
     void reportWidgetDiagnostics(WidgetTree& tree, const std::vector<const Widget*>& order,
@@ -133,6 +142,8 @@ private:
     /// can be filed in the coordinates the click will arrive in.
     float linkScreenH_ = 0.0f;
     float linkScale_ = 1.0f;
+    int solveInterval_ = 1;
+    int callsSinceSolve_ = 0;
     void drawBackdrop(ImDrawList* dl, const Widget& w, float scale,
                       float x0, float y0, float x1, float y1);
     void drawStatusBar(ImDrawList* dl, const Widget& w,

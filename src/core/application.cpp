@@ -4721,6 +4721,11 @@ void Application::render() {
             // showed through the bags and the auction house.
             });
             runRenderStage("addonWidgets/layout", [&] {
+#ifdef WOWEE_VR
+            // A headset frame draws the world twice and has nothing to spare.
+            widgetRenderer_.setSolveInterval(
+                xr::system().sessionRunning() || xr::system().fakeHeadset() ? 3 : 1);
+#endif
             widgetRenderer_.layout(engine->widgets(), io.DisplaySize.x, io.DisplaySize.y);
             });
 
@@ -4931,6 +4936,7 @@ void Application::render() {
         // Only now is the draw data closed.
     #ifdef WOWEE_VR
     xr::system().drawFrameRate();
+    xr::system().drawPointer();
 #endif
     uiManager->finishImGuiFrame();
 

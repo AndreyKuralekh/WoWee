@@ -1279,9 +1279,18 @@ void WidgetRenderer::layout(WidgetTree& tree, float screenW, float screenH) {
     // frame and the draw then measured the lines it has now - two answers per
     // frame, and the tooltip flicked between the two widths they gave it.
     // WidgetRenderer::draw sizes them once, after FrameXML has finished.
-    mark(times.sizing, [&] { sizeArtAndText(tree); });
+    //
+    // Both passes can be asked to run less often than this is called; see
+    // setSolveInterval. Everything above still runs each time: a suppressed
+    // frame has to be hidden again before anyone looks, whatever is skipped.
+    const bool held = ImGui::GetCurrentContext() &&
+                      (ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::IsMouseDown(ImGuiMouseButton_Right));
+    if (++callsSinceSolve_ >= solveInterval_ || held) {
+        callsSinceSolve_ = 0;
+        mark(times.sizing, [&] { sizeArtAndText(tree); });
 
-    mark(times.solve, [&] { tree.layout(screenW, screenH); });
+        mark(times.solve, [&] { tree.layout(screenW, screenH); });
+    }
 
     if (profile) {
         ++times.frames;
