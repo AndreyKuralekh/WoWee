@@ -11,7 +11,8 @@
  *
  *   WOWEE_VR=1              ask for VR
  *   WOWEE_VR_DEBUG=1        verbose OpenXR log, and the once-a-second frame line
- *   WOWEE_VR_DUMP_FRAMES=N  write N frames of each eye and of the interface as PNG
+ *   WOWEE_VR_DUMP_FRAMES=N  write N frames of each eye and of the interface as PNG, one a second,
+ *                           beside the log (WOWEE_LOG_FILE) or into WOWEE_VR_DUMP_DIR
  *   WOWEE_VR_EYE_SCALE=P    eye image size in percent of what the runtime recommends (25-200)
  *   WOWEE_VR_FAKE=1         no runtime and no headset: a fixed pair of eyes, drawn side by side
  *                           into the window. For looking at the stereo render on a desk.
@@ -252,6 +253,8 @@ private:
     void destroyEyeSwapchains();
     void startFake();
     void placePanel();
+    void recordDump(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent);
+    void finishDump(bool submitted);
     bool createActions();
     void destroyActions();
     void releaseControllerKeys();

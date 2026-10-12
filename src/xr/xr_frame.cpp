@@ -14,12 +14,16 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <imgui.h>
+#include "stb_image_write.h"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <thread>
 
 namespace wowee::xr {
 
@@ -136,6 +140,24 @@ struct XrSystem::FrameData {
     bool beamFilling = false;
     bool beamFilled = false;
 
+    // WOWEE_VR_DUMP_FRAMES: pictures still to take, the ones this frame is
+    // taking - copied into buffers by the frame's own commands and read back
+    // once it has been submitted - and the threads writing earlier ones out.
+    struct DumpShot {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VmaAllocation allocation = VK_NULL_HANDLE;
+        uint32_t width = 0;
+        uint32_t height = 0;
+        const char* what = "";
+        bool opaque = false;
+    };
+    int dumpsLeft = 0;
+    int dumpIndex = 0;
+    std::string dumpDir;
+    std::chrono::steady_clock::time_point lastDump{};
+    std::vector<DumpShot> dumpShots;
+    std::vector<std::thread> dumpWriters;
+
     // The frame in progress.
     bool begun = false;
     bool shouldRender = false;
@@ -204,6 +226,21 @@ bool XrSystem::createEyeSwapchains() {
         }
     }
 
+    frame_->dumpsLeft = dumpFrames_;
+    if (dumpFrames_ > 0) {
+        std::filesystem::path dir = ".";
+        if (const char* asked = std::getenv("WOWEE_VR_DUMP_DIR"); asked && *asked) {
+            dir = asked;
+        } else if (const char* log = std::getenv("WOWEE_LOG_FILE"); log && *log) {
+            dir = std::filesystem::path(log).parent_path();
+        }
+        if (dir.empty()) dir = ".";
+        std::error_code ignored;
+        std::filesystem::create_directories(dir, ignored);
+        frame_->dumpDir = dir.string();
+        LOG_WARNING("VR: writing ", dumpFrames_, " frames, one a second, to ", frame_->dumpDir);
+    }
+
     // Not worth refusing VR over: without it the pointer has no ray, only the
     // cursor on the panel.
     if (!createColorSwapchain(session_, frame_->eyeFormat, 4, 4, frame_->beam)) {
@@ -226,6 +263,8 @@ void XrSystem::destroyEyeSwapchains() {
     }
     if (frame_->panel.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->panel.handle);
     if (frame_->beam.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->beam.handle);
+    finishDump(false);
+    for (std::thread& writer : frame_->dumpWriters) writer.join();
     frame_.reset();
 }
 
@@ -609,8 +648,91 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
     vkCmdCopyImage(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
     transition(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    if (f.dumpsLeft > 0) recordDump(cmd, windowImage, windowExtent);
     transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     f.panelCopied = true;
+}
+
+// WOWEE_VR_DUMP_FRAMES: what this frame sends to the headset, copied out so
+// that it can be looked at by someone who is not wearing one. One frame a
+// second - consecutive frames are the same picture. `windowImage` and the eye
+// images are in TRANSFER_SRC here.
+void XrSystem::recordDump(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent) {
+    FrameData& f = *frame_;
+    const auto now = std::chrono::steady_clock::now();
+    if (!ctx_ || !f.dumpShots.empty() || now - f.lastDump < std::chrono::seconds(1)) return;
+    f.lastDump = now;
+
+    const auto take = [&](VkImage image, uint32_t width, uint32_t height, const char* what, bool opaque) {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = static_cast<VkDeviceSize>(width) * height * 4;
+        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+        FrameData::DumpShot shot;
+        shot.width = width;
+        shot.height = height;
+        shot.what = what;
+        shot.opaque = opaque;
+        if (vmaCreateBuffer(ctx_->getAllocator(), &bufferInfo, &allocInfo, &shot.buffer, &shot.allocation,
+                            nullptr) != VK_SUCCESS) {
+            return;
+        }
+        VkBufferImageCopy region{};
+        region.imageSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
+                                   .baseArrayLayer = 0, .layerCount = 1};
+        region.imageExtent = {width, height, 1};
+        vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, shot.buffer, 1, &region);
+        f.dumpShots.push_back(shot);
+    };
+    // The panel keeps its alpha: where it is clear the world shows through.
+    take(windowImage, windowExtent.width, windowExtent.height, "panel", false);
+    if (f.eyesCopied == (1u << kEyeCount) - 1u) {
+        take(f.eyeSource[0], eyeWidth_, eyeHeight_, "left", true);
+        take(f.eyeSource[1], eyeWidth_, eyeHeight_, "right", true);
+    }
+}
+
+// The other half, once the frame's commands are on the queue: wait for them,
+// take the pixels, and leave the slow part - the PNG - to a thread.
+void XrSystem::finishDump(bool submitted) {
+    if (!frame_ || frame_->dumpShots.empty() || !ctx_) return;
+    FrameData& f = *frame_;
+    const VmaAllocator allocator = ctx_->getAllocator();
+    if (submitted) vkDeviceWaitIdle(ctx_->getDevice());
+    const VkFormat format = ctx_->getSwapchainFormat();
+    const bool blueFirst = format == VK_FORMAT_B8G8R8A8_UNORM || format == VK_FORMAT_B8G8R8A8_SRGB;
+
+    for (const FrameData::DumpShot& shot : f.dumpShots) {
+        void* mapped = nullptr;
+        if (submitted && vmaMapMemory(allocator, shot.allocation, &mapped) == VK_SUCCESS) {
+            const size_t bytes = static_cast<size_t>(shot.width) * shot.height * 4;
+            std::vector<uint8_t> pixels(static_cast<const uint8_t*>(mapped),
+                                        static_cast<const uint8_t*>(mapped) + bytes);
+            vmaUnmapMemory(allocator, shot.allocation);
+            char name[64];
+            std::snprintf(name, sizeof(name), "vr-dump-%03d-%s.png", f.dumpIndex, shot.what);
+            const std::string path = (std::filesystem::path(f.dumpDir) / name).string();
+            f.dumpWriters.emplace_back([pixels = std::move(pixels), path, width = shot.width,
+                                        height = shot.height, opaque = shot.opaque, blueFirst]() mutable {
+                for (size_t i = 0; i < pixels.size(); i += 4) {
+                    if (blueFirst) std::swap(pixels[i], pixels[i + 2]);
+                    if (opaque) pixels[i + 3] = 255;
+                }
+                if (!stbi_write_png(path.c_str(), static_cast<int>(width), static_cast<int>(height), 4,
+                                    pixels.data(), static_cast<int>(width * 4))) {
+                    LOG_WARNING("VR: could not write ", path);
+                }
+            });
+        }
+        vmaDestroyBuffer(allocator, shot.buffer, shot.allocation);
+    }
+    f.dumpShots.clear();
+    if (!submitted) return;
+    if (debug_) LOG_WARNING("VR: frame ", f.dumpIndex, " written to ", f.dumpDir);
+    ++f.dumpIndex;
+    if (--f.dumpsLeft == 0) LOG_WARNING("VR: all ", dumpFrames_, " frames written");
 }
 
 XrTime XrSystem::frameTime() const {
@@ -651,6 +773,7 @@ void XrSystem::endFrame(bool submitted) {
         f.begun = false;
         return;
     }
+    finishDump(submitted);
     const auto endStart = std::chrono::steady_clock::now();
 
     bool released = true;
