@@ -203,8 +203,14 @@ void Renderer::vrRenderEyes() {
 
     for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
         const xr::EyeView& view = vrEyes_->views.eye[eye];
-        // The eye's matrices, and the point between the eyes for a position.
-        camera->setExternalView(view.view, view.projection, vrEyes_->views.center.position);
+        // The camera stays the point between the eyes for both of them. The
+        // renderers fill buffers as they record - instances, bones, particles -
+        // and those are read when the frame executes, after both eyes have been
+        // recorded: an eye that culled for itself left the other drawing from
+        // lists that were no longer its own. So both record the same thing, and
+        // what differs is only the matrices in set 0.
+        vrEyeView_ = &view.view;
+        vrEyeProjection_ = &view.projection;
 
         GPUPerFrameData data = currentFrameData;
         data.view = view.view;
@@ -273,6 +279,8 @@ void Renderer::vrRenderEyes() {
     }
 
     vrPerFrameSet_ = VK_NULL_HANDLE;
+    vrEyeView_ = nullptr;
+    vrEyeProjection_ = nullptr;
     vrEyePass_ = false;
     parallelRecordingEnabled_ = wasParallel;
     activeRenderPass_ = savedPass;

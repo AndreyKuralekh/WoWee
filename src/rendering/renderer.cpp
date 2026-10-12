@@ -2908,8 +2908,16 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
 #ifdef WOWEE_VR
     if (vrPerFrameSet_ != VK_NULL_HANDLE) perFrameSet = vrPerFrameSet_;
 #endif
+#ifdef WOWEE_VR
+    // An eye is culled by the camera between the eyes but drawn by its own
+    // matrices; these two are what the selection circle is drawn with.
+    const glm::mat4 view = vrEyeView_ ? *vrEyeView_ : (camera ? camera->getViewMatrix() : glm::mat4(1.0f));
+    const glm::mat4 projection =
+        vrEyeProjection_ ? *vrEyeProjection_ : (camera ? camera->getProjectionMatrix() : glm::mat4(1.0f));
+#else
     const glm::mat4& view = camera ? camera->getViewMatrix() : glm::mat4(1.0f);
     const glm::mat4& projection = camera ? camera->getProjectionMatrix() : glm::mat4(1.0f);
+#endif
 
     // GPU crash diagnostic: skip individual renderers to isolate which one faults
     static const bool envSkipWMO = (std::getenv("WOWEE_SKIP_WMO") != nullptr);

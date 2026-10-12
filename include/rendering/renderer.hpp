@@ -481,6 +481,8 @@ private:
     VrEyes* vrEyes_ = nullptr;
     game::GameHandler* vrGameHandler_ = nullptr;
     VkDescriptorSet vrPerFrameSet_ = VK_NULL_HANDLE;  // set 0 while an eye is being drawn
+    const glm::mat4* vrEyeView_ = nullptr;            // that eye's matrices, for what is
+    const glm::mat4* vrEyeProjection_ = nullptr;      // not drawn through set 0
     bool vrEyePass_ = false;                          // renderWorld is drawing an eye
     bool vrWorldInEyes_ = false;                      // the eyes took this frame's world
 #endif
