@@ -1844,7 +1844,8 @@ void Application::run() {
 #ifdef WOWEE_VR
         // The headset's controllers, by the same means and for the same reason.
         xr::system().updateControllers(renderer ? renderer->getCameraController() : nullptr,
-                                       state == AppState::IN_GAME, deltaTime);
+                                       state == AppState::IN_GAME, deltaTime,
+                                       window ? window->getSDLWindow() : nullptr);
 #endif
 
         // Update input

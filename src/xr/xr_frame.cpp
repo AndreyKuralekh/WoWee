@@ -130,6 +130,12 @@ struct XrSystem::FrameData {
     glm::vec3 panelTargetAnchor{0.0f};
     std::chrono::steady_clock::time_point panelMoved = std::chrono::steady_clock::now();
 
+    // The controller's ray: a few pixels of one colour, filled once and then
+    // shown as a long thin sheet wherever the controller points.
+    EyeSwapchain beam;
+    bool beamFilling = false;
+    bool beamFilled = false;
+
     // The frame in progress.
     bool begun = false;
     bool shouldRender = false;
@@ -198,6 +204,12 @@ bool XrSystem::createEyeSwapchains() {
         }
     }
 
+    // Not worth refusing VR over: without it the pointer has no ray, only the
+    // cursor on the panel.
+    if (!createColorSwapchain(session_, frame_->eyeFormat, 4, 4, frame_->beam)) {
+        LOG_WARNING("VR: could not create the pointer ray's swapchain");
+    }
+
     if (debug_) {
         LOG_WARNING("VR: eye swapchains ", eyeWidth_, "x", eyeHeight_, " format ",
                     static_cast<int>(frame_->eyeFormat), ", ", frame_->eyes[0].images.size(), " images each");
@@ -213,6 +225,7 @@ void XrSystem::destroyEyeSwapchains() {
         if (eye.handle != XR_NULL_HANDLE) xrDestroySwapchain(eye.handle);
     }
     if (frame_->panel.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->panel.handle);
+    if (frame_->beam.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->beam.handle);
     frame_.reset();
 }
 
@@ -453,6 +466,7 @@ void XrSystem::beginFrame() {
         }
         if (f.panel.handle != XR_NULL_HANDLE && !acquireImage(f.panel)) f.shouldRender = false;
     }
+    if (f.shouldRender && f.beam.handle != XR_NULL_HANDLE && !f.beamFilled) acquireImage(f.beam);
     addTiming(Timing::XrImages, millisecondsSince(imagesStart));
 
     placePanel();
@@ -562,6 +576,16 @@ void XrSystem::drawFrameRate() {
 void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent) {
     if (fake_ || !frame_ || !frame_->begun || !frame_->shouldRender) return;
     FrameData& f = *frame_;
+    if (f.beam.acquired && !f.beamFilling) {
+        const VkImage beam = f.beam.images[f.beam.imageIndex];
+        const VkClearColorValue colour{{0.25f, 0.75f, 1.0f, 1.0f}};
+        const VkImageSubresourceRange whole{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0,
+                                            .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1};
+        transition(cmd, beam, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkCmdClearColorImage(cmd, beam, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &colour, 1, &whole);
+        transition(cmd, beam, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        f.beamFilling = true;
+    }
     if (!f.panel.acquired || windowExtent.width != f.panelExtent.width ||
         windowExtent.height != f.panelExtent.height) {
         return;
@@ -586,6 +610,37 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
     f.panelCopied = true;
 }
 
+XrTime XrSystem::frameTime() const {
+    return frame_ ? frame_->displayTime : 0;
+}
+
+bool XrSystem::panelQuad(XrSpace& space, XrPosef& pose, XrExtent2Df& size) const {
+    if (!frame_ || !frame_->panelPlaced || frame_->panelExtent.width == 0) return false;
+    const FrameData& f = *frame_;
+    // A quad faces +Z of its pose; turned by the yaw it faces the head it
+    // was placed for, from panelDistance_ in front of it and a little low.
+    space = localSpace_;
+    pose = {};
+    pose.orientation.y = std::sin(f.panelYaw * 0.5f);
+    pose.orientation.w = std::cos(f.panelYaw * 0.5f);
+    pose.position.x = f.panelAnchor.x - std::sin(f.panelYaw) * panelDistance_;
+    pose.position.y = f.panelAnchor.y - 0.1f;
+    pose.position.z = f.panelAnchor.z - std::cos(f.panelYaw) * panelDistance_;
+    if (f.worldShown && panelFollow_ == PanelFollow::Head && viewSpace_ != XR_NULL_HANDLE) {
+        // Fixed to the view: the compositor keeps it there itself, so it
+        // does not swim the way a pose a frame old would.
+        space = viewSpace_;
+        pose = {};
+        pose.orientation.w = 1.0f;
+        pose.position.y = -0.1f;
+        pose.position.z = -panelDistance_;
+    }
+    size.width = panelWidth_;
+    size.height = panelWidth_ * static_cast<float>(f.panelExtent.height) /
+                  static_cast<float>(f.panelExtent.width);
+    return true;
+}
+
 void XrSystem::endFrame(bool submitted) {
     if (!frame_ || !frame_->begun) return;
     FrameData& f = *frame_;
@@ -603,13 +658,16 @@ void XrSystem::endFrame(bool submitted) {
     };
     for (EyeSwapchain& eye : f.eyes) release(eye);
     release(f.panel);
+    release(f.beam);
+    if (f.beamFilling && submitted && released) f.beamFilled = true;
+    f.beamFilling = false;
 
     // The world first, when this frame drew one, and the panel over it.
     const bool usable = submitted && released && f.shouldRender;
     const bool showWorld = usable && f.eyesCopied == (1u << kEyeCount) - 1u;
     const bool showPanel = usable && f.panelCopied;
     const bool show = showWorld || showPanel;
-    const XrCompositionLayerBaseHeader* layers[2] = {};
+    const XrCompositionLayerBaseHeader* layers[3] = {};
     uint32_t layerCount = 0;
 
     std::array<XrCompositionLayerProjectionView, kEyeCount> projectionViews{};
@@ -642,26 +700,24 @@ void XrSystem::endFrame(bool submitted) {
         panel.subImage.swapchain = f.panel.handle;
         panel.subImage.imageRect.extent = {static_cast<int32_t>(f.panelExtent.width),
                                            static_cast<int32_t>(f.panelExtent.height)};
-        // A quad faces +Z of its pose; turned by the yaw it faces the head it
-        // was placed for, from panelDistance_ in front of it and a little low.
-        panel.pose.orientation.y = std::sin(f.panelYaw * 0.5f);
-        panel.pose.orientation.w = std::cos(f.panelYaw * 0.5f);
-        panel.pose.position.x = f.panelAnchor.x - std::sin(f.panelYaw) * panelDistance_;
-        panel.pose.position.y = f.panelAnchor.y - 0.1f;
-        panel.pose.position.z = f.panelAnchor.z - std::cos(f.panelYaw) * panelDistance_;
-        if (f.worldShown && panelFollow_ == PanelFollow::Head && viewSpace_ != XR_NULL_HANDLE) {
-            // Fixed to the view: the compositor keeps it there itself, so it
-            // does not swim the way a pose a frame old would.
-            panel.space = viewSpace_;
-            panel.pose = {};
-            panel.pose.orientation.w = 1.0f;
-            panel.pose.position.y = -0.1f;
-            panel.pose.position.z = -panelDistance_;
+        if (panelQuad(panel.space, panel.pose, panel.size)) {
+            layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&panel);
         }
-        panel.size.width = panelWidth_;
-        panel.size.height = panelWidth_ * static_cast<float>(f.panelExtent.height) /
-                            static_cast<float>(f.panelExtent.width);
-        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&panel);
+    }
+
+    // The controller's ray, over everything: there is no depth to hide it by.
+    XrCompositionLayerQuad beam{};
+    beam.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+    const glm::vec3 head = 0.5f * (glm::vec3(f.views[0].pose.position.x, f.views[0].pose.position.y,
+                                             f.views[0].pose.position.z) +
+                                   glm::vec3(f.views[1].pose.position.x, f.views[1].pose.position.y,
+                                             f.views[1].pose.position.z));
+    if (usable && f.beamFilled && pointerBeam(f.displayTime, head, beam.pose, beam.size)) {
+        beam.space = localSpace_;
+        beam.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        beam.subImage.swapchain = f.beam.handle;
+        beam.subImage.imageRect.extent = {4, 4};
+        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&beam);
     }
 
     XrFrameEndInfo endInfo{};

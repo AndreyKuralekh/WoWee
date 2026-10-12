@@ -4,6 +4,10 @@
 // keyboard would, a turn is the turn a mouse makes, and from there on the
 // client does what it always did with them - the checks that stop a seated
 // character walking or a chat line being typed into the world included.
+//
+// The right controller is the mouse as well. Where its ray meets the panel
+// the real pointer is put, as the gamepad puts it, so that everything asking
+// where the mouse is gets one answer; the trigger and the grip are its buttons.
 
 #include "xr/xr_system.hpp"
 
@@ -12,6 +16,7 @@
 #include "rendering/camera_controller.hpp"
 
 #include <SDL3/SDL.h>
+#include <glm/gtc/quaternion.hpp>
 #include <imgui.h>
 
 #include <algorithm>
@@ -27,7 +32,17 @@ struct XrSystem::InputData {
     XrAction turn = XR_NULL_HANDLE;      // right stick
     XrAction jump = XR_NULL_HANDLE;      // A
     XrAction recenter = XR_NULL_HANDLE;  // pressing the right stick in
+    XrAction aim = XR_NULL_HANDLE;       // where the right controller points
+    XrAction click = XR_NULL_HANDLE;     // its trigger: the left mouse button
+    XrAction grab = XR_NULL_HANDLE;      // its grip: the right mouse button
+    XrSpace aimSpace = XR_NULL_HANDLE;
     bool attached = false;
+
+    // The pointer: which buttons it holds, where it last put the mouse, and
+    // how far along the ray the panel was - nothing when it missed.
+    bool mouseHeld[2] = {};
+    glm::vec2 mouseAt{-1000.0f};
+    float beamLength = 0.0f;
 
     // What this is holding down, so that only that is ever let go: the
     // keyboard and the gamepad hold the same keys by the same means.
@@ -40,6 +55,7 @@ struct XrSystem::InputData {
 namespace {
 
 constexpr SDL_Scancode kMoveKeys[4] = {SDL_SCANCODE_W, SDL_SCANCODE_S, SDL_SCANCODE_Q, SDL_SCANCODE_E};
+constexpr int kMouseButtons[2] = {SDL_BUTTON_LEFT, SDL_BUTTON_RIGHT};
 
 XrPath path(XrInstance instance, const char* text) {
     XrPath result = XR_NULL_PATH;
@@ -115,15 +131,20 @@ bool XrSystem::createActions() {
     in.turn = createAction(in.set, XR_ACTION_TYPE_VECTOR2F_INPUT, "turn", "Turn");
     in.jump = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "jump", "Jump");
     in.recenter = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "recenter", "Recenter");
-    if (!in.move || !in.turn || !in.jump || !in.recenter) {
+    in.aim = createAction(in.set, XR_ACTION_TYPE_POSE_INPUT, "aim", "Pointer");
+    in.click = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "click", "Left mouse button");
+    in.grab = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "grab", "Right mouse button");
+    if (!in.move || !in.turn || !in.jump || !in.recenter || !in.aim || !in.click || !in.grab) {
         LOG_WARNING("VR: no controllers - an action could not be created");
         return false;
     }
 
     // The Touch controllers, which is what a Quest has and what every runtime
-    // for one offers. The simple controller has no sticks to bind any of this
-    // to; it gets its turn when there is a trigger to pull.
+    // for one offers.
     const XrActionSuggestedBinding touch[] = {
+        {in.aim, path(instance_, "/user/hand/right/input/aim/pose")},
+        {in.click, path(instance_, "/user/hand/right/input/trigger/value")},
+        {in.grab, path(instance_, "/user/hand/right/input/squeeze/value")},
         {in.move, path(instance_, "/user/hand/left/input/thumbstick")},
         {in.turn, path(instance_, "/user/hand/right/input/thumbstick")},
         {in.jump, path(instance_, "/user/hand/right/input/a/click")},
@@ -140,6 +161,20 @@ bool XrSystem::createActions() {
         return false;
     }
 
+    // The simple controller, which every runtime has to offer: no sticks, so
+    // it only points and clicks. Refused, it is merely not there.
+    const XrActionSuggestedBinding simple[] = {
+        {in.aim, path(instance_, "/user/hand/right/input/aim/pose")},
+        {in.click, path(instance_, "/user/hand/right/input/select/click")},
+    };
+    suggested.interactionProfile = path(instance_, "/interaction_profiles/khr/simple_controller");
+    suggested.countSuggestedBindings = static_cast<uint32_t>(std::size(simple));
+    suggested.suggestedBindings = simple;
+    result = xrSuggestInteractionProfileBindings(instance_, &suggested);
+    if (XR_FAILED(result) && debug_) {
+        LOG_WARNING("VR: the simple controller's bindings were refused: ", resultName(result));
+    }
+
     XrSessionActionSetsAttachInfo attach{};
     attach.type = XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO;
     attach.countActionSets = 1;
@@ -150,13 +185,28 @@ bool XrSystem::createActions() {
         return false;
     }
     in.attached = true;
-    if (debug_) LOG_WARNING("VR: controllers - left stick moves, right stick turns and recentres, A jumps");
+
+    XrActionSpaceCreateInfo spaceInfo{};
+    spaceInfo.type = XR_TYPE_ACTION_SPACE_CREATE_INFO;
+    spaceInfo.action = in.aim;
+    spaceInfo.poseInActionSpace.orientation.w = 1.0f;
+    result = xrCreateActionSpace(session_, &spaceInfo, &in.aimSpace);
+    if (XR_FAILED(result)) {
+        in.aimSpace = XR_NULL_HANDLE;
+        LOG_WARNING("VR: no pointer - xrCreateActionSpace failed: ", resultName(result));
+    }
+    if (debug_) {
+        LOG_WARNING("VR: controllers - left stick moves, right stick turns and recentres, A jumps, "
+                    "the right controller points, trigger and grip are the mouse buttons");
+    }
     return true;
 }
 
 void XrSystem::destroyActions() {
     if (!input_) return;
     releaseControllerKeys();
+    releasePointer();
+    if (input_->aimSpace != XR_NULL_HANDLE) xrDestroySpace(input_->aimSpace);
     // The actions go with their set.
     if (input_->set != XR_NULL_HANDLE) xrDestroyActionSet(input_->set);
     delete input_;
@@ -172,6 +222,114 @@ void XrSystem::releaseControllerKeys() {
     }
     if (input_->jumpHeld) input.setVirtualKey(SDL_SCANCODE_SPACE, false);
     input_->jumpHeld = false;
+}
+
+void XrSystem::releasePointer() {
+    if (!input_) return;
+    for (size_t i = 0; i < std::size(kMouseButtons); ++i) {
+        if (!input_->mouseHeld[i]) continue;
+        input_->mouseHeld[i] = false;
+        core::Input::getInstance().setVirtualMouseButton(kMouseButtons[i], false);
+        if (ImGui::GetCurrentContext()) ImGui::GetIO().AddMouseButtonEvent(static_cast<int>(i), false);
+    }
+    input_->beamLength = 0.0f;
+}
+
+bool XrSystem::aimRay(XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& direction) const {
+    if (!input_ || input_->aimSpace == XR_NULL_HANDLE || base == XR_NULL_HANDLE || time == 0) return false;
+    XrSpaceLocation location{};
+    location.type = XR_TYPE_SPACE_LOCATION;
+    if (XR_FAILED(xrLocateSpace(input_->aimSpace, base, time, &location))) return false;
+    const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_POSITION_VALID_BIT;
+    if ((location.locationFlags & needed) != needed) return false;
+    const XrQuaternionf& o = location.pose.orientation;
+    origin = glm::vec3(location.pose.position.x, location.pose.position.y, location.pose.position.z);
+    direction = glm::quat(o.w, o.x, o.y, o.z) * glm::vec3(0.0f, 0.0f, -1.0f);
+    return true;
+}
+
+// A sheet has no thickness, so it is turned about the ray to face the head:
+// from there it is a line whichever way the controller points.
+bool XrSystem::pointerBeam(XrTime time, const glm::vec3& head, XrPosef& pose, XrExtent2Df& size) const {
+    constexpr float kStart = 0.05f;   // metres ahead of the controller
+    constexpr float kLength = 1.5f;   // when the ray meets no panel
+    constexpr float kWidth = 0.004f;
+    glm::vec3 origin;
+    glm::vec3 along;
+    if (!aimRay(localSpace_, time, origin, along)) return false;
+    const float end = input_->beamLength > kStart * 2.0f ? input_->beamLength : kLength;
+    const glm::vec3 middle = origin + along * (0.5f * (kStart + end));
+    glm::vec3 facing = head - middle;
+    facing -= along * glm::dot(facing, along);
+    if (glm::dot(facing, facing) < 1e-6f) return false;
+    facing = glm::normalize(facing);
+    const glm::quat turn = glm::quat_cast(glm::mat3(glm::cross(along, facing), along, facing));
+    pose.orientation = {turn.x, turn.y, turn.z, turn.w};
+    pose.position = {middle.x, middle.y, middle.z};
+    size = {kWidth, end - kStart};
+    return true;
+}
+
+// The mouse, put where the ray meets the panel. Left alone when it misses, so
+// that a controller lying on the desk does not take the mouse away.
+void XrSystem::updatePointer(SDL_Window* window) {
+    InputData& in = *input_;
+    in.beamLength = 0.0f;
+
+    bool onPanel = false;
+    glm::vec2 at(0.0f);
+    XrSpace space = XR_NULL_HANDLE;
+    XrPosef quad{};
+    XrExtent2Df size{};
+    glm::vec3 origin;
+    glm::vec3 direction;
+    const bool focused = window && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    if (focused && panelQuad(space, quad, size) && aimRay(space, frameTime(), origin, direction)) {
+        const glm::quat turn(quad.orientation.w, quad.orientation.x, quad.orientation.y, quad.orientation.z);
+        const glm::vec3 centre(quad.position.x, quad.position.y, quad.position.z);
+        const glm::vec3 normal = turn * glm::vec3(0.0f, 0.0f, 1.0f);
+        // From the front only, and not along the sheet.
+        const float closing = glm::dot(direction, normal);
+        const float distance = closing < -0.05f ? glm::dot(centre - origin, normal) / closing : 0.0f;
+        if (distance > 0.0f) {
+            const glm::vec3 hit = origin + direction * distance - centre;
+            const float u = glm::dot(hit, turn * glm::vec3(1.0f, 0.0f, 0.0f)) / size.width + 0.5f;
+            const float v = 0.5f - glm::dot(hit, turn * glm::vec3(0.0f, 1.0f, 0.0f)) / size.height;
+            int w = 0;
+            int h = 0;
+            SDL_GetWindowSize(window, &w, &h);
+            if (u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f && w > 0 && h > 0) {
+                onPanel = true;
+                in.beamLength = distance;
+                at = glm::vec2(u * static_cast<float>(w - 1), v * static_cast<float>(h - 1));
+            }
+        }
+    }
+
+    if (onPanel) {
+        // A hand is never still: near where the pointer already is it goes
+        // half the way each frame, and anything under a pixel is let be.
+        constexpr float kSteadyWithin = 40.0f;
+        const float moved = glm::distance(at, in.mouseAt);
+        if (moved < kSteadyWithin) at = in.mouseAt + (at - in.mouseAt) * 0.5f;
+        if (moved > 1.0f) {
+            in.mouseAt = at;
+            SDL_WarpMouseInWindow(window, at.x, at.y);
+            // Told at once as well: a click in this same frame has to land here.
+            if (ImGui::GetCurrentContext()) ImGui::GetIO().AddMousePosEvent(at.x, at.y);
+        }
+    }
+
+    // A press starts on the panel only; once down, a button is held until it
+    // is let go, wherever the ray has gone since - that is what a drag is.
+    const bool wanted[2] = {button(session_, in.click), button(session_, in.grab)};
+    for (size_t i = 0; i < std::size(kMouseButtons); ++i) {
+        const bool down = wanted[i] && (in.mouseHeld[i] || onPanel);
+        if (down == in.mouseHeld[i]) continue;
+        in.mouseHeld[i] = down;
+        core::Input::getInstance().setVirtualMouseButton(kMouseButtons[i], down);
+        if (ImGui::GetCurrentContext()) ImGui::GetIO().AddMouseButtonEvent(static_cast<int>(i), down);
+    }
 }
 
 // Which controller the runtime decided it is talking to, said when it decides.
@@ -190,7 +348,8 @@ void XrSystem::logInteractionProfile() {
     }
 }
 
-void XrSystem::updateControllers(rendering::CameraController* camera, bool inWorld, float deltaTime) {
+void XrSystem::updateControllers(rendering::CameraController* camera, bool inWorld, float deltaTime,
+                                 SDL_Window* window) {
     // In a headset the way the view faces is the way the body faces: walking
     // forward has to go where forward looks, whatever turned the view there -
     // a controller, or the mouse.
@@ -216,8 +375,9 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
 
     if (!input_ || !input_->attached) return;
     InputData& in = *input_;
-    if (!live) {
+    if (!running_) {
         releaseControllerKeys();
+        releasePointer();
         return;
     }
 
@@ -230,6 +390,15 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
     // XR_SESSION_NOT_FOCUSED is a success, and means nothing was read: the
     // headset is off, or the runtime's own menu is up.
     if (xrSyncActions(session_, &sync) != XR_SUCCESS) {
+        releaseControllerKeys();
+        releasePointer();
+        return;
+    }
+
+    // The pointer works wherever there is a panel: the login screen and the
+    // character list are nothing else.
+    updatePointer(window);
+    if (!live) {
         releaseControllerKeys();
         return;
     }

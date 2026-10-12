@@ -38,6 +38,8 @@
 #include <string>
 #include <vector>
 
+struct SDL_Window;
+
 namespace wowee::rendering {
 class CameraController;
 class VkContext;
@@ -217,7 +219,12 @@ public:
     /// client already takes: held keys for the left stick and for jumping, a
     /// turn of the camera for the right stick. Call once a frame before the
     /// keyboard is sampled. Outside the world everything held is let go.
-    void updateControllers(rendering::CameraController* camera, bool inWorld, float deltaTime);
+    ///
+    /// The right controller is also a pointer, in the world or out of it: where
+    /// its ray meets the interface panel is where the mouse is put, the trigger
+    /// is the left button and the grip the right one.
+    void updateControllers(rendering::CameraController* camera, bool inWorld, float deltaTime,
+                           SDL_Window* window);
 
     /// Whether the character turns as the head does, so that it faces - and
     /// walks - the way the player is looking. What is seen does not change by
@@ -242,6 +249,17 @@ private:
     bool createActions();
     void destroyActions();
     void releaseControllerKeys();
+    void releasePointer();
+    void updatePointer(SDL_Window* window);
+    /// The right controller's ray in `base` at `time`. False while it is not tracked.
+    [[nodiscard]] bool aimRay(XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& direction) const;
+    /// The ray as a thin sheet turned towards `head`, in the local space.
+    [[nodiscard]] bool pointerBeam(XrTime time, const glm::vec3& head, XrPosef& pose, XrExtent2Df& size) const;
+    /// Where the panel stands: the space it is placed in, its pose there and
+    /// its size in metres. False before there is a panel.
+    [[nodiscard]] bool panelQuad(XrSpace& space, XrPosef& pose, XrExtent2Df& size) const;
+    /// When the frame last begun is to be shown; 0 before the first.
+    [[nodiscard]] XrTime frameTime() const;
     void logInteractionProfile();
     void beginSession();
     void endSession();
