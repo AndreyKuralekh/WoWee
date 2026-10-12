@@ -79,8 +79,8 @@ bool XrSystem::initialize() {
     if (const char* follow = std::getenv("WOWEE_VR_PANEL_FOLLOW"); follow && *follow) {
         const std::string mode = follow;
         if (mode == "head") panelFollow_ = PanelFollow::Head;
-        else if (mode == "yaw") panelFollow_ = PanelFollow::Yaw;
-        else if (mode != "lazy") LOG_WARNING("VR: WOWEE_VR_PANEL_FOLLOW is lazy, yaw or head, not ", mode);
+        else if (mode == "lazy") panelFollow_ = PanelFollow::Lazy;
+        else if (mode != "yaw") LOG_WARNING("VR: WOWEE_VR_PANEL_FOLLOW is lazy, yaw or head, not ", mode);
     }
 
     if (!platform::initializeLoader() || !createInstance() || !findHeadset()) {
