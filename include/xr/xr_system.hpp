@@ -189,6 +189,15 @@ public:
     /// them, which is the order they are saved by.
     enum class PanelFollow { Yaw, Lazy, Head };
 
+    /// Whether the panel carries a line saying how fast the headset is being
+    /// fed: frames a second, the time one takes, and how many the headset had
+    /// to show twice.
+    void setShowFrameRate(bool show) { showFrameRate_ = show; }
+
+    /// Draws that line. Called while the interface frame is open, last, so
+    /// that it lies over everything on the panel.
+    void drawFrameRate();
+
     /// Where the panel stands, from the settings page. A value the environment
     /// set at start is left alone: that is how one is tried without saving it.
     void setPanelPlacement(PanelFollow follow, float distanceMetres, float widthMetres);
@@ -214,6 +223,10 @@ private:
     XrSpace stageSpace_ = XR_NULL_HANDLE;
     XrSpace viewSpace_ = XR_NULL_HANDLE;  // the head itself; what a head-fixed panel is placed in
     PanelFollow panelFollow_ = PanelFollow::Yaw;
+    bool showFrameRate_ = false;
+    // The last whole second, for drawFrameRate.
+    uint32_t lastSecondFrames_ = 0;
+    uint32_t lastSecondMissed_ = 0;
     bool panelFollowFromEnv_ = false;
     bool panelDistanceFromEnv_ = false;
     bool panelWidthFromEnv_ = false;

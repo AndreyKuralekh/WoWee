@@ -1822,6 +1822,7 @@ void GameScreen::saveSettings() {
     out << "vr_panel_follow=" << settingsPanel_.pendingVrPanelFollow << "\n";
     out << "vr_panel_distance=" << settingsPanel_.pendingVrPanelDistance << "\n";
     out << "vr_panel_width=" << settingsPanel_.pendingVrPanelWidth << "\n";
+    out << "vr_show_fps=" << (settingsPanel_.pendingVrShowFps ? 1 : 0) << "\n";
     out << "brightness=" << settingsPanel_.pendingBrightness << "\n";
     out << "water_refraction=" << (settingsPanel_.pendingWaterRefraction ? 1 : 0) << "\n";
     out << "antialiasing=" << settingsPanel_.pendingAntiAliasing << "\n";
@@ -2094,6 +2095,7 @@ void GameScreen::loadSettings() {
             else if (key == "vr_panel_follow") settingsPanel_.pendingVrPanelFollow = std::clamp(std::stoi(val), 0, 2);
             else if (key == "vr_panel_distance") settingsPanel_.pendingVrPanelDistance = std::clamp(std::stof(val), 0.5f, 4.0f);
             else if (key == "vr_panel_width") settingsPanel_.pendingVrPanelWidth = std::clamp(std::stof(val), 0.5f, 4.0f);
+            else if (key == "vr_show_fps") settingsPanel_.pendingVrShowFps = (val == "1");
             // No apply here either: brightness is on the graphics load list,
             // which is walked once the renderer exists. This branch ran from
             // the constructor, where services_.renderer is still null.

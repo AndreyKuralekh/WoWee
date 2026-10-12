@@ -19,6 +19,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 
 namespace wowee::xr {
 
@@ -517,6 +518,25 @@ void XrSystem::recordFakePreview(VkCommandBuffer cmd, VkImage windowImage, VkExt
     transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 }
 
+void XrSystem::drawFrameRate() {
+    if (!showFrameRate_ || !running_ || !ImGui::GetCurrentContext() || lastSecondFrames_ == 0) return;
+    char text[96];
+    std::snprintf(text, sizeof(text), "VR %u fps  %.0f ms  missed %u", lastSecondFrames_,
+                  1000.0 / static_cast<double>(lastSecondFrames_), lastSecondMissed_);
+
+    // Top middle of the panel, on a dark plate so it reads over anything.
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    const ImVec2 size = ImGui::CalcTextSize(text);
+    const float x = (ImGui::GetIO().DisplaySize.x - size.x) * 0.5f;
+    const float y = 6.0f;
+    draw->AddRectFilled(ImVec2(x - 8.0f, y - 3.0f), ImVec2(x + size.x + 8.0f, y + size.y + 3.0f),
+                        IM_COL32(0, 0, 0, 170), 4.0f);
+    // Green where the headset gets a new picture for nearly every one it shows.
+    const ImU32 colour = lastSecondMissed_ <= lastSecondFrames_ / 10 ? IM_COL32(120, 230, 120, 255)
+                                                                     : IM_COL32(255, 210, 90, 255);
+    draw->AddText(ImVec2(x, y), colour, text);
+}
+
 // The finished window image, copied whole into the panel. Bytes across, not a
 // blit: the window is in a linear format and already display encoded, and the
 // panel is its sRGB twin of the same size.
@@ -642,6 +662,8 @@ void XrSystem::endFrame(bool submitted) {
     ++f.frames;
     if (!show) ++f.notRendered;
     if (now - f.statsStart >= std::chrono::seconds(1)) {
+        lastSecondFrames_ = f.frames;
+        lastSecondMissed_ = f.missed;
         if (debug_) {
             // "wait" is how long xrWaitFrame held the frame back, and "cpu" what
             // the client then spent between beginning the frame and ending it.

@@ -4923,7 +4923,10 @@ void Application::render() {
         }
 
         // Only now is the draw data closed.
-        uiManager->finishImGuiFrame();
+    #ifdef WOWEE_VR
+    xr::system().drawFrameRate();
+#endif
+    uiManager->finishImGuiFrame();
 
         runRenderStage("mapWindow", [&] { updateMapWindow(); });
     }

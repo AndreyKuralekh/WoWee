@@ -236,6 +236,7 @@ public:
     int pendingVrPanelFollow = 0;           // 0=in front (yaw), 1=lazy, 2=fixed to view
     float pendingVrPanelDistance = 1.5f;    // metres
     float pendingVrPanelWidth = 2.0f;       // metres
+    bool pendingVrShowFps = false;          // the frame rate line on the panel
     int pendingPOMQuality = 1;          // 0=Low(16), 1=Medium(32), 2=High(64)
     bool pendingFSR = false;
     int pendingUpscalingMode = 0;       // 0=Off, 1=FSR1, 2=FSR3
