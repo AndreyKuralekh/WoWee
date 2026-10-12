@@ -3690,9 +3690,11 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
             gameHandler->update(deltaTime);
         }
     });
-    if (addonManager_ && addonsLoaded_) {
-        addonManager_->update(deltaTime);
-    }
+    runInGameStage("addonManager->update", [&] {
+        if (addonManager_ && addonsLoaded_) {
+            addonManager_->update(deltaTime);
+        }
+    });
     // Always unsheath on combat engage.
     inGameStep = "auto-unsheathe";
     updateCheckpoint = "in_game: auto-unsheathe";
@@ -4013,6 +4015,7 @@ void Application::update(float deltaTime) {
         }
         float ruMs = std::chrono::duration<float, std::milli>(
             std::chrono::steady_clock::now() - rendererUpdateStart).count();
+        noteStageTime("renderer->update", ruMs);
         if (ruMs > 50.0f) {
             LOG_WARNING("SLOW update stage 'renderer->update': ", ruMs, "ms");
         }
@@ -4020,8 +4023,11 @@ void Application::update(float deltaTime) {
     // Update UI
     updateCheckpoint = "ui update";
     if (uiManager) {
+        const auto uiUpdateStart = std::chrono::steady_clock::now();
         try {
             uiManager->update(deltaTime);
+            noteStageTime("uiManager->update", std::chrono::duration<float, std::milli>(
+                                                   std::chrono::steady_clock::now() - uiUpdateStart).count());
         } catch (const std::bad_alloc& e) {
             LOG_ERROR("OOM during Application::update stage 'uiManager->update': ", e.what());
             throw;
