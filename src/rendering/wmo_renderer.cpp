@@ -1215,6 +1215,13 @@ void WMORenderer::setInstanceTransform(uint32_t instanceId, const glm::mat4& tra
     if (idxIt == instanceIndexById.end()) return;
     auto& inst = instances[idxIt->second];
 
+    // A transport pushes its transform every frame, moving or not, and a ship
+    // spends most of its time at a dock. Where it has not moved there is
+    // nothing below that would come out differently.
+    if (inst.modelMatrix == transform) return;
+    const glm::vec3 oldBoundsMin = inst.worldBoundsMin;
+    const glm::vec3 oldBoundsMax = inst.worldBoundsMax;
+
     // Decompose transform to position/rotation/scale
     inst.position = glm::vec3(transform[3]);
 
@@ -1245,7 +1252,13 @@ void WMORenderer::setInstanceTransform(uint32_t instanceId, const glm::mat4& tra
         }
     }
 
-    rebuildSpatialIndex();
+    // Only this instance's cells, as the M2 renderer does for its own. This
+    // rebuilt the index of every building in the world - once for each
+    // transport, every frame - and with the ships of a harbour in range that
+    // was ten milliseconds of each frame. No instance has changed its place in
+    // `instances`, so instanceIndexById stands as it is.
+    refileBounds(spatialGrid, oldBoundsMin, oldBoundsMax, inst.worldBoundsMin, inst.worldBoundsMax,
+                 instanceId);
 }
 
 void WMORenderer::addDoodadToInstance(uint32_t instanceId, uint32_t m2InstanceId, const glm::mat4& localTransform) {
