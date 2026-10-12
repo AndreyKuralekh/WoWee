@@ -74,6 +74,8 @@ bool XrSystem::initialize() {
     if (!requested()) return false;
 
     dumpFrames_ = core::envIntClamped("WOWEE_VR_DUMP_FRAMES", 0, 0, 10000);
+    panelDistance_ = static_cast<float>(core::envIntClamped("WOWEE_VR_PANEL_DISTANCE", 150, 30, 1000)) / 100.0f;
+    panelWidth_ = static_cast<float>(core::envIntClamped("WOWEE_VR_PANEL_WIDTH", 200, 20, 2000)) / 100.0f;
 
     if (!platform::initializeLoader() || !createInstance() || !findHeadset()) {
         shutdown();

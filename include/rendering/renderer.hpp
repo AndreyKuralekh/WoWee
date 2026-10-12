@@ -478,6 +478,7 @@ private:
     void vrDestroyEyes();
     void vrBeginViews();
     void vrRenderEyes();
+    void vrRenderWindowMinimap(game::GameHandler* gameHandler);
     VrEyes* vrEyes_ = nullptr;
     game::GameHandler* vrGameHandler_ = nullptr;
     VkDescriptorSet vrPerFrameSet_ = VK_NULL_HANDLE;  // set 0 while an eye is being drawn

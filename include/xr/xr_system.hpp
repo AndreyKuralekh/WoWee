@@ -15,6 +15,8 @@
  *   WOWEE_VR_EYE_SCALE=P    eye image size in percent of what the runtime recommends (25-200)
  *   WOWEE_VR_FAKE=1         no runtime and no headset: a fixed pair of eyes, drawn side by side
  *                           into the window. For looking at the stereo render on a desk.
+ *   WOWEE_VR_PANEL_DISTANCE=cm, WOWEE_VR_PANEL_WIDTH=cm
+ *                           where the interface panel stands and how wide it is (150, 200)
  *   WOWEE_VR_PROFILE=0|1    the lean frame (see leanFrame): 0 keeps the flat client's frame in the
  *                           headset, 1 forces the lean one without a headset, for measuring it
  *
@@ -134,9 +136,14 @@ public:
     /// frame's command buffer is certain to be submitted.
     void beginFrame();
 
-    /// Records the copy of the finished window image into both eyes. `cmd` is
-    /// outside any render pass and `windowImage` is in PRESENT_SRC layout.
-    void recordMirror(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent);
+    /// Records the copy of the finished window image into the panel: the flat
+    /// sheet the interface is shown on in the headset. `cmd` is outside any
+    /// render pass and `windowImage` is in PRESENT_SRC layout.
+    void recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent);
+
+    /// Fake headset only: the two eyes side by side into the window, before the
+    /// interface is drawn over it. Same requirements as recordPanel.
+    void recordFakePreview(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent);
 
     /// Hands the frame to the runtime. `submitted` is whether the command
     /// buffer made it to the queue; if not the frame goes out with no layer.
@@ -180,6 +187,7 @@ private:
     bool createEyeSwapchains();
     void destroyEyeSwapchains();
     void startFake();
+    void placePanel();
     void beginSession();
     void endSession();
     void onSessionStateChanged(XrSessionState newState);
@@ -194,6 +202,8 @@ private:
     rendering::VkContext* ctx_ = nullptr;
     bool running_ = false;
     bool fake_ = false;
+    float panelDistance_ = 1.5f;  // metres
+    float panelWidth_ = 2.0f;
     bool leanForced_ = false;
     bool leanRefused_ = false;
 

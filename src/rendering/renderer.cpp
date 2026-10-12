@@ -1404,6 +1404,11 @@ void Renderer::beginFrame() {
         rpInfo.clearValueCount = 2;
     }
     rpInfo.pClearValues = clearValues;
+#ifdef WOWEE_VR
+    // The eyes have the world, and the window is the interface alone: cleared
+    // to nothing, so that the headset's panel shows the world through it.
+    if (vrWorldInEyes_) clearValues[0].color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+#endif
 
     // Cache render pass state for secondary command buffer inheritance
     activeRenderPass_ = rpInfo.renderPass;
@@ -1413,9 +1418,18 @@ void Renderer::beginFrame() {
     VkSubpassContents subpassMode = parallelRecordingEnabled_
         ? VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS
         : VK_SUBPASS_CONTENTS_INLINE;
+    bool inlinePass = !parallelRecordingEnabled_;
+#ifdef WOWEE_VR
+    // Nothing of the world will be recorded into this pass, only the minimap,
+    // which goes straight in.
+    if (vrWorldInEyes_) {
+        subpassMode = VK_SUBPASS_CONTENTS_INLINE;
+        inlinePass = true;
+    }
+#endif
     vkCmdBeginRenderPass(currentCmd, &rpInfo, subpassMode);
 
-    if (!parallelRecordingEnabled_) {
+    if (inlinePass) {
         // Fallback: set dynamic viewport and scissor on primary (inline mode)
         VkViewport viewport{};
         viewport.width = static_cast<float>(renderExtent.width);
@@ -1471,6 +1485,13 @@ void Renderer::endFrame() {
     // The picture is finished and out of every pass that drew it: the one
     // point where the shafts can copy it down, before the overlay pass opens.
     recordSunShafts();
+
+#ifdef WOWEE_VR
+    if (currentImageIndex < vkCtx->getSwapchainImages().size()) {
+        xr::system().recordFakePreview(currentCmd, vkCtx->getSwapchainImages()[currentImageIndex],
+                                       vkCtx->getSwapchainExtent());
+    }
+#endif
 
     const auto& overlayFbs = vkCtx->getOverlayFramebuffers();
     if (vkCtx->getOverlayRenderPass() != VK_NULL_HANDLE && currentImageIndex < overlayFbs.size()) {
@@ -2888,8 +2909,12 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
     if (skipAll) return;
 
 #ifdef WOWEE_VR
-    // The headset's eyes have this frame's world; the window keeps the interface.
-    if (vrWorldInEyes_ && !vrEyePass_) return;
+    // The headset's eyes have this frame's world; the window keeps the interface,
+    // and of the interface the minimap is the one piece drawn from here.
+    if (vrWorldInEyes_ && !vrEyePass_) {
+        vrRenderWindowMinimap(gameHandler);
+        return;
+    }
 #endif
 
     worldDrawnLastFrame_ = true;
@@ -4771,7 +4796,12 @@ void Renderer::recordSunShafts() {
     if (!sunShafts_ || currentCmd == VK_NULL_HANDLE) return;
     SunShafts::FrameInputs in;
     const auto& images = vkCtx->getSwapchainImages();
-    if (sunShaftsEnabled_ && worldDrawnThisFrame_ && camera && lightingManager &&
+#ifdef WOWEE_VR
+    const bool windowHasWorld = !vrWorldInEyes_;  // the shafts are read off the window's picture
+#else
+    const bool windowHasWorld = true;
+#endif
+    if (sunShaftsEnabled_ && windowHasWorld && worldDrawnThisFrame_ && camera && lightingManager &&
         currentImageIndex < images.size() &&
         !(passAblation_ && passAblation_->skip(AblationPass::SunShafts))) {
         const auto& lp = lightingManager->getLightingParams();

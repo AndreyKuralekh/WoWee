@@ -1,5 +1,5 @@
-// The frame half of XrSystem: the eye swapchains, the runtime's frame loop,
-// and - for now - a flat copy of the window into both eyes.
+// The frame half of XrSystem: the runtime's frame loop, the eye swapchains a
+// stereo frame is copied into, and the panel the window is shown on.
 
 #include "xr/xr_system.hpp"
 
@@ -10,8 +10,10 @@
 #define XR_USE_GRAPHICS_API_VULKAN
 #include <openxr/openxr_platform.h>
 
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <imgui.h>
 
 #include <algorithm>
 #include <array>
@@ -31,13 +33,56 @@ struct EyeSwapchain {
     bool acquired = false;
 };
 
-// The same bytes read as linear instead of as sRGB.
-VkFormat unormSibling(VkFormat format) {
-    switch (format) {
-        case VK_FORMAT_B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_UNORM;
-        case VK_FORMAT_R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_UNORM;
-        default:                      return format;
+// A colour swapchain and its images. False leaves `out` without a handle.
+bool createColorSwapchain(XrSession session, VkFormat format, uint32_t width, uint32_t height,
+                          EyeSwapchain& out) {
+    XrSwapchainCreateInfo createInfo{};
+    createInfo.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
+    createInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT |
+                            XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+    createInfo.format = format;
+    createInfo.sampleCount = 1;
+    createInfo.width = width;
+    createInfo.height = height;
+    createInfo.faceCount = 1;
+    createInfo.arraySize = 1;
+    createInfo.mipCount = 1;
+    out = {};
+    if (XR_FAILED(xrCreateSwapchain(session, &createInfo, &out.handle))) {
+        out.handle = XR_NULL_HANDLE;
+        return false;
     }
+    uint32_t imageCount = 0;
+    xrEnumerateSwapchainImages(out.handle, 0, &imageCount, nullptr);
+    XrSwapchainImageVulkanKHR blank{};
+    blank.type = XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR;
+    std::vector<XrSwapchainImageVulkanKHR> images(imageCount, blank);
+    if (imageCount == 0 ||
+        XR_FAILED(xrEnumerateSwapchainImages(out.handle, imageCount, &imageCount,
+                                             reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())))) {
+        xrDestroySwapchain(out.handle);
+        out = {};
+        return false;
+    }
+    for (const XrSwapchainImageVulkanKHR& image : images) out.images.push_back(image.image);
+    return true;
+}
+
+bool acquireImage(EyeSwapchain& chain) {
+    XrSwapchainImageWaitInfo waitInfo{};
+    waitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    if (XR_FAILED(xrAcquireSwapchainImage(chain.handle, nullptr, &chain.imageIndex))) return false;
+    chain.acquired = true;
+    return XR_SUCCEEDED(xrWaitSwapchainImage(chain.handle, &waitInfo));
+}
+
+// The smaller way round from one angle to another.
+float angleBetween(float from, float to) {
+    float d = std::fmod(to - from, glm::two_pi<float>());
+    if (d > glm::pi<float>()) d -= glm::two_pi<float>();
+    if (d < -glm::pi<float>()) d += glm::two_pi<float>();
+    return d;
 }
 
 void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageLayout to) {
@@ -62,17 +107,26 @@ struct XrSystem::FrameData {
     std::array<EyeSwapchain, kEyeCount> eyes;
     VkFormat eyeFormat = VK_FORMAT_UNDEFINED;
 
-    // The window image scaled to an eye, in the linear twin of the eye format.
-    // A blit converts between a linear and an sRGB format, and the window's
-    // bytes are already display encoded, so blitting straight into an sRGB eye
-    // image would encode them a second time. Scaling into this and then
-    // copying the bytes across does not.
-    rendering::AllocatedImage mirror;
+    // The panel: the window's image, its own size, shown as a flat sheet in
+    // front of the player. It is the whole interface - and before the world is
+    // entered, the whole picture.
+    EyeSwapchain panel;
+    VkExtent2D panelExtent{};
+    bool panelCopied = false;
+    // Where the sheet stands, in the tracking space: turned by `panelYaw`
+    // round the vertical about `panelAnchor`, the head it was last placed for.
+    // The targets are where it is heading; it follows them over a moment
+    // rather than jumping.
+    bool panelPlaced = false;
+    float panelYaw = 0.0f;
+    float panelTargetYaw = 0.0f;
+    glm::vec3 panelAnchor{0.0f};
+    glm::vec3 panelTargetAnchor{0.0f};
+    std::chrono::steady_clock::time_point panelMoved = std::chrono::steady_clock::now();
 
     // The frame in progress.
     bool begun = false;
     bool shouldRender = false;
-    bool mirrored = false;
     // The finished eye images of a stereo frame, as the renderer handed them over.
     std::array<VkImage, kEyeCount> eyeSource{};
     uint32_t eyesCopied = 0;
@@ -131,45 +185,11 @@ bool XrSystem::createEyeSwapchains() {
         return false;
     }
 
-    XrSwapchainCreateInfo createInfo{};
-    createInfo.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
-    createInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT |
-                            XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
-    createInfo.format = frame_->eyeFormat;
-    createInfo.sampleCount = 1;
-    createInfo.width = eyeWidth_;
-    createInfo.height = eyeHeight_;
-    createInfo.faceCount = 1;
-    createInfo.arraySize = 1;
-    createInfo.mipCount = 1;
-
     for (EyeSwapchain& eye : frame_->eyes) {
-        XrResult result = xrCreateSwapchain(session_, &createInfo, &eye.handle);
-        if (XR_FAILED(result)) {
-            eye.handle = XR_NULL_HANDLE;
-            LOG_WARNING("VR: xrCreateSwapchain failed: ", resultName(result));
+        if (!createColorSwapchain(session_, frame_->eyeFormat, eyeWidth_, eyeHeight_, eye)) {
+            LOG_WARNING("VR: could not create an eye swapchain");
             return false;
         }
-        uint32_t imageCount = 0;
-        xrEnumerateSwapchainImages(eye.handle, 0, &imageCount, nullptr);
-        XrSwapchainImageVulkanKHR blank{};
-        blank.type = XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR;
-        std::vector<XrSwapchainImageVulkanKHR> images(imageCount, blank);
-        result = xrEnumerateSwapchainImages(eye.handle, imageCount, &imageCount,
-                                            reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data()));
-        if (XR_FAILED(result) || imageCount == 0) {
-            LOG_WARNING("VR: xrEnumerateSwapchainImages failed: ", resultName(result));
-            return false;
-        }
-        for (const XrSwapchainImageVulkanKHR& image : images) eye.images.push_back(image.image);
-    }
-
-    frame_->mirror = rendering::createImage(
-        ctx_->getDevice(), ctx_->getAllocator(), eyeWidth_, eyeHeight_, unormSibling(frame_->eyeFormat),
-        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    if (frame_->mirror.image == VK_NULL_HANDLE) {
-        LOG_WARNING("VR: could not create the mirror image");
-        return false;
     }
 
     if (debug_) {
@@ -181,14 +201,12 @@ bool XrSystem::createEyeSwapchains() {
 
 void XrSystem::destroyEyeSwapchains() {
     if (!frame_) return;
-    if (ctx_ && frame_->mirror.image != VK_NULL_HANDLE) {
-        // The last frame's copy may still be on the queue.
-        vkDeviceWaitIdle(ctx_->getDevice());
-        rendering::destroyImage(ctx_->getDevice(), ctx_->getAllocator(), frame_->mirror);
-    }
+    // The last frame's copies may still be on the queue.
+    if (ctx_) vkDeviceWaitIdle(ctx_->getDevice());
     for (EyeSwapchain& eye : frame_->eyes) {
         if (eye.handle != XR_NULL_HANDLE) xrDestroySwapchain(eye.handle);
     }
+    if (frame_->panel.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->panel.handle);
     frame_.reset();
 }
 
@@ -212,6 +230,7 @@ void XrSystem::endSession() {
     if (frame_ && frame_->begun) endFrame(false);
     xrEndSession(session_);
     running_ = false;
+    if (ImGui::GetCurrentContext()) ImGui::GetIO().MouseDrawCursor = false;
     if (ctx_) ctx_->markSwapchainDirty();
     LOG_WARNING("VR: session stopped");
 }
@@ -316,7 +335,6 @@ void XrSystem::beginFrame() {
         FrameData& f = *frame_;
         f.begun = true;
         f.shouldRender = true;
-        f.mirrored = false;
         f.eyesCopied = 0;
         for (uint32_t i = 0; i < kEyeCount; ++i) {
             const float side = i == 0 ? -1.0f : 1.0f;
@@ -358,7 +376,7 @@ void XrSystem::beginFrame() {
         return;
     }
     f.begun = true;
-    f.mirrored = false;
+    f.panelCopied = false;
     f.eyesCopied = 0;
     f.cpuStart = std::chrono::steady_clock::now();
     f.displayTime = frameState.predictedDisplayTime;
@@ -394,100 +412,129 @@ void XrSystem::beginFrame() {
         return;
     }
 
+    // The pointer is the system's, and the system's is not in the picture:
+    // have the interface draw its own while the picture is in the headset.
+    if (ImGui::GetCurrentContext()) ImGui::GetIO().MouseDrawCursor = true;
+
     const auto imagesStart = std::chrono::steady_clock::now();
     for (EyeSwapchain& eye : f.eyes) {
-        XrSwapchainImageWaitInfo waitInfo{};
-        waitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
-        waitInfo.timeout = XR_INFINITE_DURATION;
-        if (XR_FAILED(xrAcquireSwapchainImage(eye.handle, nullptr, &eye.imageIndex))) {
+        if (!acquireImage(eye)) {
             f.shouldRender = false;
             break;
         }
-        eye.acquired = true;
-        if (XR_FAILED(xrWaitSwapchainImage(eye.handle, &waitInfo))) {
-            f.shouldRender = false;
-            break;
+    }
+
+    // The panel is the window's size, whatever that is this frame.
+    const VkExtent2D window = ctx_ ? ctx_->getSwapchainExtent() : VkExtent2D{};
+    if (f.shouldRender && window.width > 0 && window.height > 0) {
+        if (f.panel.handle == XR_NULL_HANDLE || f.panelExtent.width != window.width ||
+            f.panelExtent.height != window.height) {
+            if (f.panel.handle != XR_NULL_HANDLE) {
+                vkDeviceWaitIdle(ctx_->getDevice());
+                xrDestroySwapchain(f.panel.handle);
+                f.panel = {};
+            }
+            if (createColorSwapchain(session_, f.eyeFormat, window.width, window.height, f.panel)) {
+                f.panelExtent = window;
+                if (debug_) LOG_WARNING("VR: panel ", window.width, "x", window.height);
+            } else {
+                LOG_WARNING("VR: could not create the panel swapchain");
+            }
         }
+        if (f.panel.handle != XR_NULL_HANDLE && !acquireImage(f.panel)) f.shouldRender = false;
     }
     addTiming(Timing::XrImages, millisecondsSince(imagesStart));
+
+    placePanel();
 }
 
-void XrSystem::recordMirror(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent) {
-    if (!frame_ || !frame_->begun || !frame_->shouldRender) return;
-    if (windowExtent.width == 0 || windowExtent.height == 0) return;
+// Stands the panel in front of the player and leaves it there: something to
+// look around, not something stuck to the face. It is moved only when the head
+// has turned well away from it or walked off, and then it follows over a
+// moment instead of jumping.
+void XrSystem::placePanel() {
     FrameData& f = *frame_;
-    constexpr uint32_t kBothEyes = (1u << kEyeCount) - 1u;
-    if (fake_) {
-        // No headset to show the eyes in: put them next to each other in the
-        // window, over whatever it held.
-        if (f.eyesCopied != kBothEyes) return;
-        const VkImageSubresourceLayers whole{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
-                                             .baseArrayLayer = 0, .layerCount = 1};
-        transition(cmd, windowImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        const auto half = static_cast<int32_t>(windowExtent.width / 2);
-        for (uint32_t i = 0; i < kEyeCount; ++i) {
-            VkImageBlit blit{};
-            blit.srcSubresource = whole;
-            blit.srcOffsets[1] = {static_cast<int32_t>(eyeWidth_), static_cast<int32_t>(eyeHeight_), 1};
-            blit.dstSubresource = whole;
-            blit.dstOffsets[0] = {static_cast<int32_t>(i) * half, 0, 0};
-            blit.dstOffsets[1] = {static_cast<int32_t>(i + 1) * half, static_cast<int32_t>(windowExtent.height), 1};
-            vkCmdBlitImage(cmd, f.eyeSource[i], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, windowImage,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
-        }
-        transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    const glm::vec3 head = 0.5f * (glm::vec3(f.views[0].pose.position.x, f.views[0].pose.position.y,
+                                             f.views[0].pose.position.z) +
+                                   glm::vec3(f.views[1].pose.position.x, f.views[1].pose.position.y,
+                                             f.views[1].pose.position.z));
+    const XrQuaternionf& o = f.views[0].pose.orientation;
+    const glm::vec3 forward = glm::quat(o.w, o.x, o.y, o.z) * glm::vec3(0.0f, 0.0f, -1.0f);
+    // Looking straight up or down says nothing about which way to face.
+    const bool level = std::abs(forward.x) + std::abs(forward.z) > 0.2f;
+    const float headYaw = level ? std::atan2(-forward.x, -forward.z) : f.panelTargetYaw;
+
+    constexpr float kFollowAngle = glm::radians(40.0f);
+    constexpr float kFollowDistance = 0.75f;
+    if (!f.panelPlaced) {
+        f.panelPlaced = true;
+        f.panelYaw = f.panelTargetYaw = headYaw;
+        f.panelAnchor = f.panelTargetAnchor = head;
+    } else if (std::abs(angleBetween(f.panelTargetYaw, headYaw)) > kFollowAngle ||
+               glm::distance(f.panelTargetAnchor, head) > kFollowDistance) {
+        f.panelTargetYaw = headYaw;
+        f.panelTargetAnchor = head;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const float dt = std::min(0.1f, std::chrono::duration<float>(now - f.panelMoved).count());
+    f.panelMoved = now;
+    const float k = 1.0f - std::exp(-dt * 6.0f);
+    f.panelYaw += angleBetween(f.panelYaw, f.panelTargetYaw) * k;
+    f.panelAnchor += (f.panelTargetAnchor - f.panelAnchor) * k;
+}
+
+// In the fake headset the two eyes go next to each other in the window, under
+// the interface: what a headset would show with the panel over the world.
+void XrSystem::recordFakePreview(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent) {
+    if (!fake_ || !frame_ || !frame_->begun) return;
+    FrameData& f = *frame_;
+    if (f.eyesCopied != (1u << kEyeCount) - 1u || windowExtent.width == 0) return;
+    const VkImageSubresourceLayers whole{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
+                                         .baseArrayLayer = 0, .layerCount = 1};
+    transition(cmd, windowImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    const auto half = static_cast<int32_t>(windowExtent.width / 2);
+    for (uint32_t i = 0; i < kEyeCount; ++i) {
+        VkImageBlit blit{};
+        blit.srcSubresource = whole;
+        blit.srcOffsets[1] = {static_cast<int32_t>(eyeWidth_), static_cast<int32_t>(eyeHeight_), 1};
+        blit.dstSubresource = whole;
+        blit.dstOffsets[0] = {static_cast<int32_t>(i) * half, 0, 0};
+        blit.dstOffsets[1] = {static_cast<int32_t>(i + 1) * half, static_cast<int32_t>(windowExtent.height), 1};
+        vkCmdBlitImage(cmd, f.eyeSource[i], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, windowImage,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+    }
+    transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+}
+
+// The finished window image, copied whole into the panel. Bytes across, not a
+// blit: the window is in a linear format and already display encoded, and the
+// panel is its sRGB twin of the same size.
+void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent) {
+    if (fake_ || !frame_ || !frame_->begun || !frame_->shouldRender) return;
+    FrameData& f = *frame_;
+    if (!f.panel.acquired || windowExtent.width != f.panelExtent.width ||
+        windowExtent.height != f.panelExtent.height) {
         return;
     }
-    // The eyes were drawn for themselves this frame; the window is not what
-    // the headset shows.
-    if (f.eyesCopied == kBothEyes) return;
-    const VkImage mirror = f.mirror.image;
-
-    // The window, whole, as large as fits an eye, on black.
-    const float scale = std::min(static_cast<float>(eyeWidth_) / static_cast<float>(windowExtent.width),
-                                 static_cast<float>(eyeHeight_) / static_cast<float>(windowExtent.height));
-    const auto width = static_cast<int32_t>(static_cast<float>(windowExtent.width) * scale);
-    const auto height = static_cast<int32_t>(static_cast<float>(windowExtent.height) * scale);
-    const int32_t left = (static_cast<int32_t>(eyeWidth_) - width) / 2;
-    const int32_t top = (static_cast<int32_t>(eyeHeight_) - height) / 2;
 
     const VkImageSubresourceLayers layers{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
                                           .baseArrayLayer = 0, .layerCount = 1};
-    const VkImageSubresourceRange range{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0,
-                                        .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1};
-
-    transition(cmd, windowImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    transition(cmd, mirror, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-    const VkClearColorValue black{{0.0f, 0.0f, 0.0f, 1.0f}};
-    vkCmdClearColorImage(cmd, mirror, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range);
-
-    VkImageBlit blit{};
-    blit.srcSubresource = layers;
-    blit.srcOffsets[1] = {static_cast<int32_t>(windowExtent.width), static_cast<int32_t>(windowExtent.height), 1};
-    blit.dstSubresource = layers;
-    blit.dstOffsets[0] = {left, top, 0};
-    blit.dstOffsets[1] = {left + width, top + height, 1};
-    vkCmdBlitImage(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mirror,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
-
-    transition(cmd, mirror, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-
     VkImageCopy copy{};
     copy.srcSubresource = layers;
     copy.dstSubresource = layers;
-    copy.extent = {eyeWidth_, eyeHeight_, 1};
-    for (const EyeSwapchain& eye : f.eyes) {
-        const VkImage target = eye.images[eye.imageIndex];
-        // Overwritten whole, so what the image held does not matter. The
-        // runtime wants it back in COLOR_ATTACHMENT_OPTIMAL.
-        transition(cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        vkCmdCopyImage(cmd, mirror, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-        transition(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    }
-    f.mirrored = true;
+    copy.extent = {windowExtent.width, windowExtent.height, 1};
+    const VkImage target = f.panel.images[f.panel.imageIndex];
+
+    transition(cmd, windowImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    // Overwritten whole, so what the image held does not matter. The runtime
+    // wants it back in COLOR_ATTACHMENT_OPTIMAL.
+    transition(cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    vkCmdCopyImage(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    transition(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    f.panelCopied = true;
 }
 
 void XrSystem::endFrame(bool submitted) {
@@ -500,20 +547,26 @@ void XrSystem::endFrame(bool submitted) {
     const auto endStart = std::chrono::steady_clock::now();
 
     bool released = true;
-    for (EyeSwapchain& eye : f.eyes) {
-        if (!eye.acquired) continue;
-        if (XR_FAILED(xrReleaseSwapchainImage(eye.handle, nullptr))) released = false;
-        eye.acquired = false;
-    }
+    const auto release = [&](EyeSwapchain& chain) {
+        if (!chain.acquired) return;
+        if (XR_FAILED(xrReleaseSwapchainImage(chain.handle, nullptr))) released = false;
+        chain.acquired = false;
+    };
+    for (EyeSwapchain& eye : f.eyes) release(eye);
+    release(f.panel);
+
+    // The world first, when this frame drew one, and the panel over it.
+    const bool usable = submitted && released && f.shouldRender;
+    const bool showWorld = usable && f.eyesCopied == (1u << kEyeCount) - 1u;
+    const bool showPanel = usable && f.panelCopied;
+    const bool show = showWorld || showPanel;
+    const XrCompositionLayerBaseHeader* layers[2] = {};
+    uint32_t layerCount = 0;
 
     std::array<XrCompositionLayerProjectionView, kEyeCount> projectionViews{};
     XrCompositionLayerProjection layer{};
     layer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
-    const XrCompositionLayerBaseHeader* layers[1] = {
-        reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer)};
-    const bool show = submitted && released && f.shouldRender &&
-                      (f.mirrored || f.eyesCopied == (1u << kEyeCount) - 1u);
-    if (show) {
+    if (showWorld) {
         for (uint32_t i = 0; i < kEyeCount; ++i) {
             projectionViews[i].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
             projectionViews[i].pose = f.views[i].pose;
@@ -525,14 +578,40 @@ void XrSystem::endFrame(bool submitted) {
         layer.space = localSpace_;
         layer.viewCount = kEyeCount;
         layer.views = projectionViews.data();
+        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer);
+    }
+
+    XrCompositionLayerQuad panel{};
+    panel.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+    if (showPanel) {
+        // The interface blends as it is drawn, onto a picture that was cleared
+        // to nothing: what is left in it is colour already multiplied by its
+        // own alpha, which is what a layer is taken to hold unless told otherwise.
+        panel.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        panel.space = localSpace_;
+        panel.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        panel.subImage.swapchain = f.panel.handle;
+        panel.subImage.imageRect.extent = {static_cast<int32_t>(f.panelExtent.width),
+                                           static_cast<int32_t>(f.panelExtent.height)};
+        // A quad faces +Z of its pose; turned by the yaw it faces the head it
+        // was placed for, from panelDistance_ in front of it and a little low.
+        panel.pose.orientation.y = std::sin(f.panelYaw * 0.5f);
+        panel.pose.orientation.w = std::cos(f.panelYaw * 0.5f);
+        panel.pose.position.x = f.panelAnchor.x - std::sin(f.panelYaw) * panelDistance_;
+        panel.pose.position.y = f.panelAnchor.y - 0.1f;
+        panel.pose.position.z = f.panelAnchor.z - std::cos(f.panelYaw) * panelDistance_;
+        panel.size.width = panelWidth_;
+        panel.size.height = panelWidth_ * static_cast<float>(f.panelExtent.height) /
+                            static_cast<float>(f.panelExtent.width);
+        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&panel);
     }
 
     XrFrameEndInfo endInfo{};
     endInfo.type = XR_TYPE_FRAME_END_INFO;
     endInfo.displayTime = f.displayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-    endInfo.layerCount = show ? 1 : 0;
-    endInfo.layers = show ? layers : nullptr;
+    endInfo.layerCount = layerCount;
+    endInfo.layers = layerCount > 0 ? layers : nullptr;
     const XrResult result = xrEndFrame(session_, &endInfo);
     if (XR_FAILED(result)) LOG_WARNING("VR: xrEndFrame failed: ", resultName(result));
     f.begun = false;

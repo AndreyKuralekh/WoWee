@@ -1,5 +1,8 @@
 // ChatBubbleManager - 3D-projected chat bubbles above entities.
 // Moved from ChatPanel::renderBubbles / setupCallbacks (Phase 1.4).
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 #include "ui/chat/chat_bubble_manager.hpp"
 #include "game/game_handler.hpp"
 #include "rendering/renderer.hpp"
@@ -37,6 +40,11 @@ void ChatBubbleManager::addBubble(uint64_t senderGuid, const std::string& messag
 }
 
 void ChatBubbleManager::render(game::GameHandler& gameHandler, const UIServices& services) {
+#ifdef WOWEE_VR
+    // Placed by projecting the world onto the screen with the game's camera, which is
+    // not what a headset looks through: on its panel chat bubbles would sit over the wrong things.
+    if (xr::system().stereoFrame()) return;
+#endif
     // Off means off: the queue is dropped as well, so turning the setting off
     // clears what is on screen rather than leaving it to fade for five seconds.
     if (!show_) { bubbles_.clear(); return; }

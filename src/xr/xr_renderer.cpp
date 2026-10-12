@@ -294,3 +294,35 @@ void Renderer::vrRenderEyes() {
 }
 
 }  // namespace wowee::rendering
+
+namespace wowee::rendering {
+
+// The window's pass in a frame whose world went to the eyes: of everything
+// renderWorld records, only the minimap is the interface's, and so the
+// window's. It is drawn where renderWorld draws it - in the continuation of
+// the scene pass when there is one, which is the pass its pipeline was built
+// against - and that pass is left open, as renderWorld leaves it.
+void Renderer::vrRenderWindowMinimap(game::GameHandler* gameHandler) {
+    if (minimapDrawsWithWater_ && vkCtx->getSceneContinueRenderPass() != VK_NULL_HANDLE) {
+        vkCmdEndRenderPass(currentCmd);
+
+        VkRenderPassBeginInfo passInfo{};
+        passInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        passInfo.renderPass = vkCtx->getSceneContinueRenderPass();
+        passInfo.framebuffer = activeFramebuffer_;
+        passInfo.renderArea.extent = activeRenderExtent_;
+        vkCmdBeginRenderPass(currentCmd, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport viewport{};
+        viewport.width = static_cast<float>(activeRenderExtent_.width);
+        viewport.height = static_cast<float>(activeRenderExtent_.height);
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(currentCmd, 0, 1, &viewport);
+        VkRect2D scissor{};
+        scissor.extent = activeRenderExtent_;
+        vkCmdSetScissor(currentCmd, 0, 1, &scissor);
+    }
+    renderMinimapOverlay(currentCmd, gameHandler);
+}
+
+}  // namespace wowee::rendering

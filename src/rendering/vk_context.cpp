@@ -3026,9 +3026,9 @@ void VkContext::endFrame(VkCommandBuffer cmd, uint32_t imageIndex) {
 
 #ifdef WOWEE_VR
     // Every pass has ended and the window image is finished: copy it to the
-    // headset. Here rather than in the renderer so the loading screen, which
+    // headset's panel. Here rather than in the renderer so the loading screen, which
     // records its own frames, is covered too.
-    xr::system().recordMirror(cmd, swapchainImages[imageIndex], swapchainExtent);
+    xr::system().recordPanel(cmd, swapchainImages[imageIndex], swapchainExtent);
 #endif
 
     VkResult endResult = vkEndCommandBuffer(cmd);

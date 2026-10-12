@@ -4,6 +4,9 @@
 // raid warning overlay, combat text, DPS meter, buff bar,
 // battleground score HUD, combat log, threat window, BG scoreboard.
 // ============================================================
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 #include "core/local_time.hpp"
 #include "ui/combat_ui.hpp"
 #include "addons/lua_api_registrations.hpp"
@@ -188,6 +191,11 @@ void CombatUI::playSoundsForNewChat(game::GameHandler& gameHandler) {
 // entry, which is a decision about what this interface owns rather than a fix
 // to something broken - and the client's combat text is the one on screen today.
 void CombatUI::renderCombatText(game::GameHandler& gameHandler) {
+#ifdef WOWEE_VR
+    // Placed by projecting the world onto the screen with the game's camera, which is
+    // not what a headset looks through: on its panel floating combat text would sit over the wrong things.
+    if (xr::system().stereoFrame()) return;
+#endif
     const auto& entries = gameHandler.getCombatText();
     if (entries.empty()) return;
 

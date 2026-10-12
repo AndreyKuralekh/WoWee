@@ -1,3 +1,6 @@
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 #include "ui/game_screen.hpp"
 #include "ui/sight_cache.hpp"
 #include "addons/lua_api_registrations.hpp"
@@ -893,6 +896,11 @@ VkDescriptorSet GameScreen::getSpellIcon(uint32_t spellId, pipeline::AssetManage
 // ============================================================
 
 void GameScreen::renderNameplates(game::GameHandler& gameHandler) {
+#ifdef WOWEE_VR
+    // Placed by projecting the world onto the screen with the game's camera, which is
+    // not what a headset looks through: on its panel nameplates would sit over the wrong things.
+    if (xr::system().stereoFrame()) return;
+#endif
     if (gameHandler.getState() != game::WorldState::IN_WORLD) return;
 
     // Reset mouseover each frame; we'll set it below when the cursor is over a nameplate
