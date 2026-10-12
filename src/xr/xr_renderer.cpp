@@ -241,9 +241,19 @@ void Renderer::vrBeginViews() {
     // so the mouse and the keys turn the view as they turn the character.
     glm::vec3 reference = camera->getPosition();
     const glm::vec3* followed = cameraController ? cameraController->getFollowTarget() : nullptr;
-    if (xr::system().firstPerson() && followed && cameraController->isThirdPerson()) {
-        reference = *followed + glm::vec3(0.0f, 0.0f, cameraController->followedEyeHeight());
-        cameraController->setPlayerHidden(true);
+    if (followed && cameraController->isThirdPerson()) {
+        const float eyeZ = followed->z + cameraController->followedEyeHeight();
+        if (xr::system().firstPerson()) {
+            reference = glm::vec3(followed->x, followed->y, eyeZ);
+            cameraController->setPlayerHidden(true);
+        } else {
+            // The game's camera looks down at the character from above it, and
+            // a head does not take its tilt: left at that height it looks out
+            // level over a character somewhere below. So behind the character
+            // where the camera is, but only a little over its eyes.
+            constexpr float kLiftOverEyes = 0.5f;
+            reference.z = std::min(reference.z, eyeZ + kLiftOverEyes);
+        }
         // Left to itself the camera starts circling a character that stands
         // still, and here that would turn the world round the player's head.
         if (cameraController->isIdleOrbitEnabled()) cameraController->setIdleOrbitEnabled(false);
