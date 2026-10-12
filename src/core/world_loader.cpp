@@ -43,6 +43,10 @@
 #include <functional>
 #include <glm/gtc/quaternion.hpp>
 
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
+
 namespace wowee {
 namespace core {
 
@@ -1195,7 +1199,14 @@ void WorldLoader::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
     }
 
     // Start intro pan right before entering gameplay so it's visible after loading.
-    if (renderer_->getCameraController()) {
+#ifdef WOWEE_VR
+    // Not in a headset: there the camera's turn is the turn of the world
+    // round the player's head.
+    const bool introPan = !xr::system().sessionRunning() && !xr::system().fakeHeadset();
+#else
+    const bool introPan = true;
+#endif
+    if (introPan && renderer_->getCameraController()) {
         renderer_->getCameraController()->startIntroPan(2.8f, 140.0f);
     }
 
