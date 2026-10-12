@@ -875,7 +875,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrshowfps", "vrfirstperson",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrshowfps", "vrfirstperson", "vrshine",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1072,6 +1072,7 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrpanelwidth",      .asFloat = &SettingsPanel::pendingVrPanelWidth},
     {.key = "vrshowfps",         .asBool  = &SettingsPanel::pendingVrShowFps},
     {.key = "vrfirstperson",     .asBool  = &SettingsPanel::pendingVrFirstPerson},
+    {.key = "vrshine",           .asFloat = &SettingsPanel::pendingVrShine},
 #endif
     {.key = "parallaxquality",   .asInt   = &SettingsPanel::pendingPOMQuality},
 
@@ -1262,6 +1263,14 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     }
     if (key == "vrfirstperson") {
         xr::system().setFirstPerson(pendingVrFirstPerson);
+        return;
+    }
+    if (key == "vrshine") {
+        // Only where there is a headset: started flat, this build is the flat
+        // client and shines as it does. 0.5 is what the renderer uses itself.
+        if (wmo && (xr::system().available() || xr::system().fakeHeadset())) {
+            wmo->setSpecularIntensity(0.5f * pendingVrShine);
+        }
         return;
     }
 #endif

@@ -849,7 +849,7 @@ WMORenderer::ModelLoadResult WMORenderer::loadModelIncremental(
             matData.unlit = mb.unlit ? 1 : 0;
             matData.isInterior = isInterior ? 1 : 0;
             matData.hasVertexColors = (groupRes.groupFlags & 0x4) != 0 ? 1 : 0;
-            matData.specularIntensity = 0.5f;
+            matData.specularIntensity = specularIntensity_;
             matData.isWindow = mb.isWindow ? (wmoOnlyMap_ ? 2 : 1) : 0;
             matData.enableNormalMap = normalMappingEnabled_ ? 1 : 0;
             matData.enablePOM = pomEnabled_ ? 1 : 0;
@@ -1620,6 +1620,7 @@ void WMORenderer::prepareRender() {
                         ubo->pomMaxSamples = maxSamples;
                         ubo->heightMapVariance = mb.heightMapVariance;
                         ubo->normalMapStrength = normalMapStrength_;
+                        ubo->specularIntensity = specularIntensity_;
                     }
                 }
             }

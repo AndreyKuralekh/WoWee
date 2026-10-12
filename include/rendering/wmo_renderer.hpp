@@ -273,6 +273,9 @@ public:
      */
     void setNormalMappingEnabled(bool enabled) { normalMappingEnabled_ = enabled; materialSettingsDirty_ = true; }
     void setNormalMapStrength(float s) { normalMapStrength_ = s; materialSettingsDirty_ = true; }
+    /// How strongly every material shines back the sun. One figure for stone,
+    /// wood and plaster alike, which is why it is worth turning down.
+    void setSpecularIntensity(float s) { specularIntensity_ = s; materialSettingsDirty_ = true; }
     void setPOMEnabled(bool enabled) { pomEnabled_ = enabled; materialSettingsDirty_ = true; }
     void setPOMQuality(int q) { pomQuality_ = q; materialSettingsDirty_ = true; }
     void setWMOOnlyMap(bool v) { wmoOnlyMap_ = v; materialSettingsDirty_ = true; }
@@ -888,6 +891,7 @@ private:
     // Normal mapping / POM settings
     bool normalMappingEnabled_ = true;   // on by default
     bool deferNormalMaps_ = false;       // skip normal map gen during streaming
+    float specularIntensity_ = 0.5f;     // see setSpecularIntensity
     float normalMapStrength_ = 0.8f;     // 0.0 = flat, 1.0 = full, 2.0 = exaggerated
     bool pomEnabled_ = true;             // on by default
     int pomQuality_ = 1;                 // 0=Low(16), 1=Medium(32), 2=High(64)
