@@ -661,6 +661,11 @@ void XrSystem::recordDump(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D w
     FrameData& f = *frame_;
     const auto now = std::chrono::steady_clock::now();
     if (!ctx_ || !f.dumpShots.empty() || now - f.lastDump < std::chrono::seconds(1)) return;
+    // The frames asked for are frames of the world. Before there is one - the
+    // login screen, the loading screens - a single picture of the panel is
+    // taken and not counted, or the count would be spent before the world came.
+    const bool world = f.eyesCopied == (1u << kEyeCount) - 1u;
+    if (!world && f.dumpIndex > 0) return;
     f.lastDump = now;
 
     const auto take = [&](VkImage image, uint32_t width, uint32_t height, const char* what, bool opaque) {
@@ -688,7 +693,7 @@ void XrSystem::recordDump(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D w
     };
     // The panel keeps its alpha: where it is clear the world shows through.
     take(windowImage, windowExtent.width, windowExtent.height, "panel", false);
-    if (f.eyesCopied == (1u << kEyeCount) - 1u) {
+    if (world) {
         take(f.eyeSource[0], eyeWidth_, eyeHeight_, "left", true);
         take(f.eyeSource[1], eyeWidth_, eyeHeight_, "right", true);
     }
@@ -728,11 +733,12 @@ void XrSystem::finishDump(bool submitted) {
         }
         vmaDestroyBuffer(allocator, shot.buffer, shot.allocation);
     }
+    const bool world = f.dumpShots.size() > 1;
     f.dumpShots.clear();
     if (!submitted) return;
     if (debug_) LOG_WARNING("VR: frame ", f.dumpIndex, " written to ", f.dumpDir);
     ++f.dumpIndex;
-    if (--f.dumpsLeft == 0) LOG_WARNING("VR: all ", dumpFrames_, " frames written");
+    if (world && --f.dumpsLeft == 0) LOG_WARNING("VR: all ", dumpFrames_, " frames written");
 }
 
 XrTime XrSystem::frameTime() const {
