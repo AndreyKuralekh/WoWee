@@ -13,6 +13,8 @@
  *   WOWEE_VR_DEBUG=1        verbose OpenXR log, and the once-a-second frame line
  *   WOWEE_VR_DUMP_FRAMES=N  write N frames of each eye and of the interface as PNG
  *   WOWEE_VR_EYE_SCALE=P    eye image size in percent of what the runtime recommends (25-200)
+ *   WOWEE_VR_PROFILE=0|1    the lean frame (see leanFrame): 0 keeps the flat client's frame in the
+ *                           headset, 1 forces the lean one without a headset, for measuring it
  *
  * Nothing here is ever fatal. No runtime, no headset connected, a runtime
  * without the Vulkan extension: each is logged once and the client carries on
@@ -101,6 +103,11 @@ public:
     /// window's vsync stand down.
     [[nodiscard]] bool sessionRunning() const { return running_; }
 
+    /// Whether the renderer should leave out what a headset frame cannot
+    /// afford: the shadow pass and the water reflection, each of which draws
+    /// the scene a second time. True while the session runs.
+    [[nodiscard]] bool leanFrame() const { return leanForced_ || (running_ && !leanRefused_); }
+
     // --- Frame ---
     //
     // Called by VkContext around every frame it records, the loading screen's
@@ -148,6 +155,8 @@ private:
     XrSpace stageSpace_ = XR_NULL_HANDLE;
     rendering::VkContext* ctx_ = nullptr;
     bool running_ = false;
+    bool leanForced_ = false;
+    bool leanRefused_ = false;
 
     // Swapchains, the frame in progress and its statistics; xr_frame.cpp.
     struct FrameData;

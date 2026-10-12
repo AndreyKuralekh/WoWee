@@ -5,6 +5,7 @@
 #include "xr/xr_platform.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 
 namespace wowee::xr {
@@ -59,6 +60,12 @@ std::string XrSystem::resultName(XrResult result) const {
 }
 
 bool XrSystem::initialize() {
+    // Read whether or not VR was asked for: forcing the lean frame without a
+    // headset is how it is measured on a desk.
+    if (const char* profile = std::getenv("WOWEE_VR_PROFILE"); profile && *profile) {
+        leanForced_ = core::envValueEnables(profile, false);
+        leanRefused_ = !leanForced_;
+    }
     if (!requested()) return false;
 
     debug_ = core::envFlagEnabled("WOWEE_VR_DEBUG");

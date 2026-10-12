@@ -60,6 +60,9 @@
 #include "core/application.hpp"
 #include "core/window.hpp"
 #include "core/logger.hpp"
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 #include "game/world.hpp"
 #include "game/zone_manager.hpp"
 #include "audio/audio_coordinator.hpp"
@@ -113,6 +116,13 @@
 
 namespace wowee {
 namespace rendering {
+
+// A headset frame leaves out the passes that draw the scene a second time.
+#ifdef WOWEE_VR
+static bool vrLeanFrame() { return xr::system().leanFrame(); }
+#else
+static bool vrLeanFrame() { return false; }
+#endif
 
 
 
@@ -597,7 +607,7 @@ void Renderer::updatePerFrameUBO() {
     float shadowBias = glm::clamp(0.8f * (shadowDistance_ / 300.0f), 0.0f, 1.0f);
     // z carries one texel of the shadow map. The shaders used to hold that as
     // a constant for 4096, and the map is 512 to 4096 by the quality level.
-    currentFrameData.shadowParams = glm::vec4(shadowsEnabled ? 1.0f : 0.0f, shadowBias,
+    currentFrameData.shadowParams = glm::vec4(shadowsEnabled && !vrLeanFrame() ? 1.0f : 0.0f, shadowBias,
                                               1.0f / static_cast<float>(SHADOW_MAP_SIZE), 0.0f);
 
     // Whether this frame builds the fog volume. Decided here, beside the
@@ -4309,6 +4319,7 @@ void Renderer::setSecondaryViewportScissor(VkCommandBuffer cmd) {
 
 void Renderer::renderReflectionPass() {
     if (!waterRenderer || !camera || !waterRenderer->hasReflectionPass() || !waterRenderer->hasSurfaces()) return;
+    if (vrLeanFrame()) return;
     if (currentCmd == VK_NULL_HANDLE || !reflPerFrameUBOMapped) return;
 
     // Select the current frame's pre-bound reflection descriptor set
@@ -4403,7 +4414,7 @@ void Renderer::renderShadowPass() {
     // into it. Returning here instead left the image untransitioned while it
     // stayed bound for sampling, which is the shape of fault that takes the
     // device down rather than drawing something wrong.
-    const bool drawCasters = shadowsEnabled;
+    const bool drawCasters = shadowsEnabled && !vrLeanFrame();
 
     // Shadows render every frame - throttling causes visible flicker on player/NPCs
 
