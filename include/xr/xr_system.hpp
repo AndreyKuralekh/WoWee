@@ -12,6 +12,7 @@
  *   WOWEE_VR=1              ask for VR
  *   WOWEE_VR_DEBUG=1        verbose OpenXR log, and the once-a-second frame line
  *   WOWEE_VR_DUMP_FRAMES=N  write N frames of each eye and of the interface as PNG
+ *   WOWEE_VR_EYE_SCALE=P    eye image size in percent of what the runtime recommends (25-200)
  *
  * Nothing here is ever fatal. No runtime, no headset connected, a runtime
  * without the Vulkan extension: each is logged once and the client carries on
@@ -116,6 +117,11 @@ public:
     /// Hands the frame to the runtime. `submitted` is whether the command
     /// buffer made it to the queue; if not the frame goes out with no layer.
     void endFrame(bool submitted);
+
+    /// Where a frame's wall-clock time went, for the once-a-second debug line.
+    /// The window's own waits are reported by VkContext; the rest is measured here.
+    enum class Timing { SlotWait, WindowAcquire, WindowPresent, XrBegin, XrImages, XrEnd, Count };
+    void addTiming(Timing which, double milliseconds);
 
     [[nodiscard]] XrSession session() const { return session_; }
     [[nodiscard]] XrSessionState sessionState() const { return sessionState_; }

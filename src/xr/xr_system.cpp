@@ -181,6 +181,16 @@ bool XrSystem::findHeadset() {
     eyeHeight_ = views[0].recommendedImageRectHeight;
     LOG_WARNING("VR: recommended eye image ", eyeWidth_, "x", eyeHeight_, ", up to ",
                 views[0].maxSwapchainSampleCount, " samples");
+
+    // WOWEE_VR_EYE_SCALE, in percent of the recommended size along each side.
+    // The eye images are most of what the GPU fills in VR, so this is the
+    // first thing to turn down when a frame does not fit.
+    const int scalePercent = core::envIntClamped("WOWEE_VR_EYE_SCALE", 100, 25, 200);
+    if (scalePercent != 100) {
+        eyeWidth_ = std::min(views[0].maxImageRectWidth, eyeWidth_ * static_cast<uint32_t>(scalePercent) / 100u);
+        eyeHeight_ = std::min(views[0].maxImageRectHeight, eyeHeight_ * static_cast<uint32_t>(scalePercent) / 100u);
+        LOG_WARNING("VR: eye image scaled to ", scalePercent, "%: ", eyeWidth_, "x", eyeHeight_);
+    }
     return true;
 }
 

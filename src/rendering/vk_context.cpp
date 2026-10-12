@@ -15,6 +15,7 @@
 #include <SDL3/SDL_vulkan.h>
 #include <imgui_impl_vulkan.h>
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <cstdio>
 #include <filesystem>
@@ -23,12 +24,27 @@
 namespace wowee {
 namespace rendering {
 
+// The three places a frame can stand still on the window's account.
+enum class FrameWait { Slot, Acquire, Present };
+
 #ifdef WOWEE_VR
 // While a headset session runs, its runtime paces the frame. A window that
 // also waited for its own display would hold both to the slower of the two.
 static bool windowPresentWaits(bool vsync) { return vsync && !xr::system().sessionRunning(); }
+
+// Into the VR debug line, so a frame that does not fit the headset's period
+// can be told apart by where it waited.
+static void noteFrameWait(FrameWait wait, std::chrono::steady_clock::time_point since) {
+    using Timing = xr::XrSystem::Timing;
+    const Timing which = wait == FrameWait::Slot      ? Timing::SlotWait
+                         : wait == FrameWait::Acquire ? Timing::WindowAcquire
+                                                      : Timing::WindowPresent;
+    xr::system().addTiming(
+        which, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - since).count());
+}
 #else
 static bool windowPresentWaits(bool vsync) { return vsync; }
+static void noteFrameWait(FrameWait, std::chrono::steady_clock::time_point) {}
 #endif
 
 VkContext* VkContext::sInstance_ = nullptr;
@@ -2893,6 +2909,7 @@ VkCommandBuffer VkContext::beginFrame(uint32_t& imageIndex) {
     static int beginFrameCounter = 0;
     beginFrameCounter++;
     VkResult fenceResult;
+    const auto slotWaitStart = std::chrono::steady_clock::now();
     if (frameTimeline_ != VK_NULL_HANDLE) {
         VkSemaphoreWaitInfo waitInfo{};
         waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
@@ -2903,6 +2920,7 @@ VkCommandBuffer VkContext::beginFrame(uint32_t& imageIndex) {
     } else {
         fenceResult = vkWaitForFences(device, 1, &frame.inFlightFence, VK_TRUE, 5000000000ULL); // 5 second timeout
     }
+    noteFrameWait(FrameWait::Slot, slotWaitStart);
     if (fenceResult == VK_TIMEOUT) {
         LOG_ERROR("beginFrame[", beginFrameCounter, "] FENCE TIMEOUT (5s) on frame slot ", currentFrame,
                   " (waiting for timeline ", frame.timelineValue, ") - GPU hang detected!");
@@ -2924,8 +2942,10 @@ VkCommandBuffer VkContext::beginFrame(uint32_t& imageIndex) {
     // Acquire next swapchain image using the free semaphore.
     // After acquiring we swap it into the per-image slot so the old per-image
     // semaphore (now released by the presentation engine) becomes the free one.
+    const auto acquireStart = std::chrono::steady_clock::now();
     VkResult result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
         nextAcquireSemaphore_, VK_NULL_HANDLE, &imageIndex);
+    noteFrameWait(FrameWait::Acquire, acquireStart);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         swapchainDirty = true;
@@ -3126,7 +3146,9 @@ void VkContext::endFrame(VkCommandBuffer cmd, uint32_t imageIndex) {
     presentInfo.pSwapchains = &swapchain;
     presentInfo.pImageIndices = &imageIndex;
 
+    const auto presentStart = std::chrono::steady_clock::now();
     VkResult result = vkQueuePresentKHR(presentQueue, &presentInfo);
+    noteFrameWait(FrameWait::Present, presentStart);
     // Presenting unrotated onto a rotated surface is suboptimal by definition,
     // and says so on every frame for as long as the swapchain lives. Rebuilding
     // on that answer rebuilds every frame, which is what stopped the client

@@ -80,7 +80,21 @@ struct XrSystem::FrameData {
     uint32_t notRendered = 0;
     uint32_t missed = 0;
     double cpuMs = 0.0;
+    double waitMs = 0.0;
+    std::array<double, static_cast<size_t>(XrSystem::Timing::Count)> timing{};
 };
+
+namespace {
+
+double millisecondsSince(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+}
+
+}  // namespace
+
+void XrSystem::addTiming(Timing which, double milliseconds) {
+    if (frame_ && running_) frame_->timing[static_cast<size_t>(which)] += milliseconds;
+}
 
 XrSystem::XrSystem() = default;
 XrSystem::~XrSystem() = default;
@@ -207,12 +221,16 @@ void XrSystem::beginFrame() {
 
     XrFrameState frameState{};
     frameState.type = XR_TYPE_FRAME_STATE;
+    const auto waitStart = std::chrono::steady_clock::now();
     XrResult result = xrWaitFrame(session_, nullptr, &frameState);
+    f.waitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - waitStart).count();
     if (XR_FAILED(result)) {
         LOG_WARNING("VR: xrWaitFrame failed: ", resultName(result));
         return;
     }
+    const auto beginStart = std::chrono::steady_clock::now();
     result = xrBeginFrame(session_, nullptr);
+    addTiming(Timing::XrBegin, millisecondsSince(beginStart));
     if (XR_FAILED(result)) {
         LOG_WARNING("VR: xrBeginFrame failed: ", resultName(result));
         return;
@@ -253,6 +271,7 @@ void XrSystem::beginFrame() {
         return;
     }
 
+    const auto imagesStart = std::chrono::steady_clock::now();
     for (EyeSwapchain& eye : f.eyes) {
         XrSwapchainImageWaitInfo waitInfo{};
         waitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
@@ -267,6 +286,7 @@ void XrSystem::beginFrame() {
             break;
         }
     }
+    addTiming(Timing::XrImages, millisecondsSince(imagesStart));
 }
 
 void XrSystem::recordMirror(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent) {
@@ -325,6 +345,7 @@ void XrSystem::recordMirror(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D
 void XrSystem::endFrame(bool submitted) {
     if (!frame_ || !frame_->begun) return;
     FrameData& f = *frame_;
+    const auto endStart = std::chrono::steady_clock::now();
 
     bool released = true;
     for (EyeSwapchain& eye : f.eyes) {
@@ -362,6 +383,7 @@ void XrSystem::endFrame(bool submitted) {
     const XrResult result = xrEndFrame(session_, &endInfo);
     if (XR_FAILED(result)) LOG_WARNING("VR: xrEndFrame failed: ", resultName(result));
     f.begun = false;
+    addTiming(Timing::XrEnd, millisecondsSince(endStart));
 
     const auto now = std::chrono::steady_clock::now();
     f.cpuMs += std::chrono::duration<double, std::milli>(now - f.cpuStart).count();
@@ -369,14 +391,24 @@ void XrSystem::endFrame(bool submitted) {
     if (!show) ++f.notRendered;
     if (now - f.statsStart >= std::chrono::seconds(1)) {
         if (debug_) {
+            // "wait" is how long xrWaitFrame held the frame back, and "cpu" what
+            // the client then spent between beginning the frame and ending it.
+            const double perFrame = 1.0 / std::max<uint32_t>(1, f.frames);
             LOG_WARNING("VR frames ", f.frames, " / missed ", f.missed, " / not shown ", f.notRendered,
-                        " / cpu ", f.cpuMs / std::max<uint32_t>(1, f.frames), " ms");
+                        " / cpu ", f.cpuMs * perFrame, " ms / wait ", f.waitMs * perFrame, " ms");
+            auto t = [&](Timing which) { return f.timing[static_cast<size_t>(which)] * perFrame; };
+            LOG_WARNING("VR waits per frame: slot ", t(Timing::SlotWait), " / window acquire ",
+                        t(Timing::WindowAcquire), " / window present ", t(Timing::WindowPresent),
+                        " / xr begin ", t(Timing::XrBegin), " / xr images ", t(Timing::XrImages),
+                        " / xr end ", t(Timing::XrEnd), " ms");
         }
         f.statsStart = now;
         f.frames = 0;
         f.notRendered = 0;
         f.missed = 0;
         f.cpuMs = 0.0;
+        f.waitMs = 0.0;
+        f.timing.fill(0.0);
     }
 }
 
