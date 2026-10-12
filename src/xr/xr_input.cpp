@@ -8,18 +8,23 @@
 // The right controller is the mouse as well. Where its ray meets the panel
 // the real pointer is put, as the gamepad puts it, so that everything asking
 // where the mouse is gets one answer; the trigger and the grip are its buttons.
+// In the world the ray goes on past the panel, and a click that no window
+// takes is a click on whatever the ray meets: the camera is given the ray to
+// pick along (Camera::setPickRay), and the click itself is the mouse's.
 
 #include "xr/xr_system.hpp"
 
 #include "core/input.hpp"
 #include "core/logger.hpp"
 #include "rendering/camera_controller.hpp"
+#include "ui/framexml_takeover.hpp"
 
 #include <SDL3/SDL.h>
 #include <glm/gtc/quaternion.hpp>
 #include <imgui.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstring>
 #include <iterator>
@@ -43,6 +48,17 @@ struct XrSystem::InputData {
     bool mouseHeld[2] = {};
     glm::vec2 mouseAt{-1000.0f};
     float beamLength = 0.0f;
+    // Whether the ray is what picks in the world just now; pickRay.
+    bool inCharge = false;
+    // A press that began with no window under it: the cursor is kept where it
+    // was until the button comes up, or a hand that shook would make a drag
+    // of every click.
+    bool steady = false;
+    // A press that began beside the panel. The interface is told the mouse
+    // has left for as long as it lasts, and for one frame more: the release is
+    // acted on in the frame it happens.
+    bool worldPress = false;
+    bool worldPressOver = false;
 
     // What this is holding down, so that only that is ever let go: the
     // keyboard and the gamepad hold the same keys by the same means.
@@ -232,7 +248,30 @@ void XrSystem::releasePointer() {
         core::Input::getInstance().setVirtualMouseButton(kMouseButtons[i], false);
         if (ImGui::GetCurrentContext()) ImGui::GetIO().AddMouseButtonEvent(static_cast<int>(i), false);
     }
+    if (input_->worldPress && ImGui::GetCurrentContext()) {
+        float x = 0.0f;
+        float y = 0.0f;
+        SDL_GetMouseState(&x, &y);
+        ImGui::GetIO().AddMousePosEvent(x, y);
+    }
+    input_->worldPress = false;
+    input_->worldPressOver = false;
+    input_->steady = false;
+    input_->inCharge = false;
     input_->beamLength = 0.0f;
+}
+
+bool XrSystem::pickRay(glm::vec3& origin, glm::vec3& direction) const {
+    if (!input_ || !input_->inCharge || !worldPlaced_) return false;
+    glm::vec3 from;
+    glm::vec3 along;
+    if (!aimRay(localSpace_, frameTime(), from, along)) return false;
+    // As stereoViews places an eye.
+    constexpr float kYardsPerMetre = 1.0f / 0.9144f;
+    const glm::quat recentre = glm::angleAxis(-(headOriginYaw_ + bodyYaw_), glm::vec3(0.0f, 1.0f, 0.0f));
+    origin = worldReference_ + worldBasis_ * ((recentre * (from - headOrigin_)) * kYardsPerMetre);
+    direction = glm::normalize(worldBasis_ * (recentre * along));
+    return true;
 }
 
 bool XrSystem::aimRay(XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& direction) const {
@@ -252,7 +291,7 @@ bool XrSystem::aimRay(XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& d
 // from there it is a line whichever way the controller points.
 bool XrSystem::pointerBeam(XrTime time, const glm::vec3& head, XrPosef& pose, XrExtent2Df& size) const {
     constexpr float kStart = 0.05f;   // metres ahead of the controller
-    constexpr float kLength = 1.5f;   // when the ray meets no panel
+    constexpr float kLength = 1.5f;   // before the pointer has said how far
     constexpr float kWidth = 0.004f;
     glm::vec3 origin;
     glm::vec3 along;
@@ -272,9 +311,18 @@ bool XrSystem::pointerBeam(XrTime time, const glm::vec3& head, XrPosef& pose, Xr
 
 // The mouse, put where the ray meets the panel. Left alone when it misses, so
 // that a controller lying on the desk does not take the mouse away.
-void XrSystem::updatePointer(SDL_Window* window) {
+void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
     InputData& in = *input_;
-    in.beamLength = 0.0f;
+    // As far as the panel where a window takes the click, and before there is
+    // a world; on into the world otherwise. Nothing hides a layer, so the ray
+    // does not stop at what it meets there.
+    constexpr float kIntoWorld = 20.0f;
+    constexpr float kBesidePanel = 1.5f;
+    in.beamLength = inWorld ? kIntoWorld : kBesidePanel;
+    ImGuiIO* io = ImGui::GetCurrentContext() ? &ImGui::GetIO() : nullptr;
+    // Both as of the last frame, which is where the cursor still is.
+    const bool overUi = (io && io->WantCaptureMouse) || ui::frameXmlOwnsMouse();
+    const bool anyHeld = in.mouseHeld[0] || in.mouseHeld[1];
 
     bool onPanel = false;
     glm::vec2 at(0.0f);
@@ -300,13 +348,13 @@ void XrSystem::updatePointer(SDL_Window* window) {
             SDL_GetWindowSize(window, &w, &h);
             if (u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f && w > 0 && h > 0) {
                 onPanel = true;
-                in.beamLength = distance;
+                if (overUi || !inWorld) in.beamLength = distance;
                 at = glm::vec2(u * static_cast<float>(w - 1), v * static_cast<float>(h - 1));
             }
         }
     }
 
-    if (onPanel) {
+    if (onPanel && !(anyHeld && in.steady)) {
         // A hand is never still: near where the pointer already is it goes
         // half the way each frame, and anything under a pixel is let be.
         constexpr float kSteadyWithin = 40.0f;
@@ -316,19 +364,44 @@ void XrSystem::updatePointer(SDL_Window* window) {
             in.mouseAt = at;
             SDL_WarpMouseInWindow(window, at.x, at.y);
             // Told at once as well: a click in this same frame has to land here.
-            if (ImGui::GetCurrentContext()) ImGui::GetIO().AddMousePosEvent(at.x, at.y);
+            if (io) io->AddMousePosEvent(at.x, at.y);
         }
     }
 
-    // A press starts on the panel only; once down, a button is held until it
-    // is let go, wherever the ray has gone since - that is what a drag is.
+    // A press starts on the panel, or in the world beside it; once down, a
+    // button is held until it is let go, wherever the ray has gone since -
+    // that is what a drag is.
+    // Beside the panel only with a ray to click along.
+    const bool tracked = focused && inWorld && aimRay(localSpace_, frameTime(), origin, direction);
     const bool wanted[2] = {button(session_, in.click), button(session_, in.grab)};
     for (size_t i = 0; i < std::size(kMouseButtons); ++i) {
-        const bool down = wanted[i] && (in.mouseHeld[i] || onPanel);
+        const bool down = wanted[i] && (in.mouseHeld[i] || onPanel || tracked);
         if (down == in.mouseHeld[i]) continue;
+        if (down && !in.mouseHeld[0] && !in.mouseHeld[1]) {
+            in.steady = inWorld && !(onPanel && overUi);
+            if (!onPanel) {
+                // The cursor is wherever it was left, and may well be on a
+                // window: this click is not for that window.
+                in.worldPress = true;
+                in.worldPressOver = false;
+                if (io) io->AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+            }
+        }
         in.mouseHeld[i] = down;
         core::Input::getInstance().setVirtualMouseButton(kMouseButtons[i], down);
-        if (ImGui::GetCurrentContext()) ImGui::GetIO().AddMouseButtonEvent(static_cast<int>(i), down);
+        if (io) io->AddMouseButtonEvent(static_cast<int>(i), down);
+    }
+
+    in.inCharge = inWorld && (onPanel || in.worldPress);
+    if (in.worldPress && !in.mouseHeld[0] && !in.mouseHeld[1]) {
+        if (in.worldPressOver) {
+            in.worldPress = false;
+            float x = 0.0f;
+            float y = 0.0f;
+            SDL_GetMouseState(&x, &y);
+            if (io) io->AddMousePosEvent(x, y);
+        }
+        in.worldPressOver = true;
     }
 }
 
@@ -397,7 +470,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
 
     // The pointer works wherever there is a panel: the login screen and the
     // character list are nothing else.
-    updatePointer(window);
+    updatePointer(window, live);
     if (!live) {
         releaseControllerKeys();
         return;

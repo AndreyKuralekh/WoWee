@@ -60,6 +60,16 @@ public:
 
     [[nodiscard]] Ray screenToWorldRay(float screenX, float screenY, float screenW, float screenH) const;
 
+    /// A ray that screenToWorldRay answers with whatever point it is asked
+    /// about, until it is cleared.
+    ///
+    /// For a pointer that is not on the screen: a controller held in the hand
+    /// points at the world from where the hand is, and everything that picks -
+    /// the cursor's hint, a click to select, a click to use - asks this one
+    /// function what the pointer is on.
+    void setPickRay(const Ray& ray) { pickRay_ = ray; hasPickRay_ = true; }
+    void clearPickRay() { hasPickRay_ = false; }
+
     /// Takes the view and the projection as given instead of building them
     /// from position, yaw, pitch and field of view.
     ///
@@ -91,6 +101,9 @@ private:
     glm::mat4 projectionMatrix = glm::mat4(1.0f);
     glm::mat4 unjitteredProjectionMatrix = glm::mat4(1.0f);
     glm::vec2 jitterOffset = glm::vec2(0.0f);  // NDC jitter (applied to projection)
+
+    bool hasPickRay_ = false;
+    Ray pickRay_{};
 
     bool externalView_ = false;
     glm::vec3 ownPosition_ = glm::vec3(0.0f);  // position to return to after an external view

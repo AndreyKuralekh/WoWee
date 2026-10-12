@@ -212,6 +212,7 @@ void Renderer::vrBeginViews() {
     if (vrEyes_) vrEyes_->viewsValid = false;
     // Until this frame turns out to be seen from the character's eyes.
     if (cameraController) cameraController->setPlayerHidden(false);
+    if (camera) camera->clearPickRay();
     if (!vrGameHandler_) vrInWorld_ = false;
     if (!vrGameHandler_ || !camera || currentCmd == VK_NULL_HANDLE || !xr::system().stereoFrame()) return;
 
@@ -269,6 +270,10 @@ void Renderer::vrBeginViews() {
 
     const xr::EyeView& center = vrEyes_->views.center;
     camera->setExternalView(center.view, center.projection, center.position);
+
+    // What the controller points at is what a click is about.
+    Ray pointer{};
+    if (xr::system().pickRay(pointer.origin, pointer.direction)) camera->setPickRay(pointer);
 }
 
 // The world, once per eye, before the window's own pass opens.

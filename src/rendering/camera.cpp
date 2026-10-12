@@ -98,6 +98,8 @@ void Camera::clearJitter() {
 }
 
 Ray Camera::screenToWorldRay(float screenX, float screenY, float screenW, float screenH) const {
+    if (hasPickRay_) return pickRay_;
+
     float ndcX = (2.0f * screenX / screenW) - 1.0f;
     // Vulkan Y-flip is baked into projectionMatrix, so NDC Y maps directly:
     // screen top (y=0) → NDC -1, screen bottom (y=H) → NDC +1

@@ -271,7 +271,7 @@ bool XrSystem::stereoFrame() const {
 }
 
 bool XrSystem::stereoViews(const glm::vec3& referencePosition, float referenceYawDegrees,
-                           float nearPlane, float farPlane, StereoViews& out) const {
+                           float nearPlane, float farPlane, StereoViews& out) {
     if (!stereoFrame()) return false;
     const FrameData& f = *frame_;
 
@@ -283,6 +283,9 @@ bool XrSystem::stereoViews(const glm::vec3& referencePosition, float referenceYa
     const glm::vec3 up(0.0f, 0.0f, 1.0f);
     const glm::vec3 right = glm::cross(forward, up);
     const glm::mat3 basis(right, up, -forward);
+    worldPlaced_ = true;
+    worldReference_ = referencePosition;
+    worldBasis_ = basis;
 
     // A view matrix for a pose given in tracking space. Rigid: the scale goes
     // into the position only, so depth stays in yards.

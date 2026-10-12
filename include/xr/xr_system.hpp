@@ -169,7 +169,7 @@ public:
     /// around the vertical, which is where the game put its camera. One yard
     /// of the world is 0.9144 metres.
     [[nodiscard]] bool stereoViews(const glm::vec3& referencePosition, float referenceYawDegrees,
-                                   float nearPlane, float farPlane, StereoViews& out) const;
+                                   float nearPlane, float farPlane, StereoViews& out);
 
     /// Records the copy of a finished eye image into the headset. `image` is
     /// eye sized, in the window's format and in PRESENT_SRC layout; it is left
@@ -226,6 +226,12 @@ public:
     void updateControllers(rendering::CameraController* camera, bool inWorld, float deltaTime,
                            SDL_Window* window);
 
+    /// The right controller's ray in the world, as the last stereoViews stood
+    /// the tracking space in it. False unless the controller is what is
+    /// pointing just now: while it moves the cursor over the panel, or holds a
+    /// button it pressed beside it. Otherwise the mouse picks, as it always did.
+    [[nodiscard]] bool pickRay(glm::vec3& origin, glm::vec3& direction) const;
+
     /// Whether the character turns as the head does, so that it faces - and
     /// walks - the way the player is looking. What is seen does not change by
     /// it: the turn is given to the game and taken off the head in one step.
@@ -250,7 +256,7 @@ private:
     void destroyActions();
     void releaseControllerKeys();
     void releasePointer();
-    void updatePointer(SDL_Window* window);
+    void updatePointer(SDL_Window* window, bool inWorld);
     /// The right controller's ray in `base` at `time`. False while it is not tracked.
     [[nodiscard]] bool aimRay(XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& direction) const;
     /// The ray as a thin sheet turned towards `head`, in the local space.
@@ -291,6 +297,10 @@ private:
     bool recenterPending_ = false;
     glm::vec3 headOrigin_{0.0f};
     float headOriginYaw_ = 0.0f;
+    // Where the last stereoViews stood the tracking space in the world.
+    bool worldPlaced_ = false;
+    glm::vec3 worldReference_{0.0f};
+    glm::mat3 worldBasis_{1.0f};
     // The last whole second, for drawFrameRate.
     uint32_t lastSecondFrames_ = 0;
     uint32_t lastSecondMissed_ = 0;
