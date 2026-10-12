@@ -875,7 +875,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1074,6 +1074,7 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrfirstperson",     .asBool  = &SettingsPanel::pendingVrFirstPerson},
     {.key = "vrshine",           .asFloat = &SettingsPanel::pendingVrShine},
     {.key = "vrsnapturn",        .asBool  = &SettingsPanel::pendingVrSnapTurn},
+    {.key = "vrbodyfollowshead", .asBool  = &SettingsPanel::pendingVrBodyFollowsHead},
 #endif
     {.key = "parallaxquality",   .asInt   = &SettingsPanel::pendingPOMQuality},
 
@@ -1264,6 +1265,10 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     }
     if (key == "vrfirstperson") {
         xr::system().setFirstPerson(pendingVrFirstPerson);
+        return;
+    }
+    if (key == "vrbodyfollowshead") {
+        xr::system().setBodyFollowsHead(pendingVrBodyFollowsHead);
         return;
     }
     if (key == "vrsnapturn") {

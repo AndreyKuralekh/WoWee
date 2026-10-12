@@ -219,6 +219,11 @@ public:
     /// keyboard is sampled. Outside the world everything held is let go.
     void updateControllers(rendering::CameraController* camera, bool inWorld, float deltaTime);
 
+    /// Whether the character turns as the head does, so that it faces - and
+    /// walks - the way the player is looking. What is seen does not change by
+    /// it: the turn is given to the game and taken off the head in one step.
+    void setBodyFollowsHead(bool follows) { bodyFollowsHead_ = follows; }
+
     /// Whether the right stick turns by a fixed angle at a push, or smoothly.
     void setSnapTurn(bool snap) { snapTurn_ = snap; }
 
@@ -254,6 +259,12 @@ private:
     bool showFrameRate_ = false;
     bool firstPerson_ = true;
     bool snapTurn_ = true;
+    bool bodyFollowsHead_ = true;
+    // The head's turn round the vertical in the tracking space, as last seen,
+    // and how much of its turn since recentring the game's camera has been
+    // given. Radians, anticlockwise from above.
+    float headYaw_ = 0.0f;
+    float bodyYaw_ = 0.0f;
     // The actions and what they hold down; xr_input.cpp. Null without controllers.
     struct InputData;
     InputData* input_ = nullptr;

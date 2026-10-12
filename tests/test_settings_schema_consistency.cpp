@@ -276,7 +276,7 @@ TEST_CASE("the source rows parse the way the compiled ones read", "[settings][sc
     CHECK(rows.size() >= count);
     // The slack is for rows a build leaves out. The three VR rows are among
     // them in every build of this test, which is compiled without WOWEE_VR.
-    CHECK(rows.size() <= count + 9);
+    CHECK(rows.size() <= count + 10);
 }
 
 TEST_CASE("no row inherits a heading from a conditional one", "[settings][schema]") {

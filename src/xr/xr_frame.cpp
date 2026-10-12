@@ -273,7 +273,9 @@ bool XrSystem::stereoViews(const glm::vec3& referencePosition, float referenceYa
 
     // A view matrix for a pose given in tracking space. Rigid: the scale goes
     // into the position only, so depth stays in yards.
-    const glm::quat recentre = glm::angleAxis(-headOriginYaw_, glm::vec3(0.0f, 1.0f, 0.0f));
+    // What the game's camera has already been turned by is in the reference
+    // yaw, and comes off here with what recentring took.
+    const glm::quat recentre = glm::angleAxis(-(headOriginYaw_ + bodyYaw_), glm::vec3(0.0f, 1.0f, 0.0f));
     const auto place = [&](const XrPosef& pose, EyeView& view) {
         const glm::vec3 p = recentre * (glm::vec3(pose.position.x, pose.position.y, pose.position.z) - headOrigin_);
         const glm::quat q = recentre * glm::quat(pose.orientation.w, pose.orientation.x, pose.orientation.y,
@@ -472,12 +474,15 @@ void XrSystem::placePanel() {
     const bool level = std::abs(forward.x) + std::abs(forward.z) > 0.2f;
     const float headYaw = level ? std::atan2(-forward.x, -forward.z) : f.panelTargetYaw;
 
+    if (level) headYaw_ = headYaw;
+
     // Here because this is where the head has just been worked out. Left
     // pending while the head looks straight up or down.
     if (recenterPending_ && level) {
         recenterPending_ = false;
         headOrigin_ = head;
         headOriginYaw_ = headYaw;
+        bodyYaw_ = 0.0f;
         if (debug_) {
             LOG_WARNING("VR: recentred at ", head.x, " ", head.y, " ", head.z, ", turned ",
                         glm::degrees(headYaw), " degrees");

@@ -78,6 +78,11 @@ bool button(XrSession session, XrAction action) {
     return state.currentState == XR_TRUE;
 }
 
+float wrapRadians(float angle) {
+    constexpr float kPi = 3.14159265358979f;
+    return angle - 2.0f * kPi * std::floor((angle + kPi) / (2.0f * kPi));
+}
+
 // A stick as a key: down past `press`, and up again only under `release`, so
 // that one resting near the edge does not chatter.
 bool pushed(float value, bool wasDown) {
@@ -191,6 +196,23 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
     // a controller, or the mouse.
     const bool live = running_ && inWorld && camera;
     if (live) camera->setSteering(true);
+
+    // The head's turn, handed to the game as a turn of its camera - which is
+    // the turn of the character - and counted, so that the view takes the same
+    // angle off again and nothing is seen to move. Counted by what the camera
+    // did, not by what it was asked: it may refuse. A degree of slack keeps a
+    // head that is merely alive from being reported to the server all day.
+    // Only from the character's own eyes: seen from behind, the camera would
+    // swing round the character with every glance.
+    if (live && bodyFollowsHead_ && firstPerson_) {
+        const float turned = wrapRadians(wrapRadians(headYaw_ - headOriginYaw_) - bodyYaw_);
+        if (std::abs(turned) > glm::radians(1.0f)) {
+            const float before = camera->getYaw();
+            const float perDegree = 1.0f / std::max(camera->getMouseSensitivity(), 0.0001f);
+            camera->applyLookDelta(-glm::degrees(turned) * perDegree, 0.0f);
+            bodyYaw_ = wrapRadians(bodyYaw_ + wrapRadians(glm::radians(camera->getYaw() - before)));
+        }
+    }
 
     if (!input_ || !input_->attached) return;
     InputData& in = *input_;
