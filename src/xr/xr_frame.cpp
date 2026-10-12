@@ -113,6 +113,11 @@ struct XrSystem::FrameData {
     EyeSwapchain panel;
     VkExtent2D panelExtent{};
     bool panelCopied = false;
+    // Whether the last frame had a world under the panel. Before there is one
+    // - the login screen, the character list, a loading screen - the panel is
+    // the whole picture, and it stands still to be looked at whatever way of
+    // following the player has chosen for the game.
+    bool worldShown = false;
     // Where the sheet stands, in the tracking space: turned by `panelYaw`
     // round the vertical about `panelAnchor`, the head it was last placed for.
     // The targets are where it is heading; it follows them over a moment
@@ -470,7 +475,7 @@ void XrSystem::placePanel() {
         f.panelPlaced = true;
         f.panelYaw = f.panelTargetYaw = headYaw;
         f.panelAnchor = f.panelTargetAnchor = head;
-    } else if (panelFollow_ == PanelFollow::Yaw) {
+    } else if (f.worldShown && panelFollow_ == PanelFollow::Yaw) {
         // In front at once, but upright and at the height of the eyes: turning
         // the head brings it along, looking up or down looks past it.
         f.panelYaw = f.panelTargetYaw = headYaw;
@@ -605,7 +610,7 @@ void XrSystem::endFrame(bool submitted) {
         panel.pose.position.x = f.panelAnchor.x - std::sin(f.panelYaw) * panelDistance_;
         panel.pose.position.y = f.panelAnchor.y - 0.1f;
         panel.pose.position.z = f.panelAnchor.z - std::cos(f.panelYaw) * panelDistance_;
-        if (panelFollow_ == PanelFollow::Head && viewSpace_ != XR_NULL_HANDLE) {
+        if (f.worldShown && panelFollow_ == PanelFollow::Head && viewSpace_ != XR_NULL_HANDLE) {
             // Fixed to the view: the compositor keeps it there itself, so it
             // does not swim the way a pose a frame old would.
             panel.space = viewSpace_;
@@ -629,6 +634,7 @@ void XrSystem::endFrame(bool submitted) {
     const XrResult result = xrEndFrame(session_, &endInfo);
     if (XR_FAILED(result)) LOG_WARNING("VR: xrEndFrame failed: ", resultName(result));
     f.begun = false;
+    f.worldShown = showWorld;
     addTiming(Timing::XrEnd, millisecondsSince(endStart));
 
     const auto now = std::chrono::steady_clock::now();

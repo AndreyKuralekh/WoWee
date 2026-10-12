@@ -925,7 +925,8 @@ constexpr SettingDesc kSchema[] = {
     // conditional. Three rows and no more - the schema test allows four
     // conditional rows in the file, and one was there already.
     {"vrpanelfollow", "Panel follows the head", SettingKind::Enum, 0, 2, 1, "VR", "Interface panel",
-     "How the interface panel keeps up with you. In front: it turns with\n"
+     "How the interface panel keeps up with you in the world; before you\n"
+     "enter it the panel always stands still. In front: it turns with\n"
      "your head at once but stays upright, so looking up or down looks\n"
      "past it. Lazy: it stays where it is until you have turned well away.\n"
      "Fixed to view: it never leaves the middle of what you see.",

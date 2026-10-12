@@ -184,8 +184,9 @@ public:
     /// XR_NULL_HANDLE when the runtime has no stage space.
     [[nodiscard]] XrSpace stageSpace() const { return stageSpace_; }
 
-    /// How the interface panel keeps up with the head. In the order the
-    /// setting lists them, which is the order they are saved by.
+    /// How the interface panel keeps up with the head, once in the world; before
+    /// that it always stands still, as Lazy. In the order the setting lists
+    /// them, which is the order they are saved by.
     enum class PanelFollow { Yaw, Lazy, Head };
 
     /// Where the panel stands, from the settings page. A value the environment
