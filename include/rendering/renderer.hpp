@@ -487,6 +487,8 @@ private:
     const glm::mat4* vrEyeProjection_ = nullptr;      // not drawn through set 0
     bool vrEyePass_ = false;                          // renderWorld is drawing an eye
     bool vrWorldInEyes_ = false;                      // the eyes took this frame's world
+    bool vrInWorld_ = false;                          // a stereo frame has been drawn since the world was entered
+    bool vrHomeDown_ = false;                         // Home, last frame: it recentres the view
 #endif
     uint32_t currentImageIndex = 0;
 

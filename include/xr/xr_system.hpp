@@ -198,6 +198,18 @@ public:
     /// that it lies over everything on the panel.
     void drawFrameRate();
 
+    /// Whether the world is seen from the character's own eyes, with the
+    /// character itself left out, rather than from where the game put its
+    /// camera behind it.
+    void setFirstPerson(bool on) { firstPerson_ = on; }
+    [[nodiscard]] bool firstPerson() const { return firstPerson_; }
+
+    /// Takes where the head is at the next frame as the place the character's
+    /// head is, and the way it faces as straight ahead: the body is wherever
+    /// the player sat down, and this is how the game is told. Height is taken
+    /// too, so it works seated. The panel is not moved by it.
+    void recenter() { recenterPending_ = true; }
+
     /// Where the panel stands, from the settings page. A value the environment
     /// set at start is left alone: that is how one is tried without saving it.
     void setPanelPlacement(PanelFollow follow, float distanceMetres, float widthMetres);
@@ -224,6 +236,12 @@ private:
     XrSpace viewSpace_ = XR_NULL_HANDLE;  // the head itself; what a head-fixed panel is placed in
     PanelFollow panelFollow_ = PanelFollow::Yaw;
     bool showFrameRate_ = false;
+    bool firstPerson_ = true;
+    // What recenter took: a place in the tracking space and a turn round its
+    // vertical, taken off every eye pose before it is stood in the world.
+    bool recenterPending_ = false;
+    glm::vec3 headOrigin_{0.0f};
+    float headOriginYaw_ = 0.0f;
     // The last whole second, for drawFrameRate.
     uint32_t lastSecondFrames_ = 0;
     uint32_t lastSecondMissed_ = 0;

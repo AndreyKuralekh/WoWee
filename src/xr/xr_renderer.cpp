@@ -9,9 +9,13 @@
 
 #include "core/logger.hpp"
 #include "rendering/camera.hpp"
+#include "rendering/camera_controller.hpp"
 #include "rendering/vk_context.hpp"
 #include "rendering/vk_utils.hpp"
 #include "xr/xr_system.hpp"
+
+#include <SDL3/SDL.h>
+#include <imgui.h>
 
 #include <cmath>
 #include <cstring>
@@ -206,6 +210,9 @@ bool Renderer::vrEnsureEyeSecondaries() {
 void Renderer::vrBeginViews() {
     vrWorldInEyes_ = false;
     if (vrEyes_) vrEyes_->viewsValid = false;
+    // Until this frame turns out to be seen from the character's eyes.
+    if (cameraController) cameraController->setPlayerHidden(false);
+    if (!vrGameHandler_) vrInWorld_ = false;
     if (!vrGameHandler_ || !camera || currentCmd == VK_NULL_HANDLE || !xr::system().stereoFrame()) return;
 
     if (vkCtx->getMsaaSamples() != VK_SAMPLE_COUNT_1_BIT) {
@@ -221,8 +228,26 @@ void Renderer::vrBeginViews() {
         return;
     }
 
-    // Where the game put the camera, and which way it faces round the vertical.
-    const glm::vec3 reference = camera->getPosition();
+    // Straight ahead is wherever the head faces as the world first appears,
+    // and again whenever Home is pressed - unless it is being typed somewhere.
+    const bool homeDown = SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_HOME] &&
+                          !(ImGui::GetCurrentContext() && ImGui::GetIO().WantTextInput);
+    if (!vrInWorld_ || (homeDown && !vrHomeDown_)) xr::system().recenter();
+    vrInWorld_ = true;
+    vrHomeDown_ = homeDown;
+
+    // Where the head is stood: at the character's eyes, or where the game put
+    // its camera. Either way it faces as that camera does round the vertical,
+    // so the mouse and the keys turn the view as they turn the character.
+    glm::vec3 reference = camera->getPosition();
+    const glm::vec3* followed = cameraController ? cameraController->getFollowTarget() : nullptr;
+    if (xr::system().firstPerson() && followed && cameraController->isThirdPerson()) {
+        reference = *followed + glm::vec3(0.0f, 0.0f, cameraController->followedEyeHeight());
+        cameraController->setPlayerHidden(true);
+        // Left to itself the camera starts circling a character that stands
+        // still, and here that would turn the world round the player's head.
+        if (cameraController->isIdleOrbitEnabled()) cameraController->setIdleOrbitEnabled(false);
+    }
     const glm::vec3 forward = camera->getForward();
     const float yawDegrees = (std::abs(forward.x) + std::abs(forward.y) > 1e-4f)
                                  ? glm::degrees(std::atan2(forward.y, forward.x))

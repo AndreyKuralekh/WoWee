@@ -110,7 +110,19 @@ public:
     [[nodiscard]] float getFacingYaw() const { return facingYaw; }
     [[nodiscard]] float getTravelYaw() const { return travelYaw_; }
     [[nodiscard]] bool isThirdPerson() const { return thirdPerson; }
-    [[nodiscard]] bool isFirstPersonView() const { return thirdPerson && (userTargetDistance <= MIN_DISTANCE + 0.15f); }
+    [[nodiscard]] bool isFirstPersonView() const { return playerHidden_ || (thirdPerson && (userTargetDistance <= MIN_DISTANCE + 0.15f)); }
+    /// Has the followed character hidden as the first-person view hides it,
+    /// wherever the camera itself is. For a view that is drawn from the
+    /// character's head by something other than this camera - a headset.
+    void setPlayerHidden(bool hidden) { playerHidden_ = hidden; }
+    /// How far above its feet the followed character's eyes are: a little
+    /// over the head bone, which sits at the base of the skull, and the pivot
+    /// where no head bone was measured. On a mount, as much higher as the
+    /// pivot is.
+    [[nodiscard]] float followedEyeHeight() const {
+        const float eyes = followedHeadZ_ > 0.01f ? followedHeadZ_ * 1.06f : followedPivotHeight();
+        return eyes + (mounted_ ? mountHeightOffset_ : 0.0f);
+    }
     [[nodiscard]] bool isGrounded() const { return grounded; }
     [[nodiscard]] bool isJumping() const { return !grounded && verticalVelocity > 0.0f; }
     // A swimming character is not grounded and is not rising, but it is not
@@ -568,6 +580,7 @@ private:
     /// and a gnome male 1.00 -> 0.65.
     static constexpr float kPivotReferenceHeadZ = 1.843f;
     float pivotHeight_ = PIVOT_HEIGHT_DEFAULT;  // User-configurable pivot height
+    bool playerHidden_ = false;  // see setPlayerHidden
     /// The followed character's height, refreshed as it is followed. Zero
     /// until something has been measured, which reads as the old behaviour.
     float followedHeight_ = 0.0f;

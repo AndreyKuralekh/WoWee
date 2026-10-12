@@ -923,7 +923,7 @@ constexpr SettingDesc kSchema[] = {
     // Each names the section, though it is the same one: a row after a
     // conditional row may not lean on its heading, and all of these are
     // conditional. The schema test counts conditional rows and allows seven
-    // in the file; two were there already.
+    // in the file; two were there already, which with these makes seven.
     {"vrpanelfollow", "Panel follows the head", SettingKind::Enum, 0, 2, 1, "VR", "Interface panel",
      "How the interface panel keeps up with you in the world; before you\n"
      "enter it the panel always stands still. In front: it turns with\n"
@@ -940,6 +940,10 @@ constexpr SettingDesc kSchema[] = {
      "A line at the top of the panel: pictures drawn each second, the\n"
      "time one takes, and how many the headset had to show twice\n"
      "because the next was not ready.", "", 0},
+    {"vrfirstperson", "First-person view", SettingKind::Bool, 0, 0, 0, "VR", "View",
+     "See the world from your character's own eyes, with the character\n"
+     "itself left out. Off puts you where the game's camera is, behind\n"
+     "it. The Home key takes the way you are facing as straight ahead.", "", 1},
 #endif
 };
 

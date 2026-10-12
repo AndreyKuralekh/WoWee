@@ -273,9 +273,11 @@ bool XrSystem::stereoViews(const glm::vec3& referencePosition, float referenceYa
 
     // A view matrix for a pose given in tracking space. Rigid: the scale goes
     // into the position only, so depth stays in yards.
+    const glm::quat recentre = glm::angleAxis(-headOriginYaw_, glm::vec3(0.0f, 1.0f, 0.0f));
     const auto place = [&](const XrPosef& pose, EyeView& view) {
-        const glm::vec3 p(pose.position.x, pose.position.y, pose.position.z);
-        const glm::quat q(pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z);
+        const glm::vec3 p = recentre * (glm::vec3(pose.position.x, pose.position.y, pose.position.z) - headOrigin_);
+        const glm::quat q = recentre * glm::quat(pose.orientation.w, pose.orientation.x, pose.orientation.y,
+                                                 pose.orientation.z);
         view.position = referencePosition + basis * (p * kYardsPerMetre);
         glm::mat4 eyeToWorld(basis * glm::mat3_cast(q));
         eyeToWorld[3] = glm::vec4(view.position, 1.0f);
@@ -469,6 +471,18 @@ void XrSystem::placePanel() {
     // Looking straight up or down says nothing about which way to face.
     const bool level = std::abs(forward.x) + std::abs(forward.z) > 0.2f;
     const float headYaw = level ? std::atan2(-forward.x, -forward.z) : f.panelTargetYaw;
+
+    // Here because this is where the head has just been worked out. Left
+    // pending while the head looks straight up or down.
+    if (recenterPending_ && level) {
+        recenterPending_ = false;
+        headOrigin_ = head;
+        headOriginYaw_ = headYaw;
+        if (debug_) {
+            LOG_WARNING("VR: recentred at ", head.x, " ", head.y, " ", head.z, ", turned ",
+                        glm::degrees(headYaw), " degrees");
+        }
+    }
 
     constexpr float kFollowAngle = glm::radians(40.0f);
     constexpr float kFollowDistance = 0.75f;
