@@ -39,6 +39,7 @@
 #include <vector>
 
 namespace wowee::rendering {
+class CameraController;
 class VkContext;
 }
 
@@ -210,6 +211,17 @@ public:
     /// too, so it works seated. The panel is not moved by it.
     void recenter() { recenterPending_ = true; }
 
+    // --- Controllers ---
+
+    /// Reads the controllers and passes on what they say as the input the
+    /// client already takes: held keys for the left stick and for jumping, a
+    /// turn of the camera for the right stick. Call once a frame before the
+    /// keyboard is sampled. Outside the world everything held is let go.
+    void updateControllers(rendering::CameraController* camera, bool inWorld, float deltaTime);
+
+    /// Whether the right stick turns by a fixed angle at a push, or smoothly.
+    void setSnapTurn(bool snap) { snapTurn_ = snap; }
+
     /// Where the panel stands, from the settings page. A value the environment
     /// set at start is left alone: that is how one is tried without saving it.
     void setPanelPlacement(PanelFollow follow, float distanceMetres, float widthMetres);
@@ -222,6 +234,10 @@ private:
     void destroyEyeSwapchains();
     void startFake();
     void placePanel();
+    bool createActions();
+    void destroyActions();
+    void releaseControllerKeys();
+    void logInteractionProfile();
     void beginSession();
     void endSession();
     void onSessionStateChanged(XrSessionState newState);
@@ -237,6 +253,10 @@ private:
     PanelFollow panelFollow_ = PanelFollow::Yaw;
     bool showFrameRate_ = false;
     bool firstPerson_ = true;
+    bool snapTurn_ = true;
+    // The actions and what they hold down; xr_input.cpp. Null without controllers.
+    struct InputData;
+    InputData* input_ = nullptr;
     // What recenter took: a place in the tracking space and a turn round its
     // vertical, taken off every eye pose before it is stood in the world.
     bool recenterPending_ = false;

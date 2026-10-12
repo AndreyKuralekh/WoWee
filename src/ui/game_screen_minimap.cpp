@@ -1824,6 +1824,7 @@ void GameScreen::saveSettings() {
     out << "vr_panel_width=" << settingsPanel_.pendingVrPanelWidth << "\n";
     out << "vr_show_fps=" << (settingsPanel_.pendingVrShowFps ? 1 : 0) << "\n";
     out << "vr_first_person=" << (settingsPanel_.pendingVrFirstPerson ? 1 : 0) << "\n";
+    out << "vr_snap_turn=" << (settingsPanel_.pendingVrSnapTurn ? 1 : 0) << "\n";
     out << "vr_shine=" << settingsPanel_.pendingVrShine << "\n";
     out << "brightness=" << settingsPanel_.pendingBrightness << "\n";
     out << "water_refraction=" << (settingsPanel_.pendingWaterRefraction ? 1 : 0) << "\n";
@@ -2099,6 +2100,7 @@ void GameScreen::loadSettings() {
             else if (key == "vr_panel_width") settingsPanel_.pendingVrPanelWidth = std::clamp(std::stof(val), 0.5f, 4.0f);
             else if (key == "vr_show_fps") settingsPanel_.pendingVrShowFps = (val == "1");
             else if (key == "vr_first_person") settingsPanel_.pendingVrFirstPerson = (val == "1");
+            else if (key == "vr_snap_turn") settingsPanel_.pendingVrSnapTurn = (val == "1");
             else if (key == "vr_shine") settingsPanel_.pendingVrShine = std::clamp(std::stof(val), 0.0f, 1.0f);
             // No apply here either: brightness is on the graphics load list,
             // which is walked once the renderer exists. This branch ran from

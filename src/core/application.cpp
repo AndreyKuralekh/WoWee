@@ -1841,6 +1841,11 @@ void Application::run() {
             ui::gamepadControls().setCameraController(nullptr);
             ui::gamepadControls().update(deltaTime);
         }
+#ifdef WOWEE_VR
+        // The headset's controllers, by the same means and for the same reason.
+        xr::system().updateControllers(renderer ? renderer->getCameraController() : nullptr,
+                                       state == AppState::IN_GAME, deltaTime);
+#endif
 
         // Update input
         Input::getInstance().update();

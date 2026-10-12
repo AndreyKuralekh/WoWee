@@ -159,6 +159,7 @@ bool XrSystem::createSession(rendering::VkContext& ctx) {
 
     if (!createReferenceSpaces()) return giveUp("the runtime gave no local reference space");
     if (!createEyeSwapchains()) return giveUp("the eye swapchains could not be created");
+    if (!createActions()) destroyActions();
 
     LOG_WARNING("VR: session created");
     return true;
@@ -214,6 +215,7 @@ void XrSystem::destroySession() {
         endSession();
     }
     destroyEyeSwapchains();
+    destroyActions();
     if (localSpace_ != XR_NULL_HANDLE) xrDestroySpace(localSpace_);
     if (stageSpace_ != XR_NULL_HANDLE) xrDestroySpace(stageSpace_);
     if (viewSpace_ != XR_NULL_HANDLE) xrDestroySpace(viewSpace_);
@@ -247,6 +249,9 @@ void XrSystem::pollEvents() {
                 LOG_WARNING("VR: the runtime is going away - continuing as the flat client");
                 shutdown();
                 return;
+            case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED:
+                logInteractionProfile();
+                break;
             case XR_TYPE_EVENT_DATA_EVENTS_LOST:
                 LOG_WARNING("VR: the runtime dropped events");
                 break;

@@ -238,6 +238,7 @@ public:
     float pendingVrPanelWidth = 2.0f;       // metres
     bool pendingVrShowFps = false;          // the frame rate line on the panel
     bool pendingVrFirstPerson = true;       // the world from the character's eyes
+    bool pendingVrSnapTurn = true;          // the right stick turns by 45 degrees at a push
     float pendingVrShine = 0.0f;            // sun highlights on buildings, 1 = the flat client's
     int pendingPOMQuality = 1;          // 0=Low(16), 1=Medium(32), 2=High(64)
     bool pendingFSR = false;
