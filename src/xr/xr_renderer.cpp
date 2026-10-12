@@ -15,6 +15,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 namespace wowee::rendering {
 
@@ -34,6 +35,13 @@ struct Renderer::VrEyes {
     VmaAllocation uboAllocation[kEyeCount][MAX_FRAMES] = {};
     void* uboMapped[kEyeCount][MAX_FRAMES] = {};
     VkDescriptorSet set[kEyeCount][MAX_FRAMES] = {};
+
+    // The worker threads' command buffers, once more for each eye. The
+    // renderer has one set per frame slot, which is enough to record the world
+    // once; these are put in their place while an eye is recorded, so the
+    // world goes down the same threaded path twice without knowing.
+    VkCommandBuffer secondary[kEyeCount][NUM_SECONDARIES][MAX_FRAMES] = {};
+    VkCommandPool secondaryPoolSeen = VK_NULL_HANDLE;  // which pools they came from
 
     xr::StereoViews views;
     bool viewsValid = false;
@@ -148,6 +156,49 @@ bool Renderer::vrEnsureEyes() {
     return true;
 }
 
+// A set of secondary command buffers for each eye, from the pools the
+// renderer's own come from and in the same arrangement: a pool is recorded
+// from one thread at a time, and that is still true, because the eyes are
+// recorded one after the other. False leaves the eyes to be recorded inline.
+bool Renderer::vrEnsureEyeSecondaries() {
+    // The renderer can rebuild its pools; buffers from pools that are gone
+    // went with them.
+    if (vrEyes_->secondaryPoolSeen == workerCmdPools_[0] && vrEyes_->secondaryPoolSeen != VK_NULL_HANDLE) return true;
+    std::memset(vrEyes_->secondary, 0, sizeof(vrEyes_->secondary));
+    vrEyes_->secondaryPoolSeen = VK_NULL_HANDLE;
+    if (workerCmdPools_[0] == VK_NULL_HANDLE || mainSecondaryCmdPool_ == VK_NULL_HANDLE) return false;
+
+    const VkDevice device = vkCtx->getDevice();
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+    allocInfo.commandBufferCount = 1;
+
+    // As in Renderer::createSecondaryCommandResources.
+    const uint32_t workerSecondaries[NUM_WORKERS] = {SEC_TERRAIN, SEC_WMO, SEC_CHARS, SEC_M2, SEC_POST};
+    const uint32_t mainSecondaries[] = {SEC_SKY, SEC_SELECTION, SEC_IMGUI};
+    for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
+        for (uint32_t f = 0; f < MAX_FRAMES; ++f) {
+            for (uint32_t w = 0; w < NUM_WORKERS; ++w) {
+                allocInfo.commandPool = workerCmdPools_[w];
+                if (vkAllocateCommandBuffers(device, &allocInfo, &vrEyes_->secondary[eye][workerSecondaries[w]][f]) !=
+                    VK_SUCCESS) {
+                    return false;
+                }
+            }
+            for (const uint32_t index : mainSecondaries) {
+                allocInfo.commandPool = mainSecondaryCmdPool_;
+                if (vkAllocateCommandBuffers(device, &allocInfo, &vrEyes_->secondary[eye][index][f]) != VK_SUCCESS) {
+                    return false;
+                }
+            }
+        }
+    }
+    vrEyes_->secondaryPoolSeen = workerCmdPools_[0];
+    LOG_WARNING("VR: the eyes are recorded on the worker threads");
+    return true;
+}
+
 // Called once the frame's command buffer exists and the headset has said where
 // the eyes are. From here until the eyes are drawn the camera is the point
 // between them, so the frame's culling and its per-frame data are those of the
@@ -191,15 +242,16 @@ void Renderer::vrRenderEyes() {
     const uint32_t frame = vkCtx->getCurrentFrame();
     const VkDevice device = vkCtx->getDevice();
 
-    // Recorded straight into the frame's command buffer. The worker threads'
-    // buffers are one set per frame, already promised to nobody here but
-    // unable to be recorded twice in it.
     const bool wasParallel = parallelRecordingEnabled_;
     const VkRenderPass savedPass = activeRenderPass_;
     const VkFramebuffer savedFramebuffer = activeFramebuffer_;
     const VkExtent2D savedExtent = activeRenderExtent_;
-    parallelRecordingEnabled_ = false;
     vrEyePass_ = true;
+
+    // Threaded when the renderer is, and the eyes have buffers of their own
+    // for it; otherwise straight into the frame's command buffer.
+    const bool threaded = wasParallel && vrEnsureEyeSecondaries();
+    parallelRecordingEnabled_ = threaded;
 
     for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
         const xr::EyeView& view = vrEyes_->views.eye[eye];
@@ -262,19 +314,30 @@ void Renderer::vrRenderEyes() {
         activeRenderExtent_ = vrEyes_->extent;
         vrPerFrameSet_ = set;
 
-        vkCmdBeginRenderPass(currentCmd, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
-        VkViewport viewport{};
-        viewport.width = static_cast<float>(vrEyes_->extent.width);
-        viewport.height = static_cast<float>(vrEyes_->extent.height);
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(currentCmd, 0, 1, &viewport);
-        VkRect2D scissor{};
-        scissor.extent = vrEyes_->extent;
-        vkCmdSetScissor(currentCmd, 0, 1, &scissor);
+        const auto swapSecondaries = [&] {
+            for (uint32_t i = 0; i < NUM_SECONDARIES; ++i) {
+                std::swap(secondaryCmds_[i][frame], vrEyes_->secondary[eye][i][frame]);
+            }
+        };
+        if (threaded) {
+            swapSecondaries();
+            vkCmdBeginRenderPass(currentCmd, &passInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+        } else {
+            vkCmdBeginRenderPass(currentCmd, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
+            VkViewport viewport{};
+            viewport.width = static_cast<float>(vrEyes_->extent.width);
+            viewport.height = static_cast<float>(vrEyes_->extent.height);
+            viewport.maxDepth = 1.0f;
+            vkCmdSetViewport(currentCmd, 0, 1, &viewport);
+            VkRect2D scissor{};
+            scissor.extent = vrEyes_->extent;
+            vkCmdSetScissor(currentCmd, 0, 1, &scissor);
+        }
 
         renderWorld(nullptr, vrGameHandler_);
 
         vkCmdEndRenderPass(currentCmd);
+        if (threaded) swapSecondaries();
         xr::system().recordEyeCopy(currentCmd, eye, vrEyes_->color[eye].image);
     }
 

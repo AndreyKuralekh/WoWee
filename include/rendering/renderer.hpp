@@ -475,6 +475,7 @@ private:
     // Stereo for a headset; all of it is in src/xr/xr_renderer.cpp.
     struct VrEyes;
     bool vrEnsureEyes();
+    bool vrEnsureEyeSecondaries();
     void vrDestroyEyes();
     void vrBeginViews();
     void vrRenderEyes();
