@@ -76,6 +76,12 @@ bool XrSystem::initialize() {
     dumpFrames_ = core::envIntClamped("WOWEE_VR_DUMP_FRAMES", 0, 0, 10000);
     panelDistance_ = static_cast<float>(core::envIntClamped("WOWEE_VR_PANEL_DISTANCE", 150, 30, 1000)) / 100.0f;
     panelWidth_ = static_cast<float>(core::envIntClamped("WOWEE_VR_PANEL_WIDTH", 200, 20, 2000)) / 100.0f;
+    if (const char* follow = std::getenv("WOWEE_VR_PANEL_FOLLOW"); follow && *follow) {
+        const std::string mode = follow;
+        if (mode == "head") panelFollow_ = PanelFollow::Head;
+        else if (mode == "yaw") panelFollow_ = PanelFollow::Yaw;
+        else if (mode != "lazy") LOG_WARNING("VR: WOWEE_VR_PANEL_FOLLOW is lazy, yaw or head, not ", mode);
+    }
 
     if (!platform::initializeLoader() || !createInstance() || !findHeadset()) {
         shutdown();

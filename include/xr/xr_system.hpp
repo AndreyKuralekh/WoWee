@@ -17,6 +17,10 @@
  *                           into the window. For looking at the stereo render on a desk.
  *   WOWEE_VR_PANEL_DISTANCE=cm, WOWEE_VR_PANEL_WIDTH=cm
  *                           where the interface panel stands and how wide it is (150, 200)
+ *   WOWEE_VR_PANEL_FOLLOW=lazy|yaw|head
+ *                           how the panel keeps up with the head: lazy (the default) leaves it
+ *                           standing until the head has turned well away; yaw keeps it in front
+ *                           at once but upright and level; head fixes it to the view
  *   WOWEE_VR_PROFILE=0|1    the lean frame (see leanFrame): 0 keeps the flat client's frame in the
  *                           headset, 1 forces the lean one without a headset, for measuring it
  *
@@ -180,6 +184,9 @@ public:
     /// XR_NULL_HANDLE when the runtime has no stage space.
     [[nodiscard]] XrSpace stageSpace() const { return stageSpace_; }
 
+    /// How the interface panel keeps up with the head.
+    enum class PanelFollow { Lazy, Yaw, Head };
+
 private:
     bool createInstance();
     bool findHeadset();
@@ -199,6 +206,8 @@ private:
     XrSessionState sessionState_ = XR_SESSION_STATE_UNKNOWN;
     XrSpace localSpace_ = XR_NULL_HANDLE;
     XrSpace stageSpace_ = XR_NULL_HANDLE;
+    XrSpace viewSpace_ = XR_NULL_HANDLE;  // the head itself; what a head-fixed panel is placed in
+    PanelFollow panelFollow_ = PanelFollow::Lazy;
     rendering::VkContext* ctx_ = nullptr;
     bool running_ = false;
     bool fake_ = false;

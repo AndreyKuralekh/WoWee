@@ -189,6 +189,10 @@ bool XrSystem::createReferenceSpaces() {
             stageSpace_ = XR_NULL_HANDLE;
         }
     }
+    // The head, as a space: where a panel goes that is to stay in front of the
+    // eyes whatever they do. Only missed if that panel is asked for.
+    createInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+    if (XR_FAILED(xrCreateReferenceSpace(session_, &createInfo, &viewSpace_))) viewSpace_ = XR_NULL_HANDLE;
     if (debug_) {
         LOG_WARNING("VR: reference spaces LOCAL",
                     stageSpace_ != XR_NULL_HANDLE ? " and STAGE" : " (no STAGE)");
@@ -212,6 +216,8 @@ void XrSystem::destroySession() {
     destroyEyeSwapchains();
     if (localSpace_ != XR_NULL_HANDLE) xrDestroySpace(localSpace_);
     if (stageSpace_ != XR_NULL_HANDLE) xrDestroySpace(stageSpace_);
+    if (viewSpace_ != XR_NULL_HANDLE) xrDestroySpace(viewSpace_);
+    viewSpace_ = XR_NULL_HANDLE;
     localSpace_ = XR_NULL_HANDLE;
     stageSpace_ = XR_NULL_HANDLE;
     if (session_ != XR_NULL_HANDLE) {

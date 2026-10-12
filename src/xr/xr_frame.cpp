@@ -470,6 +470,11 @@ void XrSystem::placePanel() {
         f.panelPlaced = true;
         f.panelYaw = f.panelTargetYaw = headYaw;
         f.panelAnchor = f.panelTargetAnchor = head;
+    } else if (panelFollow_ == PanelFollow::Yaw) {
+        // In front at once, but upright and at the height of the eyes: turning
+        // the head brings it along, looking up or down looks past it.
+        f.panelYaw = f.panelTargetYaw = headYaw;
+        f.panelAnchor = f.panelTargetAnchor = head;
     } else if (std::abs(angleBetween(f.panelTargetYaw, headYaw)) > kFollowAngle ||
                glm::distance(f.panelTargetAnchor, head) > kFollowDistance) {
         f.panelTargetYaw = headYaw;
@@ -600,6 +605,15 @@ void XrSystem::endFrame(bool submitted) {
         panel.pose.position.x = f.panelAnchor.x - std::sin(f.panelYaw) * panelDistance_;
         panel.pose.position.y = f.panelAnchor.y - 0.1f;
         panel.pose.position.z = f.panelAnchor.z - std::cos(f.panelYaw) * panelDistance_;
+        if (panelFollow_ == PanelFollow::Head && viewSpace_ != XR_NULL_HANDLE) {
+            // Fixed to the view: the compositor keeps it there itself, so it
+            // does not swim the way a pose a frame old would.
+            panel.space = viewSpace_;
+            panel.pose = {};
+            panel.pose.orientation.w = 1.0f;
+            panel.pose.position.y = -0.1f;
+            panel.pose.position.z = -panelDistance_;
+        }
         panel.size.width = panelWidth_;
         panel.size.height = panelWidth_ * static_cast<float>(f.panelExtent.height) /
                             static_cast<float>(f.panelExtent.width);
