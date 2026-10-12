@@ -899,6 +899,9 @@ bool Renderer::initialize(core::Window* win) {
 }
 
 void Renderer::shutdown() {
+#ifdef WOWEE_VR
+    vrDestroyEyes();
+#endif
     // A recording in progress is finished, not abandoned: the file is only
     // playable once its index is written.
     if (recorder_) stopRecording();
@@ -1319,6 +1322,11 @@ void Renderer::beginFrame() {
     // recording two frames ago is complete.
     collectRecordedFrame();
 
+#ifdef WOWEE_VR
+    // A headset frame: from here the camera is the head, until the eyes are drawn.
+    vrBeginViews();
+#endif
+
     // FSR2 jitter pattern (§4.3 - delegates to PostProcessPipeline)
     if (postProcessPipeline_ && camera) postProcessPipeline_->applyJitter(camera.get());
 
@@ -1358,6 +1366,10 @@ void Renderer::beginFrame() {
     if (renderGraph_) {
         renderGraph_->execute(currentCmd);
     }
+
+#ifdef WOWEE_VR
+    vrRenderEyes();
+#endif
 
     // --- Begin render pass ---
     // Select framebuffer: PP off-screen target or swapchain (§4.3 - PostProcessPipeline)
@@ -2875,6 +2887,11 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
     static const bool skipAll = (std::getenv("WOWEE_SKIP_ALL_RENDER") != nullptr);
     if (skipAll) return;
 
+#ifdef WOWEE_VR
+    // The headset's eyes have this frame's world; the window keeps the interface.
+    if (vrWorldInEyes_ && !vrEyePass_) return;
+#endif
+
     worldDrawnLastFrame_ = true;
     worldDrawnThisFrame_ = true;
 
@@ -2888,6 +2905,9 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
 
     uint32_t frameIdx = vkCtx->getCurrentFrame();
     VkDescriptorSet perFrameSet = perFrameDescSets[frameIdx];
+#ifdef WOWEE_VR
+    if (vrPerFrameSet_ != VK_NULL_HANDLE) perFrameSet = vrPerFrameSet_;
+#endif
     const glm::mat4& view = camera ? camera->getViewMatrix() : glm::mat4(1.0f);
     const glm::mat4& projection = camera ? camera->getProjectionMatrix() : glm::mat4(1.0f);
 
@@ -3584,6 +3604,9 @@ void Renderer::renderPostSceneOverlays(VkCommandBuffer cmd,
 /// The minimap disc, over whatever has been drawn so far.
 void Renderer::renderMinimapOverlay(VkCommandBuffer cmd,
                                     game::GameHandler* gameHandler) {
+#ifdef WOWEE_VR
+    if (vrEyePass_) return;  // the minimap is the interface, and sized to the window
+#endif
     if (minimap && minimap->isEnabled() && camera && window) {
         glm::vec3 minimapCenter = camera->getPosition();
         if (cameraController && cameraController->isThirdPerson())
@@ -3610,6 +3633,11 @@ void Renderer::renderMinimapOverlay(VkCommandBuffer cmd,
 }
 
 bool Renderer::waterDrawsInContinuePass() const {
+#ifdef WOWEE_VR
+    // An eye draws its water in the scene pass: the continuation reads the
+    // window's images for its refraction copy.
+    if (vrEyePass_) return false;
+#endif
     if (!waterRenderer || !vkCtx) return false;
     if (vkCtx->getMsaaSamples() > VK_SAMPLE_COUNT_1_BIT) {
         // The 1x water pass targets the swapchain directly, so it cannot serve a

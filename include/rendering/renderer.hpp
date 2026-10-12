@@ -172,6 +172,12 @@ public:
     bool isPlayerIndoors() const { return playerIndoors_; }
     VkContext* getVkContext() const { return vkCtx; }
     VkDescriptorSetLayout getPerFrameSetLayout() const { return perFrameSetLayout; }
+
+#ifdef WOWEE_VR
+    /// Who the world is drawn for when a headset frame draws it once per eye,
+    /// or nullptr when there is no world to draw. Said before beginFrame.
+    void setVrGameHandler(game::GameHandler* gameHandler) { vrGameHandler_ = gameHandler; }
+#endif
     /// What a per-frame set allocated elsewhere binds at binding 2: a fog
     /// volume of clear air, for a set whose block leaves the fog off.
     VkImageView getNeutralFogVolumeView() const;
@@ -464,6 +470,20 @@ private:
     // Vulkan frame state
     VkContext* vkCtx = nullptr;
     VkCommandBuffer currentCmd = VK_NULL_HANDLE;
+
+#ifdef WOWEE_VR
+    // Stereo for a headset; all of it is in src/xr/xr_renderer.cpp.
+    struct VrEyes;
+    bool vrEnsureEyes();
+    void vrDestroyEyes();
+    void vrBeginViews();
+    void vrRenderEyes();
+    VrEyes* vrEyes_ = nullptr;
+    game::GameHandler* vrGameHandler_ = nullptr;
+    VkDescriptorSet vrPerFrameSet_ = VK_NULL_HANDLE;  // set 0 while an eye is being drawn
+    bool vrEyePass_ = false;                          // renderWorld is drawing an eye
+    bool vrWorldInEyes_ = false;                      // the eyes took this frame's world
+#endif
     uint32_t currentImageIndex = 0;
 
     // Per-frame UBO + descriptors (set 0)

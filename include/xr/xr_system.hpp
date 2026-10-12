@@ -13,6 +13,8 @@
  *   WOWEE_VR_DEBUG=1        verbose OpenXR log, and the once-a-second frame line
  *   WOWEE_VR_DUMP_FRAMES=N  write N frames of each eye and of the interface as PNG
  *   WOWEE_VR_EYE_SCALE=P    eye image size in percent of what the runtime recommends (25-200)
+ *   WOWEE_VR_FAKE=1         no runtime and no headset: a fixed pair of eyes, drawn side by side
+ *                           into the window. For looking at the stereo render on a desk.
  *   WOWEE_VR_PROFILE=0|1    the lean frame (see leanFrame): 0 keeps the flat client's frame in the
  *                           headset, 1 forces the lean one without a headset, for measuring it
  *
@@ -21,6 +23,7 @@
  * as the flat client it was going to be anyway.
  */
 
+#include <glm/glm.hpp>
 #include <openxr/openxr.h>
 #include <vulkan/vulkan.h>
 
@@ -34,6 +37,20 @@ class VkContext;
 }
 
 namespace wowee::xr {
+
+/// One view of the world: an eye, or the point between the eyes.
+struct EyeView {
+    glm::mat4 view{1.0f};
+    glm::mat4 projection{1.0f};  // Vulkan clip space: Y down, depth 0..1
+    glm::vec3 position{0.0f};
+};
+
+/// What a stereo frame is drawn from. `center` sees everything either eye
+/// does, and is what the frame is culled by.
+struct StereoViews {
+    EyeView eye[2];
+    EyeView center;
+};
 
 class XrSystem {
 public:
@@ -125,6 +142,26 @@ public:
     /// buffer made it to the queue; if not the frame goes out with no layer.
     void endFrame(bool submitted);
 
+    /// Whether this is the stand-in for a headset (WOWEE_VR_FAKE).
+    [[nodiscard]] bool fakeHeadset() const { return fake_; }
+
+    /// Whether this frame wants the world drawn once per eye.
+    [[nodiscard]] bool stereoFrame() const;
+
+    /// The eyes of this frame, placed in the world.
+    ///
+    /// The headset reports where the head is in its own tracking space. That
+    /// space is stood on `referencePosition`, facing `referenceYawDegrees`
+    /// around the vertical, which is where the game put its camera. One yard
+    /// of the world is 0.9144 metres.
+    [[nodiscard]] bool stereoViews(const glm::vec3& referencePosition, float referenceYawDegrees,
+                                   float nearPlane, float farPlane, StereoViews& out) const;
+
+    /// Records the copy of a finished eye image into the headset. `image` is
+    /// eye sized, in the window's format and in PRESENT_SRC layout; it is left
+    /// in TRANSFER_SRC.
+    void recordEyeCopy(VkCommandBuffer cmd, uint32_t eye, VkImage image);
+
     /// Where a frame's wall-clock time went, for the once-a-second debug line.
     /// The window's own waits are reported by VkContext; the rest is measured here.
     enum class Timing { SlotWait, WindowAcquire, WindowPresent, XrBegin, XrImages, XrEnd, Count };
@@ -142,6 +179,7 @@ private:
     bool createReferenceSpaces();
     bool createEyeSwapchains();
     void destroyEyeSwapchains();
+    void startFake();
     void beginSession();
     void endSession();
     void onSessionStateChanged(XrSessionState newState);
@@ -155,6 +193,7 @@ private:
     XrSpace stageSpace_ = XR_NULL_HANDLE;
     rendering::VkContext* ctx_ = nullptr;
     bool running_ = false;
+    bool fake_ = false;
     bool leanForced_ = false;
     bool leanRefused_ = false;
 

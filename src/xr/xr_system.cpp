@@ -66,9 +66,13 @@ bool XrSystem::initialize() {
         leanForced_ = core::envValueEnables(profile, false);
         leanRefused_ = !leanForced_;
     }
+    debug_ = core::envFlagEnabled("WOWEE_VR_DEBUG");
+    if (core::envFlagEnabled("WOWEE_VR_FAKE")) {
+        startFake();
+        return false;  // no runtime behind it: nothing for the Vulkan context to ask
+    }
     if (!requested()) return false;
 
-    debug_ = core::envFlagEnabled("WOWEE_VR_DEBUG");
     dumpFrames_ = core::envIntClamped("WOWEE_VR_DUMP_FRAMES", 0, 0, 10000);
 
     if (!platform::initializeLoader() || !createInstance() || !findHeadset()) {

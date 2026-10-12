@@ -4087,6 +4087,10 @@ void Application::render() {
 #endif
 
     renderingFrame_ = true;
+#ifdef WOWEE_VR
+    // For a headset frame the world is drawn once per eye inside beginFrame.
+    renderer->setVrGameHandler(state == AppState::IN_GAME ? gameHandler.get() : nullptr);
+#endif
     runRenderStage("beginFrame", [&] { renderer->beginFrame(); });
 
     // Only render 3D world when in-game

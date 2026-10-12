@@ -10,9 +10,13 @@
 #define XR_USE_GRAPHICS_API_VULKAN
 #include <openxr/openxr_platform.h>
 
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 
 namespace wowee::xr {
 
@@ -69,6 +73,9 @@ struct XrSystem::FrameData {
     bool begun = false;
     bool shouldRender = false;
     bool mirrored = false;
+    // The finished eye images of a stereo frame, as the renderer handed them over.
+    std::array<VkImage, kEyeCount> eyeSource{};
+    uint32_t eyesCopied = 0;
     XrTime displayTime = 0;
     std::array<XrView, kEyeCount> views{};
 
@@ -209,7 +216,122 @@ void XrSystem::endSession() {
     LOG_WARNING("VR: session stopped");
 }
 
+// A headset that is not there: two eyes 64 mm apart looking straight ahead,
+// with the lopsided fields of view a real one has. Enough to draw a stereo
+// frame and look at both halves of it in the window.
+void XrSystem::startFake() {
+    fake_ = true;
+    frame_ = std::make_unique<FrameData>();
+    eyeWidth_ = 1344;
+    eyeHeight_ = 1440;
+    if (!leanRefused_) leanForced_ = true;
+    LOG_WARNING("VR: fake headset - stereo is drawn side by side into the window");
+}
+
+bool XrSystem::stereoFrame() const {
+    return frame_ && frame_->begun && frame_->shouldRender && (fake_ || running_);
+}
+
+bool XrSystem::stereoViews(const glm::vec3& referencePosition, float referenceYawDegrees,
+                           float nearPlane, float farPlane, StereoViews& out) const {
+    if (!stereoFrame()) return false;
+    const FrameData& f = *frame_;
+
+    // The tracking space, stood in the world. The world has Z up; the headset
+    // has Y up, X to the right and looks down -Z.
+    constexpr float kYardsPerMetre = 1.0f / 0.9144f;
+    const float yaw = glm::radians(referenceYawDegrees);
+    const glm::vec3 forward(std::cos(yaw), std::sin(yaw), 0.0f);
+    const glm::vec3 up(0.0f, 0.0f, 1.0f);
+    const glm::vec3 right = glm::cross(forward, up);
+    const glm::mat3 basis(right, up, -forward);
+
+    // A view matrix for a pose given in tracking space. Rigid: the scale goes
+    // into the position only, so depth stays in yards.
+    const auto place = [&](const XrPosef& pose, EyeView& view) {
+        const glm::vec3 p(pose.position.x, pose.position.y, pose.position.z);
+        const glm::quat q(pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z);
+        view.position = referencePosition + basis * (p * kYardsPerMetre);
+        glm::mat4 eyeToWorld(basis * glm::mat3_cast(q));
+        eyeToWorld[3] = glm::vec4(view.position, 1.0f);
+        view.view = glm::inverse(eyeToWorld);
+    };
+    // Depth 0..1, and Y turned over for Vulkan, as Camera does for its own.
+    const auto project = [&](const XrFovf& fov) {
+        glm::mat4 p = glm::frustumRH_ZO(nearPlane * std::tan(fov.angleLeft), nearPlane * std::tan(fov.angleRight),
+                                        nearPlane * std::tan(fov.angleDown), nearPlane * std::tan(fov.angleUp),
+                                        nearPlane, farPlane);
+        p[1][1] *= -1.0f;
+        p[2][1] *= -1.0f;
+        return p;
+    };
+
+    for (uint32_t i = 0; i < kEyeCount; ++i) {
+        place(f.views[i].pose, out.eye[i]);
+        out.eye[i].projection = project(f.views[i].fov);
+    }
+
+    // Between the eyes, turned as the left one is, and as wide as both
+    // together with a few degrees to spare for the distance between them.
+    constexpr float kMargin = 0.09f;
+    XrPosef centre = f.views[0].pose;
+    centre.position.x = 0.5f * (f.views[0].pose.position.x + f.views[1].pose.position.x);
+    centre.position.y = 0.5f * (f.views[0].pose.position.y + f.views[1].pose.position.y);
+    centre.position.z = 0.5f * (f.views[0].pose.position.z + f.views[1].pose.position.z);
+    XrFovf wide{};
+    wide.angleLeft = std::min(f.views[0].fov.angleLeft, f.views[1].fov.angleLeft) - kMargin;
+    wide.angleRight = std::max(f.views[0].fov.angleRight, f.views[1].fov.angleRight) + kMargin;
+    wide.angleDown = std::min(f.views[0].fov.angleDown, f.views[1].fov.angleDown) - kMargin;
+    wide.angleUp = std::max(f.views[0].fov.angleUp, f.views[1].fov.angleUp) + kMargin;
+    place(centre, out.center);
+    out.center.projection = project(wide);
+    return true;
+}
+
+void XrSystem::recordEyeCopy(VkCommandBuffer cmd, uint32_t eye, VkImage image) {
+    if (!stereoFrame() || eye >= kEyeCount) return;
+    FrameData& f = *frame_;
+    transition(cmd, image, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    f.eyeSource[eye] = image;
+    f.eyesCopied |= 1u << eye;
+    if (fake_) return;
+
+    // Bytes across, not a blit: the image is in the window's linear format and
+    // already display encoded, and the eye image is its sRGB twin.
+    const VkImageSubresourceLayers layers{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
+                                          .baseArrayLayer = 0, .layerCount = 1};
+    VkImageCopy copy{};
+    copy.srcSubresource = layers;
+    copy.dstSubresource = layers;
+    copy.extent = {eyeWidth_, eyeHeight_, 1};
+    const VkImage target = f.eyes[eye].images[f.eyes[eye].imageIndex];
+    transition(cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    vkCmdCopyImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    transition(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+}
+
 void XrSystem::beginFrame() {
+    if (fake_) {
+        FrameData& f = *frame_;
+        f.begun = true;
+        f.shouldRender = true;
+        f.mirrored = false;
+        f.eyesCopied = 0;
+        for (uint32_t i = 0; i < kEyeCount; ++i) {
+            const float side = i == 0 ? -1.0f : 1.0f;
+            f.views[i] = {};
+            f.views[i].type = XR_TYPE_VIEW;
+            f.views[i].pose.orientation.w = 1.0f;
+            f.views[i].pose.position.x = side * 0.032f;
+            // Wider outwards than towards the nose, and further down than up.
+            f.views[i].fov.angleLeft = i == 0 ? -0.94f : -0.70f;
+            f.views[i].fov.angleRight = i == 0 ? 0.70f : 0.94f;
+            f.views[i].fov.angleUp = 0.77f;
+            f.views[i].fov.angleDown = -0.96f;
+        }
+        return;
+    }
     if (instance_ == XR_NULL_HANDLE) return;
     pollEvents();
     if (!running_ || !frame_) return;
@@ -237,6 +359,7 @@ void XrSystem::beginFrame() {
     }
     f.begun = true;
     f.mirrored = false;
+    f.eyesCopied = 0;
     f.cpuStart = std::chrono::steady_clock::now();
     f.displayTime = frameState.predictedDisplayTime;
     f.shouldRender = frameState.shouldRender == XR_TRUE;
@@ -293,6 +416,31 @@ void XrSystem::recordMirror(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D
     if (!frame_ || !frame_->begun || !frame_->shouldRender) return;
     if (windowExtent.width == 0 || windowExtent.height == 0) return;
     FrameData& f = *frame_;
+    constexpr uint32_t kBothEyes = (1u << kEyeCount) - 1u;
+    if (fake_) {
+        // No headset to show the eyes in: put them next to each other in the
+        // window, over whatever it held.
+        if (f.eyesCopied != kBothEyes) return;
+        const VkImageSubresourceLayers whole{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
+                                             .baseArrayLayer = 0, .layerCount = 1};
+        transition(cmd, windowImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        const auto half = static_cast<int32_t>(windowExtent.width / 2);
+        for (uint32_t i = 0; i < kEyeCount; ++i) {
+            VkImageBlit blit{};
+            blit.srcSubresource = whole;
+            blit.srcOffsets[1] = {static_cast<int32_t>(eyeWidth_), static_cast<int32_t>(eyeHeight_), 1};
+            blit.dstSubresource = whole;
+            blit.dstOffsets[0] = {static_cast<int32_t>(i) * half, 0, 0};
+            blit.dstOffsets[1] = {static_cast<int32_t>(i + 1) * half, static_cast<int32_t>(windowExtent.height), 1};
+            vkCmdBlitImage(cmd, f.eyeSource[i], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, windowImage,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+        }
+        transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        return;
+    }
+    // The eyes were drawn for themselves this frame; the window is not what
+    // the headset shows.
+    if (f.eyesCopied == kBothEyes) return;
     const VkImage mirror = f.mirror.image;
 
     // The window, whole, as large as fits an eye, on black.
@@ -345,6 +493,10 @@ void XrSystem::recordMirror(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D
 void XrSystem::endFrame(bool submitted) {
     if (!frame_ || !frame_->begun) return;
     FrameData& f = *frame_;
+    if (fake_) {
+        f.begun = false;
+        return;
+    }
     const auto endStart = std::chrono::steady_clock::now();
 
     bool released = true;
@@ -359,7 +511,8 @@ void XrSystem::endFrame(bool submitted) {
     layer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
     const XrCompositionLayerBaseHeader* layers[1] = {
         reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer)};
-    const bool show = submitted && released && f.shouldRender && f.mirrored;
+    const bool show = submitted && released && f.shouldRender &&
+                      (f.mirrored || f.eyesCopied == (1u << kEyeCount) - 1u);
     if (show) {
         for (uint32_t i = 0; i < kEyeCount; ++i) {
             projectionViews[i].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;

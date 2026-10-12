@@ -1275,6 +1275,7 @@ if(WOWEE_VR)
     target_sources(wowee PRIVATE
         src/xr/xr_frame.cpp
         src/xr/xr_platform.cpp
+        src/xr/xr_renderer.cpp
         src/xr/xr_session.cpp
         src/xr/xr_system.cpp
         include/xr/xr_platform.hpp

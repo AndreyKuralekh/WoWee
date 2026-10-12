@@ -32,6 +32,11 @@ enum class FrameWait { Slot, Acquire, Present };
 // also waited for its own display would hold both to the slower of the two.
 static bool windowPresentWaits(bool vsync) { return vsync && !xr::system().sessionRunning(); }
 
+// The fake headset shows its two eyes by copying them into the window.
+static VkImageUsageFlags windowExtraUsage() {
+    return xr::system().fakeHeadset() ? VK_IMAGE_USAGE_TRANSFER_DST_BIT : 0;
+}
+
 // Into the VR debug line, so a frame that does not fit the headset's period
 // can be told apart by where it waited.
 static void noteFrameWait(FrameWait wait, std::chrono::steady_clock::time_point since) {
@@ -44,6 +49,7 @@ static void noteFrameWait(FrameWait wait, std::chrono::steady_clock::time_point 
 }
 #else
 static bool windowPresentWaits(bool vsync) { return vsync; }
+static VkImageUsageFlags windowExtraUsage() { return 0; }
 static void noteFrameWait(FrameWait, std::chrono::steady_clock::time_point) {}
 #endif
 
@@ -1309,7 +1315,7 @@ bool VkContext::createSwapchain(int width, int height) {
     auto& builder = swapchainBuilder
         .set_desired_format({.format = VK_FORMAT_B8G8R8A8_UNORM, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
         .set_desired_extent(static_cast<uint32_t>(width), static_cast<uint32_t>(height))
-        .set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+        .set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | windowExtraUsage())
         .set_desired_min_image_count(2)
         .set_old_swapchain(swapchain);
 
@@ -2699,7 +2705,7 @@ bool VkContext::recreateSwapchain(int width, int height) {
     auto& builder = swapchainBuilder
         .set_desired_format({.format = VK_FORMAT_B8G8R8A8_UNORM, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
         .set_desired_extent(static_cast<uint32_t>(width), static_cast<uint32_t>(height))
-        .set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+        .set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | windowExtraUsage())
         .set_desired_min_image_count(2)
         .set_old_swapchain(oldSwapchain);
 

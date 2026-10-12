@@ -20,6 +20,7 @@ public:
         // Reject NaN/inf - would produce a NaN view matrix and freeze the
         // GPU in some drivers, or produce garbage frustum culling.
         if (!std::isfinite(pos.x) || !std::isfinite(pos.y) || !std::isfinite(pos.z)) return;
+        if (externalView_) { ownPosition_ = pos; return; }
         position = pos; updateViewMatrix();
     }
     void setRotation(float yaw, float pitch) {
@@ -59,6 +60,21 @@ public:
 
     [[nodiscard]] Ray screenToWorldRay(float screenX, float screenY, float screenW, float screenH) const;
 
+    /// Takes the view and the projection as given instead of building them
+    /// from position, yaw, pitch and field of view.
+    ///
+    /// For a view the camera cannot describe: a headset's eye rolls with the
+    /// head and its field of view is not symmetric. `pos` is what getPosition()
+    /// answers with, and need not be where `view` looks from - both eyes of one
+    /// frame are given the point between them, so anything that sorts or fades
+    /// by distance decides the same way for each.
+    ///
+    /// Setters keep working and are kept: clearExternalView() goes back to
+    /// whatever they last said.
+    void setExternalView(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& pos);
+    void clearExternalView();
+    [[nodiscard]] bool hasExternalView() const { return externalView_; }
+
 private:
     void updateViewMatrix();
     void updateProjectionMatrix();
@@ -75,6 +91,9 @@ private:
     glm::mat4 projectionMatrix = glm::mat4(1.0f);
     glm::mat4 unjitteredProjectionMatrix = glm::mat4(1.0f);
     glm::vec2 jitterOffset = glm::vec2(0.0f);  // NDC jitter (applied to projection)
+
+    bool externalView_ = false;
+    glm::vec3 ownPosition_ = glm::vec3(0.0f);  // position to return to after an external view
 };
 
 } // namespace rendering

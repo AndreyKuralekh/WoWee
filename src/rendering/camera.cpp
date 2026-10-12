@@ -11,12 +11,14 @@ Camera::Camera() {
 }
 
 void Camera::updateViewMatrix() {
+    if (externalView_) return;
     glm::vec3 front = getForward();
     // Use Z-up for WoW coordinate system
     viewMatrix = glm::lookAt(position, position + front, glm::vec3(0.0f, 0.0f, 1.0f));
 }
 
 void Camera::updateProjectionMatrix() {
+    if (externalView_) return;
     projectionMatrix = glm::perspective(glm::radians(fov), aspectRatio, nearPlane, farPlane);
     // Vulkan clip-space has Y pointing down; flip the projection's Y axis.
     projectionMatrix[1][1] *= -1.0f;
@@ -30,6 +32,11 @@ void Camera::updateProjectionMatrix() {
 }
 
 glm::vec3 Camera::getForward() const {
+    // A view matrix looks down its own -Z, and its rows are the camera's axes
+    // in the world.
+    if (externalView_) {
+        return -glm::normalize(glm::vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+    }
     // WoW coordinate system: X/Y horizontal, Z vertical
     glm::vec3 front;
     front.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
@@ -53,6 +60,23 @@ glm::vec3 Camera::getUp() const {
     float len = glm::length(c);
     if (len < 1e-6f) return glm::vec3(0.0f, 0.0f, 1.0f);
     return c / len;
+}
+
+void Camera::setExternalView(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& pos) {
+    if (!externalView_) ownPosition_ = position;
+    externalView_ = true;
+    position = pos;
+    viewMatrix = view;
+    projectionMatrix = projection;
+    unjitteredProjectionMatrix = projection;
+}
+
+void Camera::clearExternalView() {
+    if (!externalView_) return;
+    externalView_ = false;
+    position = ownPosition_;
+    updateViewMatrix();
+    updateProjectionMatrix();
 }
 
 void Camera::setJitter(float jx, float jy) {
