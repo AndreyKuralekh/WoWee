@@ -100,6 +100,7 @@ void UnitPortrait::update(game::GameHandler& gameHandler,
         }
         // Logged because a portrait that rebuilds every frame looks like one
         // that flickers, and the two are indistinguishable from outside.
+        redrawNow_ = true;
         LOG_INFO("UnitPortrait: rebuilt for guid ", self->guid,
                  " appearance ", self->appearanceBytes);
         loadedCreaturePath_.clear();
@@ -109,9 +110,7 @@ void UnitPortrait::update(game::GameHandler& gameHandler,
         loadedEquipHash_ = equipHash;
     }
 
-    preview_->update(deltaTime);
-    preview_->render();
-    preview_->requestComposite();
+    redraw(deltaTime);
 }
 
 bool UnitPortrait::updatePlayer(uint8_t race, uint8_t gender,
@@ -164,6 +163,7 @@ bool UnitPortrait::updatePlayer(uint8_t race, uint8_t gender,
             if (framing_ == Framing::Face) preview_->setPortraitFraming();
             else                           preview_->resetView();
         }
+        redrawNow_ = true;
         LOG_INFO("UnitPortrait: rebuilt for player race ", static_cast<int>(race),
                  " appearance ", appearanceBytes);
         loadedCreaturePath_.clear();
@@ -176,9 +176,7 @@ bool UnitPortrait::updatePlayer(uint8_t race, uint8_t gender,
         loadedBake_ = pendingBake_;
     }
 
-    preview_->update(deltaTime);
-    preview_->render();
-    preview_->requestComposite();
+    redraw(deltaTime);
     return preview_->isModelLoaded();
 }
 
@@ -212,6 +210,7 @@ bool UnitPortrait::updateCreature(const std::string& m2Path,
                 preview_->resetView();
             }
         }
+        redrawNow_ = true;
         LOG_INFO("UnitPortrait: rebuilt for creature ", m2Path);
         loadedCreaturePath_ = m2Path;
         // A player and a creature share one preview, so loading either has to
@@ -223,9 +222,7 @@ bool UnitPortrait::updateCreature(const std::string& m2Path,
         loadedEquipHash_ = 0;
     }
 
-    preview_->update(deltaTime);
-    preview_->render();
-    preview_->requestComposite();
+    redraw(deltaTime);
     return preview_->isModelLoaded();
 }
 
@@ -235,7 +232,21 @@ uint64_t UnitPortrait::textureId() const {
 }
 
 void UnitPortrait::rotate(float yawDelta) {
-    if (preview_ && yawDelta != 0.0f) preview_->rotate(yawDelta);
+    if (preview_ && yawDelta != 0.0f) {
+        preview_->rotate(yawDelta);
+        redrawNow_ = true;
+    }
+}
+
+void UnitPortrait::redraw(float deltaTime) {
+    redrawPending_ += deltaTime;
+    const bool due = (redrawCalls_++ + redrawPhase_) % redrawInterval_ == 0;
+    if (!due && !redrawNow_) return;
+    redrawNow_ = false;
+    preview_->update(redrawPending_);
+    redrawPending_ = 0.0f;
+    preview_->render();
+    preview_->requestComposite();
 }
 
 void UnitPortrait::shutdown(rendering::Renderer* renderer) {

@@ -112,7 +112,25 @@ public:
 
     void shutdown(rendering::Renderer* renderer);
 
+    /// How often a view is drawn again: every frame at 1, every third at 3.
+    /// Each is a whole offscreen character pass for a picture a few dozen
+    /// pixels across, and a frame with nothing to spare - a headset's - can
+    /// show the last one a little longer. A view whose model has just changed
+    /// or been turned is drawn at once whatever this says, and the animation
+    /// keeps its pace: the skipped time is given to the next draw.
+    static void setRedrawInterval(int frames) { redrawInterval_ = frames < 1 ? 1 : frames; }
+
 private:
+    /// Advance and draw the view, or leave last frame's picture standing.
+    void redraw(float deltaTime);
+
+    static inline int redrawInterval_ = 1;
+    int redrawPhase_ = nextRedrawPhase_++;  // so that the views take turns
+    static inline int nextRedrawPhase_ = 0;
+    int redrawCalls_ = 0;
+    float redrawPending_ = 0.0f;  // seconds not yet given to the animation
+    bool redrawNow_ = true;
+
     std::unique_ptr<rendering::CharacterPreview> preview_;
     bool initialized_ = false;
     Framing framing_ = Framing::Face;

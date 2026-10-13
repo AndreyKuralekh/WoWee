@@ -4147,6 +4147,14 @@ void Application::render() {
             runRenderStage("addonWidgets/models", [&] {
             if (gameHandler && assetManager) {
                 auto& widgets = engine->widgets();
+                // The frames the model views are drawn into are looked up by
+                // name until they are found, and half of them belong to
+                // interface modules that load on demand - the inspect frame,
+                // the auction house's dressing room. A name nothing answers to
+                // walks every widget there is, so the ones still missing are
+                // asked for a few times a second rather than every frame.
+                static uint32_t modelFrameLookups = 0;
+                const bool lookUpMissing = (modelFrameLookups++ % 20) == 0;
                 ui::Widget* portrait = portraitWidgetId_
                     ? widgets.get(portraitWidgetId_) : nullptr;
                 if (!portrait || portrait->name != "PlayerPortrait") {
@@ -4285,7 +4293,7 @@ void Application::render() {
                 ui::Widget* doll = paperdollWidgetId_
                     ? widgets.get(paperdollWidgetId_) : nullptr;
                 if (!doll || doll->name != "CharacterModelFrame") {
-                    doll = widgets.findByName("CharacterModelFrame");
+                    doll = lookUpMissing ? widgets.findByName("CharacterModelFrame") : nullptr;
                     paperdollWidgetId_ = doll ? doll->id : 0;
                 }
                 if (doll && doll->visible) {
@@ -4330,7 +4338,7 @@ void Application::render() {
                     ui::Widget* dressUp = *room.widgetId
                         ? widgets.get(*room.widgetId) : nullptr;
                     if (!dressUp || dressUp->name != room.name) {
-                        dressUp = widgets.findByName(room.name);
+                        dressUp = lookUpMissing ? widgets.findByName(room.name) : nullptr;
                         *room.widgetId = dressUp ? dressUp->id : 0;
                     }
                     bool shown = false;
@@ -4418,7 +4426,7 @@ void Application::render() {
                 for (const CreatureModel& cm : kCreatureModels) {
                     ui::Widget* frame = *cm.widgetId ? widgets.get(*cm.widgetId) : nullptr;
                     if (!frame || frame->name != cm.name) {
-                        frame = widgets.findByName(cm.name);
+                        frame = lookUpMissing ? widgets.findByName(cm.name) : nullptr;
                         *cm.widgetId = frame ? frame->id : 0;
                     }
                     bool shown = false;
@@ -4447,7 +4455,7 @@ void Application::render() {
                     ui::Widget* petModel = petModelWidgetId_
                         ? widgets.get(petModelWidgetId_) : nullptr;
                     if (!petModel || petModel->name != "PetModelFrame") {
-                        petModel = widgets.findByName("PetModelFrame");
+                        petModel = lookUpMissing ? widgets.findByName("PetModelFrame") : nullptr;
                         petModelWidgetId_ = petModel ? petModel->id : 0;
                     }
                     bool shown = false;
@@ -4487,7 +4495,7 @@ void Application::render() {
                     ui::Widget* inspectModel = inspectModelWidgetId_
                         ? widgets.get(inspectModelWidgetId_) : nullptr;
                     if (!inspectModel || inspectModel->name != "InspectModelFrame") {
-                        inspectModel = widgets.findByName("InspectModelFrame");
+                        inspectModel = lookUpMissing ? widgets.findByName("InspectModelFrame") : nullptr;
                         inspectModelWidgetId_ = inspectModel ? inspectModel->id : 0;
                     }
                     bool shown = false;
@@ -4730,6 +4738,9 @@ void Application::render() {
 #ifdef WOWEE_VR
             // A headset frame draws the world twice and has nothing to spare.
             widgetRenderer_.setSolveInterval(
+                xr::system().sessionRunning() || xr::system().fakeHeadset() ? 3 : 1);
+            // Likewise the portraits: each is a character pass of its own.
+            ui::UnitPortrait::setRedrawInterval(
                 xr::system().sessionRunning() || xr::system().fakeHeadset() ? 3 : 1);
 #endif
             widgetRenderer_.layout(engine->widgets(), io.DisplaySize.x, io.DisplaySize.y);
