@@ -712,6 +712,19 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
         }
     }
 
+    // Particles get a range of their own, well inside the one models are
+    // drawn to. Models reach past a kilometre, and at that range Northshire
+    // was simulating every candle in Stormwind: 50 000 particles wanted of a
+    // buffer of 32 768, 3 000 of them within 150 yards. A flame is a few
+    // inches across and is not seen from 300 yards; a model is.
+    // WOWEE_M2_PARTICLE_DISTANCE=<yards> moves it.
+    static const float kParticleMaxDistSq = [] {
+        const char* v = std::getenv("WOWEE_M2_PARTICLE_DISTANCE");
+        const float d = v ? std::strtof(v, nullptr) : 0.0f;
+        const float range = d > 0.0f ? d : 300.0f;
+        return range * range;
+    }();
+
     // Particle update (sequential - uses RNG, not thread-safe)
     // Only iterate instances that have particle emitters (pre-built list).
     for (size_t idx : particleInstanceIndices_) {
@@ -720,7 +733,14 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
         // Distance cull: only update particles within visible range
         glm::vec3 toCam = instance.position - cachedCamPos_;
         float distSq = glm::dot(toCam, toCam);
-        if (distSq > cachedMaxRenderDistSq_) continue;
+        if (distSq > std::min(cachedMaxRenderDistSq_, kParticleMaxDistSq)) {
+            // Nothing advances these any more, so they would hang where they
+            // were and go on taking room in the particle buffer - which is
+            // finite, and filled in list order, so enough of them left a
+            // spell cast a moment ago with no particles at all.
+            instance.particles.clear();
+            continue;
+        }
         if (!instance.cachedModel) continue;
         emitParticles(instance, *instance.cachedModel, deltaTime);
         updateParticles(instance, deltaTime);

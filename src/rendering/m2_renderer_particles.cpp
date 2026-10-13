@@ -794,6 +794,22 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 if (inst.cachedModel && inst.cachedModel->isSpellEffect)
                     spellPtc += inst.particles.size();
             }
+            // The buffer is full: whatever comes last in the list - a spell
+            // cast a moment ago - is not drawn at all. Say who filled it.
+            if (totalParticles >= MAX_M2_PARTICLE_VERTS) {
+                std::unordered_map<std::string, size_t> perModel;
+                for (size_t idx : particleInstanceIndices_) {
+                    if (idx >= instances.size() || !instances[idx].cachedModel) continue;
+                    perModel[instances[idx].cachedModel->name] += instances[idx].particles.size();
+                }
+                std::vector<std::pair<size_t, std::string>> top;
+                for (auto& [name, n] : perModel) top.emplace_back(n, name);
+                std::sort(top.begin(), top.end(), std::greater<>());
+                for (size_t i = 0; i < top.size() && i < 4; ++i) {
+                    LOG_WARNING("M2 particle buffer full (", MAX_M2_PARTICLE_VERTS, "): '", top[i].second,
+                                "' holds ", top[i].first);
+                }
+            }
             if (spellPtc > 0) {
                 LOG_INFO("SpellEffect: rendering ", spellPtc, " spell particles (",
                          totalParticles, " total)");
