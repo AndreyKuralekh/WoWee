@@ -189,6 +189,9 @@ void main() {
     float bumpFade = 1.0 - smoothstep(50.0, 125.0, fragDist);
     float edgeDist = min(min(LayerUV.x, 1.0 - LayerUV.x), min(LayerUV.y, 1.0 - LayerUV.y));
     bumpFade *= smoothstep(0.0, 0.06, edgeDist);
+    // Screen-space, so it changes with every movement of the view; where the
+    // view never rests the renderer asks for the ground without it.
+    if (shadowParams.w > 0.5) bumpFade = 0.0;
     if (bumpFade > 0.001) {
         float lum = dot(finalColor.rgb, vec3(0.299, 0.587, 0.114));
         float dLdx = dFdx(lum);

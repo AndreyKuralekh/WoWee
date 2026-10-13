@@ -120,8 +120,10 @@ namespace rendering {
 // A headset frame leaves out the passes that draw the scene a second time.
 #ifdef WOWEE_VR
 static bool vrLeanFrame() { return xr::system().leanFrame(); }
+static bool vrHeadsetFrame() { return xr::system().sessionRunning() || xr::system().fakeHeadset(); }
 #else
 static bool vrLeanFrame() { return false; }
+static bool vrHeadsetFrame() { return false; }
 #endif
 
 
@@ -608,7 +610,11 @@ void Renderer::updatePerFrameUBO() {
     // z carries one texel of the shadow map. The shaders used to hold that as
     // a constant for 4096, and the map is 512 to 4096 by the quality level.
     currentFrameData.shadowParams = glm::vec4(shadowsEnabled && !vrLeanFrame() ? 1.0f : 0.0f, shadowBias,
-                                              1.0f / static_cast<float>(SHADOW_MAP_SIZE), 0.0f);
+                                              1.0f / static_cast<float>(SHADOW_MAP_SIZE),
+                                              // w: the ground is lit by its own normals only. Its relief is
+                                              // worked out from how a pixel differs from the next one, and a
+                                              // head is never still: in a headset that light crawls.
+                                              vrHeadsetFrame() ? 1.0f : 0.0f);
 
     // Whether this frame builds the fog volume. Decided here, beside the
     // switch in the block the shaders read, and the frame graph dispatches by
