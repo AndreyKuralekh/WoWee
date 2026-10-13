@@ -1866,7 +1866,23 @@ void EntitySpawner::applyCreatureDisplayTextures(uint32_t displayId, uint32_t mo
                     // faces the bakes know nothing about, so those composite
                     // from the table instead - the same way the portrait
                     // always has.
-                    if (!extraCopy.bakeName.empty() && !isHdCharacterModel) {
+                    //
+                    // Unless the bake itself was made for them: the HD client
+                    // builds ship their own, named ..._HD.blp, and rewrite
+                    // BakeName to match. Compositing those NPCs from the item
+                    // regions instead paints the old armour pieces onto a
+                    // layout they were not drawn for.
+                    auto bakeIsForHdModel = [](const std::string& name) {
+                        static constexpr std::string_view kSuffix = "_hd.blp";
+                        if (name.size() < kSuffix.size()) return false;
+                        return std::equal(kSuffix.begin(), kSuffix.end(), name.end() - kSuffix.size(),
+                                          [](char want, char got) {
+                                              return want == static_cast<char>(std::tolower(
+                                                  static_cast<unsigned char>(got)));
+                                          });
+                    };
+                    if (!extraCopy.bakeName.empty() &&
+                        (!isHdCharacterModel || bakeIsForHdModel(extraCopy.bakeName))) {
                         def.bakedSkinPath = "Textures\\BakedNpcTextures\\" + extraCopy.bakeName;
                         def.hasBakedSkin = true;
                         allPaths.push_back(def.bakedSkinPath);
