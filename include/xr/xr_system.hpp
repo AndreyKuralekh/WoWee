@@ -264,6 +264,18 @@ public:
     /// as long as the stick is pushed; what is seen does not turn with it.
     void setMoveByHand(bool byHand) { moveByHand_ = byHand; }
 
+    /// The controllers the other way round: the left one points and clicks,
+    /// the right stick walks and the left turns, and every button is on the
+    /// opposite hand - what the settings call the left trigger is the right.
+    void setLeftHanded(bool leftHanded) { leftHanded_ = leftHanded; }
+
+    /// How big the world is made to look: 1 is its own size, a yard to 0.9144
+    /// metres; at 2 everything is twice as large and a real step covers half
+    /// the ground. And how far above or below the character's own eyes the
+    /// view is put, in metres.
+    void setWorldScale(float scale) { worldScale_ = scale < 0.25f ? 0.25f : (scale > 4.0f ? 4.0f : scale); }
+    void setEyeHeightOffset(float metres) { eyeHeightOffset_ = metres; }
+
     /// Where the panel stands, from the settings page. A value the environment
     /// set at start is left alone: that is how one is tried without saving it.
     void setPanelPlacement(PanelFollow follow, float distanceMetres, float widthMetres);
@@ -282,7 +294,7 @@ private:
     void destroyActions();
     void releaseControllerKeys();
     void loadControls();
-    bool leftHandYaw(float& yaw) const;
+    bool offHandYaw(float& yaw) const;
     void updateVignette(const glm::vec3& referencePosition);
     bool vignetteQuad(XrPosef& pose, XrExtent2Df& size) const;
     void releasePointer();
@@ -314,6 +326,11 @@ private:
     bool firstPerson_ = true;
     bool snapTurn_ = true;
     bool moveByHand_ = false;
+    bool leftHanded_ = false;
+    float worldScale_ = 1.0f;
+    float eyeHeightOffset_ = 0.0f;
+    /// Yards of the world to a metre of the room.
+    [[nodiscard]] float yardsPerMetre() const { return 1.0f / (0.9144f * worldScale_); }
     int vignetteLevel_ = 1;
     // How far the vignette has closed, 0 to 1, and what closes it: the
     // character's own motion, read off where the head is stood from one frame

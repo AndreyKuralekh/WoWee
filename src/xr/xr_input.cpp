@@ -129,6 +129,27 @@ SDL_Scancode functionKey(ControlFunction function) {
     }
 }
 
+// The action a button is read from. Right-handed it is its own; left-handed
+// each is the same button of the other hand, so that a table written for
+// "the left trigger" still means the trigger of the hand that does not point.
+// The menu button has no twin: the right controller's belongs to the system.
+XrAction buttonSource(const XrAction* buttons, XrAction rightTrigger, XrAction rightGrip, size_t button,
+                      bool leftHanded) {
+    if (!leftHanded) return buttons[button];
+    const auto at = [buttons](ControlButton b) { return buttons[static_cast<size_t>(b)]; };
+    switch (static_cast<ControlButton>(button)) {
+        case ControlButton::LeftTrigger: return rightTrigger;
+        case ControlButton::LeftGrip: return rightGrip;
+        case ControlButton::A: return at(ControlButton::X);
+        case ControlButton::B: return at(ControlButton::Y);
+        case ControlButton::X: return at(ControlButton::A);
+        case ControlButton::Y: return at(ControlButton::B);
+        case ControlButton::LeftStick: return at(ControlButton::RightStick);
+        case ControlButton::RightStick: return at(ControlButton::LeftStick);
+        default: return buttons[button];
+    }
+}
+
 // What a right click does when the ray meets nothing: the current target is
 // looted if it is dead, spoken to if it will speak, and attacked otherwise.
 void interactWithTarget() {
@@ -393,7 +414,7 @@ bool XrSystem::pickRay(glm::vec3& origin, glm::vec3& direction) const {
     glm::vec3 along;
     if (!aimRay(localSpace_, frameTime(), from, along)) return false;
     // As stereoViews places an eye.
-    constexpr float kYardsPerMetre = 1.0f / 0.9144f;
+    const float kYardsPerMetre = yardsPerMetre();
     const glm::quat recentre = glm::angleAxis(-(headOriginYaw_ + bodyYaw_), glm::vec3(0.0f, 1.0f, 0.0f));
     origin = worldReference_ + worldBasis_ * ((recentre * (from - headOrigin_)) * kYardsPerMetre);
     direction = glm::normalize(worldBasis_ * (recentre * along));
@@ -401,10 +422,13 @@ bool XrSystem::pickRay(glm::vec3& origin, glm::vec3& direction) const {
 }
 
 bool XrSystem::aimRay(XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& direction) const {
-    if (!input_ || input_->aimSpace == XR_NULL_HANDLE || base == XR_NULL_HANDLE || time == 0) return false;
+    if (!input_) return false;
+    // The hand that points: the right one, unless the player is left-handed.
+    const XrSpace pointer = leftHanded_ ? input_->aimLeftSpace : input_->aimSpace;
+    if (pointer == XR_NULL_HANDLE || base == XR_NULL_HANDLE || time == 0) return false;
     XrSpaceLocation location{};
     location.type = XR_TYPE_SPACE_LOCATION;
-    if (XR_FAILED(xrLocateSpace(input_->aimSpace, base, time, &location))) return false;
+    if (XR_FAILED(xrLocateSpace(pointer, base, time, &location))) return false;
     const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_POSITION_VALID_BIT;
     if ((location.locationFlags & needed) != needed) return false;
     const XrQuaternionf& o = location.pose.orientation;
@@ -413,16 +437,17 @@ bool XrSystem::aimRay(XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& d
     return true;
 }
 
-// Which way the left controller points round the vertical, as headYaw_ is
-// measured. False while it is not tracked or points nearly straight up or
-// down, which says nothing about a direction to walk in.
-bool XrSystem::leftHandYaw(float& yaw) const {
-    if (!input_ || input_->aimLeftSpace == XR_NULL_HANDLE || localSpace_ == XR_NULL_HANDLE || frameTime() == 0) {
-        return false;
-    }
+// Which way the hand that does not point - the left, unless the player is
+// left-handed - points round the vertical, as headYaw_ is measured. False
+// while it is not tracked or points nearly straight up or down, which says
+// nothing about a direction to walk in.
+bool XrSystem::offHandYaw(float& yaw) const {
+    if (!input_) return false;
+    const XrSpace hand = leftHanded_ ? input_->aimSpace : input_->aimLeftSpace;
+    if (hand == XR_NULL_HANDLE || localSpace_ == XR_NULL_HANDLE || frameTime() == 0) return false;
     XrSpaceLocation location{};
     location.type = XR_TYPE_SPACE_LOCATION;
-    if (XR_FAILED(xrLocateSpace(input_->aimLeftSpace, localSpace_, frameTime(), &location))) return false;
+    if (XR_FAILED(xrLocateSpace(hand, localSpace_, frameTime(), &location))) return false;
     if ((location.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) == 0) return false;
     const XrQuaternionf& o = location.pose.orientation;
     const glm::vec3 forward = glm::quat(o.w, o.x, o.y, o.z) * glm::vec3(0.0f, 0.0f, -1.0f);
@@ -517,7 +542,11 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
     // that is what a drag is.
     // Beside the panel only with a ray to click along.
     const bool tracked = focused && inWorld && aimRay(localSpace_, frameTime(), origin, direction);
-    const bool wanted[2] = {button(session_, in.click), button(session_, in.grab)};
+    // The trigger and the grip of the hand that points.
+    const auto leftTrigger = in.buttons[static_cast<size_t>(ControlButton::LeftTrigger)];
+    const auto leftGrip = in.buttons[static_cast<size_t>(ControlButton::LeftGrip)];
+    const bool wanted[2] = {button(session_, leftHanded_ ? leftTrigger : in.click),
+                            button(session_, leftHanded_ ? leftGrip : in.grab)};
     for (size_t i = 0; i < std::size(kMouseButtons); ++i) {
         const bool down = wanted[i] && (in.mouseHeld[i] || onPanel || tracked);
         if (down == in.mouseHeld[i]) continue;
@@ -591,7 +620,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
     if (moveByHand_ && input_ && input_->attached &&
         (input_->held[0] || input_->held[1] || input_->held[2] || input_->held[3])) {
         float handYaw = 0.0f;
-        if (leftHandYaw(handYaw)) {
+        if (offHandYaw(handYaw)) {
             facing = handYaw;
             follows = true;
         }
@@ -637,7 +666,8 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
     }
 
     core::Input& input = core::Input::getInstance();
-    const glm::vec2 move = stick(session_, in.move);
+    // Left-handed, the sticks change places with everything else.
+    const glm::vec2 move = stick(session_, leftHanded_ ? in.turn : in.move);
     // Q and E sidestep, as the gamepad's stick does; A and D would turn.
     const float pushes[4] = {move.y, -move.y, -move.x, move.x};
     for (size_t i = 0; i < std::size(kMoveKeys); ++i) {
@@ -654,7 +684,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
     bool down[kControlButtonCount];
     bool modifier = false;
     for (size_t i = 0; i < kControlButtonCount; ++i) {
-        down[i] = !typing && button(session_, in.buttons[i]);
+        down[i] = !typing && button(session_, buttonSource(in.buttons, in.click, in.grab, i, leftHanded_));
         if (down[i] && controls_.plain[i] == ControlFunction::Modifier) modifier = true;
     }
     bool keyWanted[kControlFunctionCount] = {};
@@ -690,7 +720,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
     // The turn is the mouse's: so many pixels of it, which the camera scales
     // by its own sensitivity - divided out here so that the angle is an angle.
     // Not while a line is being typed, as the keys are not.
-    const float turn = stick(session_, in.turn).x;
+    const float turn = stick(session_, leftHanded_ ? in.move : in.turn).x;
     const float perDegree = 1.0f / std::max(camera->getMouseSensitivity(), 0.0001f);
     turningSmoothly_ = false;
     if (typing) {

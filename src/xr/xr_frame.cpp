@@ -332,14 +332,16 @@ bool XrSystem::stereoFrame() const {
     return frame_ && frame_->begun && frame_->shouldRender && (fake_ || running_);
 }
 
-bool XrSystem::stereoViews(const glm::vec3& referencePosition, float referenceYawDegrees,
+bool XrSystem::stereoViews(const glm::vec3& characterEyes, float referenceYawDegrees,
                            float nearPlane, float farPlane, StereoViews& out) {
     if (!stereoFrame()) return false;
     const FrameData& f = *frame_;
 
     // The tracking space, stood in the world. The world has Z up; the headset
     // has Y up, X to the right and looks down -Z.
-    constexpr float kYardsPerMetre = 1.0f / 0.9144f;
+    const float kYardsPerMetre = yardsPerMetre();
+    // Raised or lowered as the player asked, in their own metres.
+    const glm::vec3 referencePosition = characterEyes + glm::vec3(0.0f, 0.0f, eyeHeightOffset_ / 0.9144f);
     const float yaw = glm::radians(referenceYawDegrees);
     const glm::vec3 forward(std::cos(yaw), std::sin(yaw), 0.0f);
     const glm::vec3 up(0.0f, 0.0f, 1.0f);

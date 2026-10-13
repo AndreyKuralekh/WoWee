@@ -687,6 +687,8 @@ void SettingsPanel::renderSettingsWindow(ChatPanel& chatPanel,
             if (ImGui::BeginTabItem("VR", nullptr, tabFlagFor("VR"))) {
                 ImGui::Spacing();
                 drawSchemaCategory("VR", saveCallback);
+                ImGui::SeparatorText("Comfort");
+                drawSchemaCategory("VR comfort", saveCallback);
                 ImGui::SeparatorText("Controller buttons");
                 drawSchemaCategory("VR buttons", saveCallback);
                 ImGui::SeparatorText("Controller buttons with the modifier held");
@@ -879,7 +881,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1081,6 +1083,9 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrbodyfollowshead", .asBool  = &SettingsPanel::pendingVrBodyFollowsHead},
     {.key = "vrvignette",        .asInt   = &SettingsPanel::pendingVrVignette},
     {.key = "vrmovedirection",   .asInt   = &SettingsPanel::pendingVrMoveDirection},
+    {.key = "vrlefthanded",      .asBool  = &SettingsPanel::pendingVrLeftHanded},
+    {.key = "vrworldscale",      .asFloat = &SettingsPanel::pendingVrWorldScale},
+    {.key = "vreyeheight",       .asFloat = &SettingsPanel::pendingVrEyeHeight},
 #endif
     {.key = "parallaxquality",   .asInt   = &SettingsPanel::pendingPOMQuality},
 
@@ -1287,6 +1292,18 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     }
     if (key == "vrmovedirection") {
         xr::system().setMoveByHand(pendingVrMoveDirection == 1);
+        return;
+    }
+    if (key == "vrlefthanded") {
+        xr::system().setLeftHanded(pendingVrLeftHanded);
+        return;
+    }
+    if (key == "vrworldscale") {
+        xr::system().setWorldScale(pendingVrWorldScale);
+        return;
+    }
+    if (key == "vreyeheight") {
+        xr::system().setEyeHeightOffset(pendingVrEyeHeight);
         return;
     }
     if (key == "vrshine") {

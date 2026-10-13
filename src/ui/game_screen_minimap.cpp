@@ -1828,6 +1828,9 @@ void GameScreen::saveSettings() {
     out << "vr_snap_turn=" << (settingsPanel_.pendingVrSnapTurn ? 1 : 0) << "\n";
     out << "vr_vignette=" << settingsPanel_.pendingVrVignette << "\n";
     out << "vr_move_direction=" << settingsPanel_.pendingVrMoveDirection << "\n";
+    out << "vr_left_handed=" << (settingsPanel_.pendingVrLeftHanded ? 1 : 0) << "\n";
+    out << "vr_world_scale=" << settingsPanel_.pendingVrWorldScale << "\n";
+    out << "vr_eye_height=" << settingsPanel_.pendingVrEyeHeight << "\n";
     out << "vr_shine=" << settingsPanel_.pendingVrShine << "\n";
     out << "brightness=" << settingsPanel_.pendingBrightness << "\n";
     out << "water_refraction=" << (settingsPanel_.pendingWaterRefraction ? 1 : 0) << "\n";
@@ -2107,6 +2110,9 @@ void GameScreen::loadSettings() {
             else if (key == "vr_snap_turn") settingsPanel_.pendingVrSnapTurn = (val == "1");
             else if (key == "vr_vignette") settingsPanel_.pendingVrVignette = std::clamp(std::stoi(val), 0, 2);
             else if (key == "vr_move_direction") settingsPanel_.pendingVrMoveDirection = std::clamp(std::stoi(val), 0, 1);
+            else if (key == "vr_left_handed") settingsPanel_.pendingVrLeftHanded = (val == "1");
+            else if (key == "vr_world_scale") settingsPanel_.pendingVrWorldScale = std::clamp(std::stof(val), 0.5f, 2.0f);
+            else if (key == "vr_eye_height") settingsPanel_.pendingVrEyeHeight = std::clamp(std::stof(val), -1.0f, 1.0f);
             else if (key == "vr_shine") settingsPanel_.pendingVrShine = std::clamp(std::stof(val), 0.0f, 1.0f);
             // No apply here either: brightness is on the graphics load list,
             // which is walked once the renderer exists. This branch ran from
