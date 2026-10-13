@@ -597,8 +597,9 @@ bool SpellVisualSystem::playSpellMissile(uint32_t visualId, const glm::vec3& sta
 
     LOG_INFO("SpellVisual: missile visualId=", visualId, " model=", pathIt->second,
              " speed=", speed, " distance=", glm::length(toEnd));
-    spellMissiles_.push_back({.instanceId = instanceId, .position = start, .end = end, .speed = speed,
-                              .elapsed = 0.0f, .target = std::move(target), .onArrive = std::move(onArrive)});
+    spellMissiles_.push_back({.instanceId = instanceId, .position = start, .end = end,
+                              .remaining = glm::length(toEnd) / speed,
+                              .target = std::move(target), .onArrive = std::move(onArrive)});
     return true;
 }
 
@@ -688,19 +689,23 @@ void SpellVisualSystem::update(float deltaTime) {
     // arrival plays an impact, which adds to the lists walked below.
     std::vector<std::function<void()>> arrivals;
     for (auto it = spellMissiles_.begin(); it != spellMissiles_.end(); ) {
-        it->elapsed += deltaTime;
         if (glm::vec3 aim; it->target && it->target(aim)) it->end = aim;
-        const glm::vec3 toEnd = it->end - it->position;
-        const float distance = glm::length(toEnd);
-        const float step = it->speed * deltaTime;
-        if (distance <= step || it->elapsed >= SPELL_MISSILE_MAX_FLIGHT) {
+        if (it->remaining <= deltaTime) {
             m2Renderer_->removeInstance(it->instanceId);
             if (it->onArrive) arrivals.push_back(std::move(it->onArrive));
             it = spellMissiles_.erase(it);
         } else {
-            const glm::vec3 heading = toEnd / distance;
-            it->position += heading * step;
-            m2Renderer_->setInstanceTransform(it->instanceId, missileTransform(it->position, heading));
+            // The share of the way left that this frame is of the time left:
+            // it lands on time wherever the target has got to. The server
+            // decided the hit at launch, and a missile flown at fixed speed
+            // was still in the air when its target, already hit, came running.
+            const glm::vec3 toEnd = it->end - it->position;
+            it->position += toEnd * (deltaTime / it->remaining);
+            it->remaining -= deltaTime;
+            if (glm::dot(toEnd, toEnd) > 1e-6f) {
+                m2Renderer_->setInstanceTransform(it->instanceId,
+                                                  missileTransform(it->position, glm::normalize(toEnd)));
+            }
             ++it;
         }
     }

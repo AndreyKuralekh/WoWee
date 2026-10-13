@@ -408,6 +408,10 @@ private:
     uint32_t resolveSpellVisualId(uint32_t spellId);
     // Resolve render-space position for a unit GUID (player or entity).
     bool resolveUnitPosition(uint64_t guid, glm::vec3& outPos);
+    // Where a unit is drawn right now. resolveUnitPosition answers with where
+    // a moving unit is going, which is where the server has it but not where
+    // an effect aimed at it should appear.
+    bool resolveUnitDrawnPosition(uint64_t guid, glm::vec3& outPos);
     // Play the cast/precast visual effect at the caster's position.
     void triggerCastVisual(uint32_t spellId, uint64_t casterGuid, uint32_t castTimeMs = 0);
     // Play the impact visual effect at the target's position.

@@ -50,8 +50,10 @@ public:
                                 bool spin);
 
     // Launch the travelling missile of a spell visual (SpellVisual.dbc
-    // MissileModel) from start at speed yards a second. target answers where
-    // it is heading and is asked every frame, so a unit that moves is
+    // MissileModel) from start at speed yards a second. The flight time is
+    // settled at launch from the distance then, as the server settles when
+    // the spell lands, and holds however the target moves. target answers
+    // where it is heading and is asked every frame, so a unit that moves is
     // followed; once it stops answering, the missile finishes at the last
     // place it was given. onArrive runs once, on arrival. False when the
     // visual has no missile or the target cannot be placed: nothing is
@@ -95,8 +97,7 @@ private:
         uint32_t instanceId = 0;
         glm::vec3 position{0.0f};
         glm::vec3 end{0.0f};
-        float speed = 0.0f;
-        float elapsed = 0.0f;
+        float remaining = 0.0f;  // seconds of flight left
         std::function<bool(glm::vec3&)> target;
         std::function<void()> onArrive;
     };
@@ -125,8 +126,7 @@ private:
     bool spellVisualDbcLoaded_ = false;
     static constexpr float SPELL_VISUAL_MAX_DURATION = 5.0f;
     static constexpr float SPELL_VISUAL_DEFAULT_DURATION = 2.0f;
-    // A missile chasing something it cannot catch gives up and lands.
-    static constexpr float SPELL_MISSILE_MAX_FLIGHT = 8.0f;
+
 
     // Determine character attachment point from model path keywords
     static uint32_t classifyAttachmentId(const std::string& modelPath);

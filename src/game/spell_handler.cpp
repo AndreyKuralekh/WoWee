@@ -355,6 +355,17 @@ bool SpellHandler::resolveUnitPosition(uint64_t guid, glm::vec3& outPos) {
     return true;
 }
 
+bool SpellHandler::resolveUnitDrawnPosition(uint64_t guid, glm::vec3& outPos) {
+    auto* renderer = owner_.services().renderer;
+    if (renderer && guid != owner_.getPlayerGuid()) {
+        if (auto* characters = renderer->getCharacterRenderer()) {
+            const uint32_t instance = owner_.resolveUnitRenderInstance(guid);
+            if (instance != 0 && characters->getInstancePosition(instance, outPos)) return true;
+        }
+    }
+    return resolveUnitPosition(guid, outPos);
+}
+
 void SpellHandler::triggerCastVisual(uint32_t spellId, uint64_t casterGuid, uint32_t castTimeMs) {
     LOG_INFO("SpellVisual: triggerCastVisual spellId=", spellId, " casterGuid=0x", std::hex, casterGuid, std::dec);
     auto* renderer = owner_.services().renderer;
@@ -379,7 +390,7 @@ void SpellHandler::triggerImpactVisual(uint32_t spellId, uint64_t targetGuid) {
     uint32_t visualId = resolveSpellVisualId(spellId);
     if (visualId == 0) { LOG_WARNING("SpellVisual: triggerImpactVisual - visualId=0 for spellId=", spellId); return; }
     glm::vec3 targetPos;
-    if (!resolveUnitPosition(targetGuid, targetPos)) return;
+    if (!resolveUnitDrawnPosition(targetGuid, targetPos)) return;
     LOG_INFO("SpellVisual: triggerImpactVisual visualId=", visualId, " pos=(", targetPos.x, ",", targetPos.y, ",", targetPos.z, ")");
     svs->playSpellVisual(visualId, targetPos, /*useImpactKit=*/true);
 }
@@ -399,7 +410,7 @@ bool SpellHandler::launchSpellMissile(uint32_t spellId, uint64_t casterGuid, uin
 
     // Out of the casting hand where the caster is drawn, chest height otherwise.
     glm::vec3 start;
-    if (!resolveUnitPosition(casterGuid, start)) return false;
+    if (!resolveUnitDrawnPosition(casterGuid, start)) return false;
     start.z += 1.0f;
     if (auto* characters = renderer->getCharacterRenderer()) {
         glm::mat4 hand(1.0f);
@@ -410,7 +421,7 @@ bool SpellHandler::launchSpellMissile(uint32_t spellId, uint64_t casterGuid, uin
 
     return svs->playSpellMissile(visualId, start, speed,
         [this, targetGuid](glm::vec3& pos) {
-            if (!resolveUnitPosition(targetGuid, pos)) return false;
+            if (!resolveUnitDrawnPosition(targetGuid, pos)) return false;
             pos.z += 1.0f;
             return true;
         },
