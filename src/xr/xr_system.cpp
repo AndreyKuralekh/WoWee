@@ -213,7 +213,13 @@ bool XrSystem::findHeadset() {
     // WOWEE_VR_EYE_SCALE, in percent of the recommended size along each side.
     // The eye images are most of what the GPU fills in VR, so this is the
     // first thing to turn down when a frame does not fit.
-    const int scalePercent = core::envIntClamped("WOWEE_VR_EYE_SCALE", 100, 25, 200);
+    //
+    // Larger than recommended unless told otherwise: nothing else smooths an
+    // edge here - multisampling is off and no post-process pass runs on an
+    // eye - and the frame is held up by the processor, with the GPU idle for
+    // most of it. The compositor scales the picture down to the display.
+    constexpr int kDefaultScalePercent = 130;
+    const int scalePercent = core::envIntClamped("WOWEE_VR_EYE_SCALE", kDefaultScalePercent, 25, 200);
     if (scalePercent != 100) {
         eyeWidth_ = std::min(views[0].maxImageRectWidth, eyeWidth_ * static_cast<uint32_t>(scalePercent) / 100u);
         eyeHeight_ = std::min(views[0].maxImageRectHeight, eyeHeight_ * static_cast<uint32_t>(scalePercent) / 100u);
