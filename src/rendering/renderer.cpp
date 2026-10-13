@@ -3263,6 +3263,18 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
             queue(secondaryCmds_[SEC_M2][frameIdx], "m2");
         queue(secondaryCmds_[SEC_POST][frameIdx], "water/effects");
 
+#ifdef WOWEE_VR
+        // Kept for the second eye; see Renderer::vrRenderEyes.
+        if (vrEyePass_) {
+            vrWorldCmdCount_ = numCmds;
+            vrWorldSelectionAt_ = UINT32_MAX;
+            for (uint32_t i = 0; i < numCmds; ++i) {
+                vrWorldCmds_[i] = validCmds[i];
+                if (validCmds[i] == secondaryCmds_[SEC_SELECTION][frameIdx]) vrWorldSelectionAt_ = i;
+            }
+        }
+#endif
+
         // One at a time, with a mark after each.
         //
         // Batched, the whole world was a single gap in the timeline and its
@@ -4363,6 +4375,14 @@ VkCommandBuffer Renderer::beginSecondary(uint32_t secondaryIndex) {
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
                     | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
     beginInfo.pInheritanceInfo = &inheritInfo;
+#ifdef WOWEE_VR
+    // One recording is executed in both eyes' passes: that takes the flag,
+    // and a buffer that names no framebuffer of its own.
+    if (vrWorldShared_) {
+        inheritInfo.framebuffer = VK_NULL_HANDLE;
+        beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+    }
+#endif
 
     VkResult result = vkBeginCommandBuffer(cmd, &beginInfo);
     if (result != VK_SUCCESS) {

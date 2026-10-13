@@ -479,6 +479,7 @@ private:
     void vrDestroyEyes();
     void vrBeginViews();
     void vrRenderEyes();
+    void vrReplayWorldForEye(uint32_t eye);
     void vrRenderWindowMinimap(game::GameHandler* gameHandler);
     VrEyes* vrEyes_ = nullptr;
     game::GameHandler* vrGameHandler_ = nullptr;
@@ -486,6 +487,13 @@ private:
     const glm::mat4* vrEyeView_ = nullptr;            // that eye's matrices, for what is
     const glm::mat4* vrEyeProjection_ = nullptr;      // not drawn through set 0
     bool vrEyePass_ = false;                          // renderWorld is drawing an eye
+    // The world as the secondaries that drew the first eye, in the order they
+    // ran, so the second eye can run them again instead of recording its own.
+    // vrWorldSelectionAt_ is the one that cannot be shared; UINT32_MAX if none.
+    bool vrWorldShared_ = false;
+    VkCommandBuffer vrWorldCmds_[8] = {};
+    uint32_t vrWorldCmdCount_ = 0;
+    uint32_t vrWorldSelectionAt_ = UINT32_MAX;
     bool vrWorldInEyes_ = false;                      // the eyes took this frame's world
     bool vrInWorld_ = false;                          // a stereo frame has been drawn since the world was entered
     bool vrHomeDown_ = false;                         // Home, last frame: it recentres the view

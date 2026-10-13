@@ -10,6 +10,10 @@
 #include "core/logger.hpp"
 #include "rendering/camera.hpp"
 #include "rendering/camera_controller.hpp"
+#include "rendering/m2_renderer.hpp"
+#include "rendering/overlay_system.hpp"
+#include "rendering/terrain_manager.hpp"
+#include "rendering/wmo_renderer.hpp"
 #include "rendering/vk_context.hpp"
 #include "rendering/vk_utils.hpp"
 #include "xr/xr_system.hpp"
@@ -17,7 +21,9 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <utility>
 
@@ -39,6 +45,15 @@ struct Renderer::VrEyes {
     VmaAllocation uboAllocation[kEyeCount][MAX_FRAMES] = {};
     void* uboMapped[kEyeCount][MAX_FRAMES] = {};
     VkDescriptorSet set[kEyeCount][MAX_FRAMES] = {};
+
+    // The same, once for both eyes: what the world is recorded against when
+    // one recording serves the two of them. It holds the first eye's matrices
+    // when the frame is submitted, and the second eye's are copied over them
+    // on the GPU between the two passes - see vrRenderEyes.
+    VkBuffer sharedUbo[MAX_FRAMES] = {};
+    VmaAllocation sharedUboAllocation[MAX_FRAMES] = {};
+    void* sharedUboMapped[MAX_FRAMES] = {};
+    VkDescriptorSet sharedSet[MAX_FRAMES] = {};
 
     // The worker threads' command buffers, once more for each eye. The
     // renderer has one set per frame slot, which is enough to record the world
@@ -66,6 +81,11 @@ void Renderer::vrDestroyEyes() {
                 if (vrEyes_->ubo[eye][i]) {
                     vmaDestroyBuffer(allocator, vrEyes_->ubo[eye][i], vrEyes_->uboAllocation[eye][i]);
                 }
+            }
+        }
+        for (uint32_t i = 0; i < MAX_FRAMES; ++i) {
+            if (vrEyes_->sharedUbo[i]) {
+                vmaDestroyBuffer(allocator, vrEyes_->sharedUbo[i], vrEyes_->sharedUboAllocation[i]);
             }
         }
         if (vrEyes_->pool) vkDestroyDescriptorPool(device, vrEyes_->pool, nullptr);
@@ -115,12 +135,14 @@ bool Renderer::vrEnsureEyes() {
 
     VkDescriptorPoolSize sizes[2]{};
     sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    sizes[0].descriptorCount = VrEyes::kEyeCount * MAX_FRAMES;
+    // One set for each eye and one that both share, for each frame slot.
+    constexpr uint32_t kSets = (VrEyes::kEyeCount + 1) * MAX_FRAMES;
+    sizes[0].descriptorCount = kSets;
     sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    sizes[1].descriptorCount = VrEyes::kEyeCount * MAX_FRAMES * 4;
+    sizes[1].descriptorCount = kSets * 4;
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.maxSets = VrEyes::kEyeCount * MAX_FRAMES;
+    poolInfo.maxSets = kSets;
     poolInfo.poolSizeCount = 2;
     poolInfo.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &vrEyes_->pool) != VK_SUCCESS) {
@@ -133,7 +155,8 @@ bool Renderer::vrEnsureEyes() {
             VkBufferCreateInfo bufferInfo{};
             bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
             bufferInfo.size = sizeof(GPUPerFrameData);
-            bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+            // Copied from as well: the second eye's goes over the shared one.
+            bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             VmaAllocationCreateInfo allocInfo{};
             allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
             allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
@@ -154,6 +177,32 @@ bool Renderer::vrEnsureEyes() {
                 vrDestroyEyes();
                 return false;
             }
+        }
+    }
+    for (uint32_t i = 0; i < MAX_FRAMES; ++i) {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = sizeof(GPUPerFrameData);
+        bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+        allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VmaAllocationInfo mapInfo{};
+        if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &vrEyes_->sharedUbo[i],
+                            &vrEyes_->sharedUboAllocation[i], &mapInfo) != VK_SUCCESS) {
+            vrDestroyEyes();
+            return false;
+        }
+        vrEyes_->sharedUboMapped[i] = mapInfo.pMappedData;
+
+        VkDescriptorSetAllocateInfo setInfo{};
+        setInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        setInfo.descriptorPool = vrEyes_->pool;
+        setInfo.descriptorSetCount = 1;
+        setInfo.pSetLayouts = &perFrameSetLayout;
+        if (vkAllocateDescriptorSets(device, &setInfo, &vrEyes_->sharedSet[i]) != VK_SUCCESS) {
+            vrDestroyEyes();
+            return false;
         }
     }
     LOG_WARNING("VR: eye targets ", wanted.width, "x", wanted.height);
@@ -276,6 +325,80 @@ void Renderer::vrBeginViews() {
     if (xr::system().pickRay(pointer.origin, pointer.direction)) camera->setPickRay(pointer);
 }
 
+// The second eye of a frame whose world was recorded once: the first eye's
+// secondaries again, in its own pass, after its own matrices have been put
+// where those secondaries read them.
+void Renderer::vrReplayWorldForEye(uint32_t eye) {
+    const uint32_t frame = vkCtx->getCurrentFrame();
+    const xr::EyeView& view = vrEyes_->views.eye[eye];
+
+    // The buffer was read by the pass before and is read by the one after;
+    // the copy is told so on both sides.
+    VkBufferMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.buffer = vrEyes_->sharedUbo[frame];
+    barrier.size = VK_WHOLE_SIZE;
+    constexpr VkPipelineStageFlags kShading =
+        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    barrier.srcAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(currentCmd, kShading, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &barrier, 0,
+                         nullptr);
+    VkBufferCopy region{};
+    region.size = sizeof(GPUPerFrameData);
+    vkCmdCopyBuffer(currentCmd, vrEyes_->ubo[eye][frame], vrEyes_->sharedUbo[frame], 1, &region);
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
+    vkCmdPipelineBarrier(currentCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, kShading, 0, 0, nullptr, 1, &barrier, 0,
+                         nullptr);
+
+    activeFramebuffer_ = vrEyes_->framebuffer[eye];
+
+    // The selection circle is the one thing in the world drawn with matrices
+    // handed to it rather than read from set 0, so it is recorded again.
+    VkCommandBuffer selection = VK_NULL_HANDLE;
+    if (vrWorldSelectionAt_ < vrWorldCmdCount_) {
+        std::swap(secondaryCmds_[SEC_SELECTION][frame], vrEyes_->secondary[eye][SEC_SELECTION][frame]);
+        selection = beginSecondary(SEC_SELECTION);
+        setSecondaryViewportScissor(selection);
+        if (overlaySystem_) {
+            overlaySystem_->renderSelectionCircle(
+                view.view, view.projection, selection,
+                terrainManager ? OverlaySystem::HeightQuery2D(
+                                     [&](float x, float y) { return terrainManager->getHeightAt(x, y); })
+                               : OverlaySystem::HeightQuery2D{},
+                wmoRenderer ? OverlaySystem::HeightQuery3D(
+                                  [&](float x, float y, float z) { return wmoRenderer->getFloorHeight(x, y, z); })
+                            : OverlaySystem::HeightQuery3D{},
+                m2Renderer ? OverlaySystem::HeightQuery3D(
+                                 [&](float x, float y, float z) { return m2Renderer->getFloorHeight(x, y, z); })
+                           : OverlaySystem::HeightQuery3D{});
+        }
+        vkEndCommandBuffer(selection);
+        std::swap(secondaryCmds_[SEC_SELECTION][frame], vrEyes_->secondary[eye][SEC_SELECTION][frame]);
+    }
+
+    VkRenderPassBeginInfo passInfo{};
+    passInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    passInfo.renderPass = vkCtx->getImGuiRenderPass();
+    passInfo.framebuffer = vrEyes_->framebuffer[eye];
+    passInfo.renderArea.extent = vrEyes_->extent;
+    VkClearValue clearValues[2]{};
+    clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    clearValues[1].depthStencil = {.depth = 1.0f, .stencil = 0};
+    passInfo.clearValueCount = 2;
+    passInfo.pClearValues = clearValues;
+    vkCmdBeginRenderPass(currentCmd, &passInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+    for (uint32_t i = 0; i < vrWorldCmdCount_; ++i) {
+        const VkCommandBuffer buffer = (i == vrWorldSelectionAt_ && selection) ? selection : vrWorldCmds_[i];
+        vkCmdExecuteCommands(currentCmd, 1, &buffer);
+    }
+    vkCmdEndRenderPass(currentCmd);
+    xr::system().recordEyeCopy(currentCmd, eye, vrEyes_->color[eye].image);
+}
+
 // The world, once per eye, before the window's own pass opens.
 void Renderer::vrRenderEyes() {
     if (!vrEyes_ || !vrEyes_->viewsValid) return;
@@ -292,6 +415,20 @@ void Renderer::vrRenderEyes() {
     // for it; otherwise straight into the frame's command buffer.
     const bool threaded = wasParallel && vrEnsureEyeSecondaries();
     parallelRecordingEnabled_ = threaded;
+
+    // Both eyes record the same draws and differ only in the matrices of set
+    // 0, so the world is recorded once, for the first eye, and the second eye
+    // executes the same buffers. They are bound to one set whose buffer holds
+    // the first eye's matrices; the second eye's are copied into it between
+    // the passes, on the GPU, where the order of the two is kept.
+    // WOWEE_VR_EYE_REPLAY=0 records each eye for itself, as before.
+    static const bool replayWanted = [] {
+        const char* v = std::getenv("WOWEE_VR_EYE_REPLAY");
+        return !(v && *v == '0');
+    }();
+    const bool shared = threaded && replayWanted;
+    vrWorldShared_ = shared;
+    const auto eyesStart = std::chrono::steady_clock::now();
 
     for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
         const xr::EyeView& view = vrEyes_->views.eye[eye];
@@ -312,12 +449,18 @@ void Renderer::vrRenderEyes() {
         data.volumetricParams = glm::vec4(0.0f);
         data.rtParams = glm::vec4(0.0f);
         std::memcpy(vrEyes_->uboMapped[eye][frame], &data, sizeof(GPUPerFrameData));
+        if (shared && eye == 0) std::memcpy(vrEyes_->sharedUboMapped[frame], &data, sizeof(GPUPerFrameData));
+
+        if (shared && eye == 1) {
+            vrReplayWorldForEye(eye);
+            continue;
+        }
 
         // Everything but the buffer is the frame's own, copied each frame: the
         // renderer rewrites those bindings when a setting changes them.
-        const VkDescriptorSet set = vrEyes_->set[eye][frame];
+        const VkDescriptorSet set = shared ? vrEyes_->sharedSet[frame] : vrEyes_->set[eye][frame];
         VkDescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = vrEyes_->ubo[eye][frame];
+        bufferInfo.buffer = shared ? vrEyes_->sharedUbo[frame] : vrEyes_->ubo[eye][frame];
         bufferInfo.range = sizeof(GPUPerFrameData);
         VkWriteDescriptorSet write{};
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -381,6 +524,28 @@ void Renderer::vrRenderEyes() {
         xr::system().recordEyeCopy(currentCmd, eye, vrEyes_->color[eye].image);
     }
 
+    // WOWEE_FRAME_PROFILE: what the two eyes cost the main thread together.
+    static const bool profile = [] {
+        const char* v = std::getenv("WOWEE_FRAME_PROFILE");
+        return v && *v && *v != '0';
+    }();
+    if (profile) {
+        static auto lastSaid = std::chrono::steady_clock::now();
+        static double total = 0.0;
+        static uint32_t frames = 0;
+        const auto now = std::chrono::steady_clock::now();
+        total += std::chrono::duration<double, std::milli>(now - eyesStart).count();
+        ++frames;
+        if (now - lastSaid > std::chrono::seconds(10)) {
+            LOG_WARNING("  VR eyes: ", total / frames, "ms a frame over ", frames, " frames, ",
+                        shared ? "one recording for both" : "each recorded for itself");
+            lastSaid = now;
+            total = 0.0;
+            frames = 0;
+        }
+    }
+
+    vrWorldShared_ = false;
     vrPerFrameSet_ = VK_NULL_HANDLE;
     vrEyeView_ = nullptr;
     vrEyeProjection_ = nullptr;
