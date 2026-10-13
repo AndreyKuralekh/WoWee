@@ -237,6 +237,18 @@ bool ExpansionRegistry::loadProfile(const std::string& jsonPath, const std::stri
         v = jsonValue(json, "platform"); if (!v.empty()) p.platform = v;
         v = jsonValue(json, "os"); if (!v.empty()) p.os = v;
         v = jsonValue(json, "locale"); if (!v.empty()) p.locale = v;
+        // The locale the server is told, which is what it answers quest and
+        // creature text in. A choice of the person playing rather than of the
+        // expansion, and the tables are copied over the data root at every
+        // start, so it cannot be set by editing them there.
+        if (const char* raw = std::getenv("WOWEE_LOCALE"); raw && *raw) {
+            if (std::string(raw).size() == 4) {
+                p.locale = raw;
+            } else {
+                LOG_WARNING("ExpansionRegistry: ignoring WOWEE_LOCALE='", raw,
+                            "' - a locale is four letters, such as ruRU");
+            }
+        }
         p.timezone = static_cast<uint32_t>(jsonInt(json, "timezone", static_cast<int>(p.timezone)));
     }
     p.maxLevel = static_cast<uint32_t>(jsonInt(json, "maxLevel", 60));
