@@ -1208,10 +1208,67 @@ void Renderer::applyMsaaChange() {
 
 }
 
+namespace {
+
+// WOWEE_FRAME_PROFILE=1: where one of the frame's stages spends its time, in
+// the parts marked along it, said every ten seconds as a mean per frame. The
+// application's own stage timers stop at the stage; this is the next level.
+class ProfileMarks {
+public:
+    explicit ProfileMarks(const char* title) : title_(title) {}
+
+    void begin() {
+        if (!enabled()) return;
+        last_ = std::chrono::steady_clock::now();
+    }
+
+    void mark(size_t slot, const char* name) {
+        if (!enabled() || slot >= kSlots) return;
+        const auto now = std::chrono::steady_clock::now();
+        names_[slot] = name;
+        ms_[slot] += std::chrono::duration<double, std::milli>(now - last_).count();
+        last_ = now;
+    }
+
+    void end() {
+        if (!enabled()) return;
+        ++frames_;
+        if (last_ - said_ < std::chrono::seconds(10)) return;
+        std::string line;
+        for (size_t i = 0; i < kSlots; ++i) {
+            if (!names_[i]) continue;
+            char part[96];
+            std::snprintf(part, sizeof(part), "%s%s %.2f", line.empty() ? "" : ", ", names_[i], ms_[i] / frames_);
+            line += part;
+        }
+        LOG_WARNING("  ", title_, " parts, ms a frame: ", line);
+        said_ = last_;
+        ms_.fill(0.0);
+        frames_ = 0;
+    }
+
+private:
+    static bool enabled() {
+        static const bool on = core::envFlagEnabled("WOWEE_FRAME_PROFILE", false);
+        return on;
+    }
+    static constexpr size_t kSlots = 8;
+    const char* title_;
+    std::array<const char*, kSlots> names_{};
+    std::array<double, kSlots> ms_{};
+    uint32_t frames_ = 0;
+    std::chrono::steady_clock::time_point last_ = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point said_ = std::chrono::steady_clock::now();
+};
+
+}  // namespace
+
 void Renderer::beginFrame() {
     ZoneScopedN("Renderer::beginFrame");
     if (!vkCtx) return;
     if (vkCtx->isDeviceLost()) return;
+    static ProfileMarks beginMarks("beginFrame");
+    beginMarks.begin();
 
     // The ablation's clock. Top of one frame to the top of the next is the
     // frame's whole wall time, which is the number a pass has to move to be
@@ -1326,12 +1383,14 @@ void Renderer::beginFrame() {
 
     // This slot's fence has just been waited on, so a frame it copied for the
     // recording two frames ago is complete.
+    beginMarks.mark(0, "acquire");
     collectRecordedFrame();
 
 #ifdef WOWEE_VR
     // A headset frame: from here the camera is the head, until the eyes are drawn.
     vrBeginViews();
 #endif
+    beginMarks.mark(1, "headset views");
 
     // FSR2 jitter pattern (§4.3 - delegates to PostProcessPipeline)
     if (postProcessPipeline_ && camera) postProcessPipeline_->applyJitter(camera.get());
@@ -1341,6 +1400,8 @@ void Renderer::beginFrame() {
 
     // Update per-frame UBO with current camera/lighting state
     updatePerFrameUBO();
+
+    beginMarks.mark(2, "per-frame data");
 
     // ── Early compute: M2 frustum culling ──
     // beginFrame() has already waited for this frame slot's previous fence, so
@@ -1355,6 +1416,8 @@ void Renderer::beginFrame() {
         m2Renderer->dispatchCullCompute(currentCmd, frame, *camera);
     }
 
+    beginMarks.mark(3, "model cull");
+
     // Grass culls here too, for the same reason: a dispatch has to be recorded
     // outside a render pass. Unlike the M2 path nothing reads the result back -
     // the count it produces is consumed by the indirect draw on the GPU.
@@ -1368,14 +1431,17 @@ void Renderer::beginFrame() {
     // --- Off-screen pre-passes ---
     // Build frame graph: registers pre-passes as graph nodes with dependencies.
     // compile() topologically sorts; execute() runs them with auto barriers.
+    beginMarks.mark(4, "grass");
     buildFrameGraph(nullptr);
     if (renderGraph_) {
         renderGraph_->execute(currentCmd);
     }
 
+    beginMarks.mark(5, "shadows and the frame graph");
 #ifdef WOWEE_VR
     vrRenderEyes();
 #endif
+    beginMarks.mark(6, "eyes");
 
     // --- Begin render pass ---
     // Select framebuffer: PP off-screen target or swapchain (§4.3 - PostProcessPipeline)
@@ -1447,6 +1513,8 @@ void Renderer::beginFrame() {
         scissor.extent = renderExtent;
         vkCmdSetScissor(currentCmd, 0, 1, &scissor);
     }
+    beginMarks.mark(7, "window pass");
+    beginMarks.end();
 }
 
 void Renderer::endFrame() {
@@ -1984,6 +2052,8 @@ void Renderer::update(float deltaTime) {
     }
 
     auto updateStart = std::chrono::steady_clock::now();
+    static ProfileMarks updateMarks("renderer->update");
+    updateMarks.begin();
     lastDeltaTime_ = deltaTime;
 
     if (wmoRenderer) wmoRenderer->resetQueryStats();
@@ -2046,6 +2116,7 @@ void Renderer::update(float deltaTime) {
     playerIndoors_ = insideWmo;
 
     // Update lighting system
+    updateMarks.mark(0, "camera");
     if (lightingManager) {
         const auto* gh = core::Application::getInstance().getGameHandler();
         uint32_t mapId    = gh ? gh->getCurrentMapId() : 0;
@@ -2149,6 +2220,7 @@ void Renderer::update(float deltaTime) {
     }
 
     // Update terrain streaming
+    updateMarks.mark(1, "lighting, character");
     if (terrainManager && camera) {
         auto terrStart = std::chrono::steady_clock::now();
         terrainManager->update(*camera, deltaTime);
@@ -2160,6 +2232,7 @@ void Renderer::update(float deltaTime) {
     }
 
     // Update sky system (skybox time, star twinkle, clouds, celestial moon phases)
+    updateMarks.mark(2, "terrain");
     if (skySystem) {
         skySystem->update(deltaTime);
     }
@@ -2260,6 +2333,7 @@ void Renderer::update(float deltaTime) {
     // Launch M2 doodad animation on background thread (overlaps with character animation + audio)
     std::future<void> m2AnimFuture;
     bool m2AnimLaunched = false;
+    updateMarks.mark(3, "sky, water, effects");
     if (m2Renderer && camera) {
         float m2DeltaTime = deltaTime;
         glm::vec3 m2CamPos = camera->getPosition();
@@ -2293,6 +2367,7 @@ void Renderer::update(float deltaTime) {
     }
 
     // Footsteps: age visual prints, then let authored footfall events add new ones.
+    updateMarks.mark(4, "model animation");
     if (footprintRenderer) footprintRenderer->update(deltaTime);
     if (animationController_) animationController_->updateFootsteps(deltaTime);
 
@@ -2348,6 +2423,8 @@ void Renderer::update(float deltaTime) {
         modelCleanupTimer = 0.0f;
     }
 
+    updateMarks.mark(5, "audio and the rest");
+    updateMarks.end();
     auto updateEnd = std::chrono::steady_clock::now();
     lastUpdateMs = std::chrono::duration<double, std::milli>(updateEnd - updateStart).count();
 }
