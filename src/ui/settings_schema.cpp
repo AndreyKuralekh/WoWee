@@ -923,7 +923,7 @@ constexpr SettingDesc kSchema[] = {
     // Each names the section, though it is the same one: a row after a
     // conditional row may not lean on its heading, and all of these are
     // conditional. The schema test counts conditional rows and allows
-    // twenty-eight in the file: two were there already, eight are these and
+    // thirty in the file: two were there already, ten are these and
     // eighteen are the controllers' buttons below.
     {"vrpanelfollow", "Panel follows the head", SettingKind::Enum, 0, 2, 1, "VR", "Interface panel",
      "How the interface panel keeps up with you in the world; before you\n"
@@ -949,6 +949,17 @@ constexpr SettingDesc kSchema[] = {
      "Your character turns as your head does, so forward is always the\n"
      "way you are looking. Off leaves the character facing where the\n"
      "mouse or the stick last turned it, and the head only looks.", "", 1},
+    {"vrmovedirection", "Walk towards", SettingKind::Enum, 0, 1, 1, "VR", "Movement",
+     "Which way the left stick's forward is. Where you look: the way\n"
+     "your head faces. Left hand: the way the left controller points,\n"
+     "so you can look around while walking somewhere else.",
+     "Where you look|Left hand", 0},
+    {"vrvignette", "Darken edges while moving", SettingKind::Enum, 0, 2, 1, "VR", "Comfort",
+     "While your character walks, rides or is turned smoothly, the edge\n"
+     "of what you see goes dark and clears again when you stop. Motion\n"
+     "the body does not feel is seen most at the edges, and hiding it\n"
+     "there is the surest help against feeling unwell.",
+     "Off|Light|Strong", 1},
     {"vrsnapturn", "Turn in steps", SettingKind::Bool, 0, 0, 0, "VR", "Controllers",
      "The right stick turns you 45 degrees at each push, which is the\n"
      "easier on the stomach. Off turns you smoothly while it is held.", "", 1},

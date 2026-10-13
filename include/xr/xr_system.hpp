@@ -254,6 +254,16 @@ public:
     /// Whether the right stick turns by a fixed angle at a push, or smoothly.
     void setSnapTurn(bool snap) { snapTurn_ = snap; }
 
+    /// The comfort vignette: while the character moves, or is turned smoothly,
+    /// the edge of the view is darkened, which is where the motion the body
+    /// does not feel is seen most. 0 off, 1 light, 2 strong.
+    void setVignette(int level) { vignetteLevel_ = level < 0 ? 0 : (level > 2 ? 2 : level); }
+
+    /// Whether the left stick walks the way the left controller points rather
+    /// than the way the head looks. The character turns to face that way for
+    /// as long as the stick is pushed; what is seen does not turn with it.
+    void setMoveByHand(bool byHand) { moveByHand_ = byHand; }
+
     /// Where the panel stands, from the settings page. A value the environment
     /// set at start is left alone: that is how one is tried without saving it.
     void setPanelPlacement(PanelFollow follow, float distanceMetres, float widthMetres);
@@ -272,6 +282,9 @@ private:
     void destroyActions();
     void releaseControllerKeys();
     void loadControls();
+    bool leftHandYaw(float& yaw) const;
+    void updateVignette(const glm::vec3& referencePosition);
+    bool vignetteQuad(XrPosef& pose, XrExtent2Df& size) const;
     void releasePointer();
     void updatePointer(SDL_Window* window, bool inWorld);
     /// The right controller's ray in `base` at `time`. False while it is not tracked.
@@ -300,6 +313,16 @@ private:
     bool showFrameRate_ = false;
     bool firstPerson_ = true;
     bool snapTurn_ = true;
+    bool moveByHand_ = false;
+    int vignetteLevel_ = 1;
+    // How far the vignette has closed, 0 to 1, and what closes it: the
+    // character's own motion, read off where the head is stood from one frame
+    // to the next, and a smooth turn, which the controller code reports.
+    float vignetteStrength_ = 0.0f;
+    bool turningSmoothly_ = false;
+    bool vignetteHasReference_ = false;
+    glm::vec3 vignetteReference_{0.0f};
+    double vignetteReferenceTime_ = 0.0;
     bool bodyFollowsHead_ = true;
     // The head's turn round the vertical in the tracking space, as last seen,
     // and how much of its turn since recentring the game's camera has been

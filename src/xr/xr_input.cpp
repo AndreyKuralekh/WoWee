@@ -45,6 +45,8 @@ struct XrSystem::InputData {
     XrAction turn = XR_NULL_HANDLE;      // right stick
     XrAction buttons[kControlButtonCount] = {};  // everything a function can be given to
     XrAction aim = XR_NULL_HANDLE;       // where the right controller points
+    XrAction aimLeft = XR_NULL_HANDLE;   // and the left: the way to walk, if asked
+    XrSpace aimLeftSpace = XR_NULL_HANDLE;
     XrAction click = XR_NULL_HANDLE;     // its trigger: the left mouse button
     XrAction grab = XR_NULL_HANDLE;      // its grip: the right mouse button
     XrSpace aimSpace = XR_NULL_HANDLE;
@@ -227,9 +229,10 @@ bool XrSystem::createActions() {
         buttonsMade = buttonsMade && in.buttons[i] != XR_NULL_HANDLE;
     }
     in.aim = createAction(in.set, XR_ACTION_TYPE_POSE_INPUT, "aim", "Pointer");
+    in.aimLeft = createAction(in.set, XR_ACTION_TYPE_POSE_INPUT, "aim_left", "Walking direction");
     in.click = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "click", "Left mouse button");
     in.grab = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "grab", "Right mouse button");
-    if (!in.move || !in.turn || !buttonsMade || !in.aim || !in.click || !in.grab) {
+    if (!in.move || !in.turn || !buttonsMade || !in.aim || !in.aimLeft || !in.click || !in.grab) {
         LOG_WARNING("VR: no controllers - an action could not be created");
         return false;
     }
@@ -241,6 +244,7 @@ bool XrSystem::createActions() {
     // on the settings page needs nothing from the runtime.
     std::vector<XrActionSuggestedBinding> touch = {
         {in.aim, path(instance_, "/user/hand/right/input/aim/pose")},
+        {in.aimLeft, path(instance_, "/user/hand/left/input/aim/pose")},
         {in.click, path(instance_, "/user/hand/right/input/trigger/value")},
         {in.grab, path(instance_, "/user/hand/right/input/squeeze/value")},
         {in.move, path(instance_, "/user/hand/left/input/thumbstick")},
@@ -294,6 +298,8 @@ bool XrSystem::createActions() {
         in.aimSpace = XR_NULL_HANDLE;
         LOG_WARNING("VR: no pointer - xrCreateActionSpace failed: ", resultName(result));
     }
+    spaceInfo.action = in.aimLeft;
+    if (XR_FAILED(xrCreateActionSpace(session_, &spaceInfo, &in.aimLeftSpace))) in.aimLeftSpace = XR_NULL_HANDLE;
     loadControls();
     if (debug_) {
         LOG_WARNING("VR: controllers - left stick moves, right stick turns, the right controller points, "
@@ -313,6 +319,7 @@ void XrSystem::destroyActions() {
     releaseControllerKeys();
     releasePointer();
     if (input_->aimSpace != XR_NULL_HANDLE) xrDestroySpace(input_->aimSpace);
+    if (input_->aimLeftSpace != XR_NULL_HANDLE) xrDestroySpace(input_->aimLeftSpace);
     // The actions go with their set.
     if (input_->set != XR_NULL_HANDLE) xrDestroyActionSet(input_->set);
     delete input_;
@@ -403,6 +410,24 @@ bool XrSystem::aimRay(XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& d
     const XrQuaternionf& o = location.pose.orientation;
     origin = glm::vec3(location.pose.position.x, location.pose.position.y, location.pose.position.z);
     direction = glm::quat(o.w, o.x, o.y, o.z) * glm::vec3(0.0f, 0.0f, -1.0f);
+    return true;
+}
+
+// Which way the left controller points round the vertical, as headYaw_ is
+// measured. False while it is not tracked or points nearly straight up or
+// down, which says nothing about a direction to walk in.
+bool XrSystem::leftHandYaw(float& yaw) const {
+    if (!input_ || input_->aimLeftSpace == XR_NULL_HANDLE || localSpace_ == XR_NULL_HANDLE || frameTime() == 0) {
+        return false;
+    }
+    XrSpaceLocation location{};
+    location.type = XR_TYPE_SPACE_LOCATION;
+    if (XR_FAILED(xrLocateSpace(input_->aimLeftSpace, localSpace_, frameTime(), &location))) return false;
+    if ((location.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) == 0) return false;
+    const XrQuaternionf& o = location.pose.orientation;
+    const glm::vec3 forward = glm::quat(o.w, o.x, o.y, o.z) * glm::vec3(0.0f, 0.0f, -1.0f);
+    if (std::abs(forward.x) + std::abs(forward.z) < 0.35f) return false;
+    yaw = std::atan2(-forward.x, -forward.z);
     return true;
 }
 
@@ -546,6 +571,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
     // forward has to go where forward looks, whatever turned the view there -
     // a controller, or the mouse.
     const bool live = running_ && inWorld && camera;
+    turningSmoothly_ = false;
     if (live) camera->setSteering(true);
 
     // The head's turn, handed to the game as a turn of its camera - which is
@@ -555,8 +581,23 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
     // head that is merely alive from being reported to the server all day.
     // Only from the character's own eyes: seen from behind, the camera would
     // swing round the character with every glance.
-    if (live && bodyFollowsHead_ && firstPerson_) {
-        const float turned = wrapRadians(wrapRadians(headYaw_ - headOriginYaw_) - bodyYaw_);
+    //
+    // With the walking direction taken from the left hand, the character faces
+    // the way that controller points for as long as the stick is pushed - the
+    // keys the stick holds walk the way the character faces - and goes back to
+    // facing with the head, if it does that, when the stick is let go.
+    float facing = headYaw_;
+    bool follows = bodyFollowsHead_;
+    if (moveByHand_ && input_ && input_->attached &&
+        (input_->held[0] || input_->held[1] || input_->held[2] || input_->held[3])) {
+        float handYaw = 0.0f;
+        if (leftHandYaw(handYaw)) {
+            facing = handYaw;
+            follows = true;
+        }
+    }
+    if (live && follows && firstPerson_) {
+        const float turned = wrapRadians(wrapRadians(facing - headOriginYaw_) - bodyYaw_);
         if (std::abs(turned) > glm::radians(1.0f)) {
             const float before = camera->getYaw();
             const float perDegree = 1.0f / std::max(camera->getMouseSensitivity(), 0.0001f);
@@ -651,6 +692,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
     // Not while a line is being typed, as the keys are not.
     const float turn = stick(session_, in.turn).x;
     const float perDegree = 1.0f / std::max(camera->getMouseSensitivity(), 0.0001f);
+    turningSmoothly_ = false;
     if (typing) {
         in.turnArmed = false;
     } else if (snapTurn_) {
@@ -668,6 +710,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
         constexpr float kDeadZone = 0.2f;
         if (std::abs(turn) > kDeadZone) {
             camera->applyLookDelta(turn * kDegreesPerSecond * deltaTime * perDegree, 0.0f);
+            turningSmoothly_ = true;  // which closes the vignette
         }
     }
 }

@@ -879,7 +879,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1079,6 +1079,8 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrshine",           .asFloat = &SettingsPanel::pendingVrShine},
     {.key = "vrsnapturn",        .asBool  = &SettingsPanel::pendingVrSnapTurn},
     {.key = "vrbodyfollowshead", .asBool  = &SettingsPanel::pendingVrBodyFollowsHead},
+    {.key = "vrvignette",        .asInt   = &SettingsPanel::pendingVrVignette},
+    {.key = "vrmovedirection",   .asInt   = &SettingsPanel::pendingVrMoveDirection},
 #endif
     {.key = "parallaxquality",   .asInt   = &SettingsPanel::pendingPOMQuality},
 
@@ -1277,6 +1279,14 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     }
     if (key == "vrsnapturn") {
         xr::system().setSnapTurn(pendingVrSnapTurn);
+        return;
+    }
+    if (key == "vrvignette") {
+        xr::system().setVignette(pendingVrVignette);
+        return;
+    }
+    if (key == "vrmovedirection") {
+        xr::system().setMoveByHand(pendingVrMoveDirection == 1);
         return;
     }
     if (key == "vrshine") {

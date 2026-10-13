@@ -240,6 +240,8 @@ public:
     bool pendingVrFirstPerson = true;       // the world from the character's eyes
     bool pendingVrBodyFollowsHead = true;   // the character faces where the head does
     bool pendingVrSnapTurn = true;          // the right stick turns by 45 degrees at a push
+    int pendingVrVignette = 1;              // 0=off, 1=light, 2=strong: dark edges while moving
+    int pendingVrMoveDirection = 0;         // 0=where the head looks, 1=where the left hand points
     float pendingVrShine = 0.0f;            // sun highlights on buildings, 1 = the flat client's
     int pendingPOMQuality = 1;          // 0=Low(16), 1=Medium(32), 2=High(64)
     bool pendingFSR = false;

@@ -1826,6 +1826,8 @@ void GameScreen::saveSettings() {
     out << "vr_first_person=" << (settingsPanel_.pendingVrFirstPerson ? 1 : 0) << "\n";
     out << "vr_body_follows_head=" << (settingsPanel_.pendingVrBodyFollowsHead ? 1 : 0) << "\n";
     out << "vr_snap_turn=" << (settingsPanel_.pendingVrSnapTurn ? 1 : 0) << "\n";
+    out << "vr_vignette=" << settingsPanel_.pendingVrVignette << "\n";
+    out << "vr_move_direction=" << settingsPanel_.pendingVrMoveDirection << "\n";
     out << "vr_shine=" << settingsPanel_.pendingVrShine << "\n";
     out << "brightness=" << settingsPanel_.pendingBrightness << "\n";
     out << "water_refraction=" << (settingsPanel_.pendingWaterRefraction ? 1 : 0) << "\n";
@@ -2103,6 +2105,8 @@ void GameScreen::loadSettings() {
             else if (key == "vr_first_person") settingsPanel_.pendingVrFirstPerson = (val == "1");
             else if (key == "vr_body_follows_head") settingsPanel_.pendingVrBodyFollowsHead = (val == "1");
             else if (key == "vr_snap_turn") settingsPanel_.pendingVrSnapTurn = (val == "1");
+            else if (key == "vr_vignette") settingsPanel_.pendingVrVignette = std::clamp(std::stoi(val), 0, 2);
+            else if (key == "vr_move_direction") settingsPanel_.pendingVrMoveDirection = std::clamp(std::stoi(val), 0, 1);
             else if (key == "vr_shine") settingsPanel_.pendingVrShine = std::clamp(std::stof(val), 0.0f, 1.0f);
             // No apply here either: brightness is on the graphics load list,
             // which is walked once the renderer exists. This branch ran from

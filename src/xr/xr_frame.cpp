@@ -32,6 +32,12 @@ namespace {
 
 constexpr uint32_t kEyeCount = 2;
 
+// The vignette's picture: clear inside kVignetteClear of the way from the
+// middle to the edge, black beyond kVignetteBlack, and a soft step between.
+constexpr uint32_t kVignetteSize = 256;
+constexpr float kVignetteClear = 0.15f;
+constexpr float kVignetteBlack = 0.30f;
+
 struct EyeSwapchain {
     XrSwapchain handle = XR_NULL_HANDLE;
     std::vector<VkImage> images;
@@ -141,6 +147,15 @@ struct XrSystem::FrameData {
     bool beamFilling = false;
     bool beamFilled = false;
 
+    // The comfort vignette: black with a clear hole in the middle, drawn into
+    // its swapchain once, as the ray is. How much of the view it takes is a
+    // matter of how big the sheet is shown, so the picture never changes.
+    EyeSwapchain vignette;
+    bool vignetteFilling = false;
+    bool vignetteFilled = false;
+    VkBuffer vignetteStaging = VK_NULL_HANDLE;
+    VmaAllocation vignetteStagingAllocation = VK_NULL_HANDLE;
+
     // WOWEE_VR_DUMP_FRAMES: pictures still to take, the ones this frame is
     // taking - copied into buffers by the frame's own commands and read back
     // once it has been submitted - and the threads writing earlier ones out.
@@ -247,6 +262,10 @@ bool XrSystem::createEyeSwapchains() {
     if (!createColorSwapchain(session_, frame_->eyeFormat, 4, 4, frame_->beam)) {
         LOG_WARNING("VR: could not create the pointer ray's swapchain");
     }
+    // Nor over this: without it there is no vignette.
+    if (!createColorSwapchain(session_, frame_->eyeFormat, kVignetteSize, kVignetteSize, frame_->vignette)) {
+        LOG_WARNING("VR: could not create the vignette's swapchain");
+    }
 
     if (debug_) {
         LOG_WARNING("VR: eye swapchains ", eyeWidth_, "x", eyeHeight_, " format ",
@@ -264,6 +283,10 @@ void XrSystem::destroyEyeSwapchains() {
     }
     if (frame_->panel.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->panel.handle);
     if (frame_->beam.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->beam.handle);
+    if (frame_->vignette.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->vignette.handle);
+    if (frame_->vignetteStaging != VK_NULL_HANDLE && ctx_) {
+        vmaDestroyBuffer(ctx_->getAllocator(), frame_->vignetteStaging, frame_->vignetteStagingAllocation);
+    }
     finishDump(false);
     for (std::thread& writer : frame_->dumpWriters) writer.join();
     frame_.reset();
@@ -325,6 +348,7 @@ bool XrSystem::stereoViews(const glm::vec3& referencePosition, float referenceYa
     worldPlaced_ = true;
     worldReference_ = referencePosition;
     worldBasis_ = basis;
+    updateVignette(referencePosition);
 
     // A view matrix for a pose given in tracking space. Rigid: the scale goes
     // into the position only, so depth stays in yards.
@@ -508,6 +532,7 @@ void XrSystem::beginFrame() {
         if (f.panel.handle != XR_NULL_HANDLE && !acquireImage(f.panel)) f.shouldRender = false;
     }
     if (f.shouldRender && f.beam.handle != XR_NULL_HANDLE && !f.beamFilled) acquireImage(f.beam);
+    if (f.shouldRender && f.vignette.handle != XR_NULL_HANDLE && !f.vignetteFilled) acquireImage(f.vignette);
     addTiming(Timing::XrImages, millisecondsSince(imagesStart));
 
     placePanel();
@@ -650,6 +675,51 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
         transition(cmd, beam, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         f.beamFilling = true;
     }
+    if (f.vignette.acquired && !f.vignetteFilling && ctx_) {
+        const VkDeviceSize bytes = static_cast<VkDeviceSize>(kVignetteSize) * kVignetteSize * 4;
+        if (f.vignetteStaging == VK_NULL_HANDLE) {
+            VkBufferCreateInfo bufferInfo{};
+            bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            bufferInfo.size = bytes;
+            bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            VmaAllocationCreateInfo allocInfo{};
+            allocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+            void* mapped = nullptr;
+            if (vmaCreateBuffer(ctx_->getAllocator(), &bufferInfo, &allocInfo, &f.vignetteStaging,
+                                &f.vignetteStagingAllocation, nullptr) == VK_SUCCESS &&
+                vmaMapMemory(ctx_->getAllocator(), f.vignetteStagingAllocation, &mapped) == VK_SUCCESS) {
+                // Black throughout, so the order of the colour bytes does not
+                // matter and nor does whose alpha they were multiplied by.
+                auto* pixel = static_cast<uint8_t*>(mapped);
+                const float middle = 0.5f * static_cast<float>(kVignetteSize - 1);
+                for (uint32_t y = 0; y < kVignetteSize; ++y) {
+                    for (uint32_t x = 0; x < kVignetteSize; ++x, pixel += 4) {
+                        const float dx = (static_cast<float>(x) - middle) / middle;
+                        const float dy = (static_cast<float>(y) - middle) / middle;
+                        const float t = std::clamp((std::sqrt(dx * dx + dy * dy) - kVignetteClear) /
+                                                       (kVignetteBlack - kVignetteClear), 0.0f, 1.0f);
+                        pixel[0] = pixel[1] = pixel[2] = 0;
+                        pixel[3] = static_cast<uint8_t>(t * t * (3.0f - 2.0f * t) * 255.0f + 0.5f);
+                    }
+                }
+                vmaUnmapMemory(ctx_->getAllocator(), f.vignetteStagingAllocation);
+            } else if (f.vignetteStaging != VK_NULL_HANDLE) {
+                vmaDestroyBuffer(ctx_->getAllocator(), f.vignetteStaging, f.vignetteStagingAllocation);
+                f.vignetteStaging = VK_NULL_HANDLE;
+            }
+        }
+        if (f.vignetteStaging != VK_NULL_HANDLE) {
+            const VkImage image = f.vignette.images[f.vignette.imageIndex];
+            VkBufferImageCopy region{};
+            region.imageSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
+                                       .baseArrayLayer = 0, .layerCount = 1};
+            region.imageExtent = {kVignetteSize, kVignetteSize, 1};
+            transition(cmd, image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            vkCmdCopyBufferToImage(cmd, f.vignetteStaging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            transition(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            f.vignetteFilling = true;
+        }
+    }
     if (!f.panel.acquired || windowExtent.width != f.panelExtent.width ||
         windowExtent.height != f.panelExtent.height) {
         return;
@@ -763,6 +833,54 @@ void XrSystem::finishDump(bool submitted) {
     if (world && --f.dumpsLeft == 0) LOG_WARNING("VR: all ", dumpFrames_, " frames written");
 }
 
+// Closes while the character is carried along and opens when it stops, over
+// a moment either way: a vignette that snapped would be seen more than the
+// motion it is there to hide.
+void XrSystem::updateVignette(const glm::vec3& referencePosition) {
+    const double now =
+        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    const float dt = vignetteHasReference_ ? static_cast<float>(now - vignetteReferenceTime_) : 0.0f;
+    bool moving = false;
+    if (dt > 0.0f && dt < 0.5f) {
+        // Yards a second. A step of the real feet is far under this, and a
+        // teleport - a hearthstone, a zone change - far over.
+        constexpr float kWalking = 1.0f;
+        constexpr float kTeleport = 150.0f;
+        const float speed = glm::length(referencePosition - vignetteReference_) / dt;
+        moving = speed > kWalking && speed < kTeleport;
+    }
+    vignetteHasReference_ = true;
+    vignetteReference_ = referencePosition;
+    vignetteReferenceTime_ = now;
+
+    constexpr float kCloseSeconds = 0.25f;
+    constexpr float kOpenSeconds = 0.5f;
+    const bool wanted = vignetteLevel_ > 0 && (moving || turningSmoothly_);
+    const float step = dt > 0.0f && dt < 0.5f ? dt : 0.0f;
+    vignetteStrength_ = wanted ? std::min(1.0f, vignetteStrength_ + step / kCloseSeconds)
+                               : std::max(0.0f, vignetteStrength_ - step / kOpenSeconds);
+}
+
+// The sheet in front of the eyes, sized so that its clear middle is as wide
+// as the vignette is open. Fully open it is wider than anything the headset
+// shows, which is why it can come and go without an edge appearing.
+bool XrSystem::vignetteQuad(XrPosef& pose, XrExtent2Df& size) const {
+    if (vignetteLevel_ <= 0 || vignetteStrength_ <= 0.01f || viewSpace_ == XR_NULL_HANDLE) return false;
+    constexpr float kDistance = 4.0f;  // metres: far enough to be one picture for both eyes
+    constexpr float kOpenDegrees = 70.0f;
+    const float closedDegrees = vignetteLevel_ >= 2 ? 33.0f : 42.0f;
+    const float s = vignetteStrength_ * vignetteStrength_ * (3.0f - 2.0f * vignetteStrength_);
+    const float halfAngle = glm::radians(kOpenDegrees + (closedDegrees - kOpenDegrees) * s);
+    // The half-way point of the soft edge is put at that angle.
+    constexpr float kEdge = 0.5f * (kVignetteClear + kVignetteBlack);
+    const float side = 2.0f * kDistance * std::tan(halfAngle) / kEdge;
+    pose = {};
+    pose.orientation.w = 1.0f;
+    pose.position.z = -kDistance;
+    size = {side, side};
+    return true;
+}
+
 XrTime XrSystem::frameTime() const {
     return frame_ ? frame_->displayTime : 0;
 }
@@ -815,13 +933,16 @@ void XrSystem::endFrame(bool submitted) {
     release(f.beam);
     if (f.beamFilling && submitted && released) f.beamFilled = true;
     f.beamFilling = false;
+    release(f.vignette);
+    if (f.vignetteFilling && submitted && released) f.vignetteFilled = true;
+    f.vignetteFilling = false;
 
     // The world first, when this frame drew one, and the panel over it.
     const bool usable = submitted && released && f.shouldRender;
     const bool showWorld = usable && f.eyesCopied == (1u << kEyeCount) - 1u;
     const bool showPanel = usable && f.panelCopied;
     const bool show = showWorld || showPanel;
-    const XrCompositionLayerBaseHeader* layers[3] = {};
+    const XrCompositionLayerBaseHeader* layers[4] = {};
     uint32_t layerCount = 0;
 
     std::array<XrCompositionLayerProjectionView, kEyeCount> projectionViews{};
@@ -840,6 +961,20 @@ void XrSystem::endFrame(bool submitted) {
         layer.viewCount = kEyeCount;
         layer.views = projectionViews.data();
         layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer);
+    }
+
+    // The vignette, over the world and under the interface: it is the world
+    // that moves, and the panel has to stay readable to its corners.
+    XrCompositionLayerQuad vignette{};
+    vignette.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+    if (showWorld && f.vignetteFilled && vignetteQuad(vignette.pose, vignette.size)) {
+        vignette.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        vignette.space = viewSpace_;
+        vignette.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        vignette.subImage.swapchain = f.vignette.handle;
+        vignette.subImage.imageRect.extent = {static_cast<int32_t>(kVignetteSize),
+                                              static_cast<int32_t>(kVignetteSize)};
+        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&vignette);
     }
 
     XrCompositionLayerQuad panel{};
