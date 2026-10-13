@@ -1350,6 +1350,7 @@ if (const auto* md = charRenderer->getModelData(modelId)) {
         uint16_t selectedFacial200 = 200;
         uint16_t selectedFacial300 = 300;
         uint32_t equipChestGG = 0, equipLegsGG = 0, equipFeetGG = 0, equipGlovesGG = 0, equipCapeGG = 0;
+        uint32_t equipBeltGG = 0;
         if (itDisplayData != displayDataMap_.end() &&
             itDisplayData->second.extraDisplayId != 0) {
             auto itExtra = humanoidExtraMap_.find(itDisplayData->second.extraDisplayId);
@@ -1432,6 +1433,7 @@ if (const auto* md = charRenderer->getModelData(modelId)) {
                     equipFeetGG = readGG(itExtra->second.equipDisplayId[6]);
                     equipGlovesGG = readGG(itExtra->second.equipDisplayId[8]);
                     equipCapeGG = readGG(itExtra->second.equipDisplayId[10]);
+                    equipBeltGG = readGG(itExtra->second.equipDisplayId[4]);
                 }
             }
         }
@@ -1569,6 +1571,23 @@ if (const auto* md = charRenderer->getModelData(modelId)) {
                 : kGeosetBarePants;
             uint16_t pantsSid = resolveGeoset(wantPants, allGeosets);
             if (pantsSid != 0) normalizedGeosets.insert(pantsSid);
+        }
+
+        // Group 18 is the belt, and it was stripped above with the eye glow.
+        // On the older models that costs a buckle at most; on the Legion-style
+        // HD models 1801 is the waist itself, so every guard stood with a gap
+        // between the torso and the legs. Same rule as the player path: the
+        // variant the belt names if the model carries it, else the base one.
+        {
+            uint16_t beltSid = 0;
+            if (equipBeltGG > 0) {
+                const uint16_t wantBelt = equippedGeoset(equipment::kBeltBase, equipBeltGG);
+                if (allGeosets.count(wantBelt) > 0) beltSid = wantBelt;
+            }
+            if (beltSid == 0 && allGeosets.count(equipment::kBeltBase) > 0) {
+                beltSid = equipment::kBeltBase;
+            }
+            if (beltSid != 0) normalizedGeosets.insert(beltSid);
         }
 
         // Group 15: cloak mesh. Use "with cape" when equipped, otherwise
