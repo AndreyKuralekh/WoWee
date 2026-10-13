@@ -766,7 +766,17 @@ bool VkContext::createLogicalDevice() {
     // enabled list: without them vkCreateDevice is out of spec. MoltenVK
     // creates the device anyway and only the validation layer says so, so the
     // three are taken together or not at all.
-    const bool hostCopyDeps =
+    //
+    // WOWEE_VK_NO_HOST_IMAGE_COPY=1 leaves all three off, the same as a device
+    // that never offered them, so every texture takes the staging path.
+    static const bool noHostCopy = [] {
+        const char* v = std::getenv("WOWEE_VK_NO_HOST_IMAGE_COPY");
+        return v && *v && *v != '0';
+    }();
+    if (noHostCopy) {
+        LOG_WARNING("VK_EXT_host_image_copy disabled by WOWEE_VK_NO_HOST_IMAGE_COPY");
+    }
+    const bool hostCopyDeps = !noHostCopy &&
         vkbPhysicalDevice_.enable_extension_if_present(VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME) &&
         vkbPhysicalDevice_.enable_extension_if_present(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
     const bool hostImageCopyAvailable =
@@ -3276,6 +3286,57 @@ void VkContext::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& funct
     VkCommandBuffer cmd = beginSingleTimeCommands();
     function(cmd);
     endSingleTimeCommands(cmd);
+}
+
+bool VkContext::canHostCopyFormat(VkFormat format) {
+    if (!hostImageCopySupported_) return false;
+    std::lock_guard<std::mutex> lock(hostCopyFormatMutex_);
+    if (auto it = hostCopyFormats_.find(format); it != hostCopyFormats_.end()) {
+        return it->second;
+    }
+
+    // The feature is device-wide but the transfer is per format: a device can
+    // take RGBA8 from the host and refuse R8, and an image created with
+    // HOST_TRANSFER usage in a format that lacks it fails outright. Both the
+    // format feature and the exact usage the upload asks for have to agree.
+    VkFormatProperties3 props3{};
+    props3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+    VkFormatProperties2 props2{};
+    props2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+    props2.pNext = &props3;
+    vkGetPhysicalDeviceFormatProperties2(physicalDevice, format, &props2);
+    bool ok = (props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT_EXT) != 0;
+
+    if (ok) {
+        VkPhysicalDeviceImageFormatInfo2 info{};
+        info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
+        info.format = format;
+        info.type = VK_IMAGE_TYPE_2D;
+        info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                     VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
+        VkImageFormatProperties2 imageProps{};
+        imageProps.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+        ok = vkGetPhysicalDeviceImageFormatProperties2(physicalDevice, &info, &imageProps) == VK_SUCCESS;
+    }
+
+    if (!ok) {
+        LOG_WARNING("VK_EXT_host_image_copy: format ", static_cast<int>(format),
+                 " has no host transfer - it keeps the staging path");
+    }
+    hostCopyFormats_.emplace(format, ok);
+    return ok;
+}
+
+void VkContext::markHostCopyFormatUnusable(VkFormat format) {
+    std::lock_guard<std::mutex> lock(hostCopyFormatMutex_);
+    auto [it, inserted] = hostCopyFormats_.try_emplace(format, false);
+    if (!inserted && it->second) {
+        it->second = false;
+        LOG_WARNING("VK_EXT_host_image_copy: format ", static_cast<int>(format),
+                    " reported host transfer but its image failed to create - "
+                    "it keeps the staging path from now on");
+    }
 }
 
 void VkContext::beginUploadBatch() {

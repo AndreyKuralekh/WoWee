@@ -62,9 +62,11 @@ AllocatedImage createImage(VkDevice device, VmaAllocator allocator,
     VmaAllocationCreateInfo allocInfo{};
     allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    if (vmaCreateImage(allocator, &imgInfo, &allocInfo,
-            &result.image, &result.allocation, nullptr) != VK_SUCCESS) {
-        LOG_ERROR("Failed to create VMA image (", width, "x", height, ")");
+    if (VkResult res = vmaCreateImage(allocator, &imgInfo, &allocInfo,
+            &result.image, &result.allocation, nullptr); res != VK_SUCCESS) {
+        LOG_ERROR("Failed to create VMA image (", width, "x", height, " fmt=",
+                  static_cast<int>(format), " usage=", usage,
+                  "): ", static_cast<int>(res));
         return result;
     }
 

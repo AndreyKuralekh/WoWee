@@ -306,6 +306,12 @@ public:
 
     /// Whether a texture can be uploaded without a staging buffer.
     [[nodiscard]] bool isHostImageCopySupported() const { return hostImageCopySupported_; }
+    /// Whether a sampled single-level image in this format can take host
+    /// image copy. Asked once per format and remembered.
+    [[nodiscard]] bool canHostCopyFormat(VkFormat format);
+    /// Stops host copy for a format the driver accepted on paper and then
+    /// refused to create.
+    void markHostCopyFormatUnusable(VkFormat format);
     [[nodiscard]] PFN_vkCopyMemoryToImageEXT copyMemoryToImageFn() const { return copyMemoryToImage_; }
     [[nodiscard]] PFN_vkTransitionImageLayoutEXT transitionImageLayoutHostFn() const {
         return transitionImageLayoutHost_;
@@ -452,6 +458,8 @@ private:
     bool hostImageCopySupported_ = false;
     PFN_vkCopyMemoryToImageEXT copyMemoryToImage_ = nullptr;
     PFN_vkTransitionImageLayoutEXT transitionImageLayoutHost_ = nullptr;
+    std::mutex hostCopyFormatMutex_;
+    std::unordered_map<VkFormat, bool> hostCopyFormats_;
 
     /// Core robustBufferAccess, on wherever the device offers it. A buffer
     /// read past its descriptor's range returns zero instead of faulting,
