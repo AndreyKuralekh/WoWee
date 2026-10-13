@@ -736,7 +736,9 @@ bool enumerateFilesImpl(const Extractor::Options& opts,
     // Enumerate from highest priority first so first-seen files win
     for (auto it = archives.rbegin(); it != archives.rend(); ++it) {
         HANDLE hMpq = nullptr;
-        if (!SFileOpenArchive(it->c_str(), 0, 0, &hMpq)) {
+        // Read only: nothing here writes to an archive, and one whose file is marked
+        // read-only does not open any other way.
+        if (!SFileOpenArchive(it->c_str(), 0, MPQ_OPEN_READ_ONLY, &hMpq)) {
             std::cerr << "  Failed to open: " << *it << "\n";
             continue;
         }
@@ -864,7 +866,7 @@ bool Extractor::run(const Options& opts) {
     std::vector<SharedArchive> sharedHandles;
     for (const auto& path : archives) {
         HANDLE h = nullptr;
-        if (SFileOpenArchive(path.c_str(), 0, 0, &h)) {
+        if (SFileOpenArchive(path.c_str(), 0, MPQ_OPEN_READ_ONLY, &h)) {
             if (!opts.listFile.empty()) {
                 SFileAddListFile(h, opts.listFile.c_str());
             }
