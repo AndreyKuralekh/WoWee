@@ -384,6 +384,42 @@ void SpellHandler::triggerImpactVisual(uint32_t spellId, uint64_t targetGuid) {
     svs->playSpellVisual(visualId, targetPos, /*useImpactKit=*/true);
 }
 
+bool SpellHandler::launchSpellMissile(uint32_t spellId, uint64_t casterGuid, uint64_t targetGuid,
+                                      bool hit, bool impactSound) {
+    if (targetGuid == 0 || targetGuid == casterGuid) return false;
+    auto cached = owner_.spellNameCacheRef().find(spellId);
+    if (cached == owner_.spellNameCacheRef().end()) return false;
+    const float speed = cached->second.missileSpeed;
+    const uint32_t visualId = cached->second.spellVisualId;
+    if (speed <= 0.0f || visualId == 0) return false;
+
+    auto* renderer = owner_.services().renderer;
+    auto* svs = renderer ? renderer->getSpellVisualSystem() : nullptr;
+    if (!svs) return false;
+
+    // Out of the casting hand where the caster is drawn, chest height otherwise.
+    glm::vec3 start;
+    if (!resolveUnitPosition(casterGuid, start)) return false;
+    start.z += 1.0f;
+    if (auto* characters = renderer->getCharacterRenderer()) {
+        glm::mat4 hand(1.0f);
+        const uint32_t casterInstance = owner_.resolveUnitRenderInstance(casterGuid);
+        if (casterInstance != 0 && characters->getAttachmentTransform(casterInstance, 1, hand))
+            start = glm::vec3(hand[3]);
+    }
+
+    return svs->playSpellMissile(visualId, start, speed,
+        [this, targetGuid](glm::vec3& pos) {
+            if (!resolveUnitPosition(targetGuid, pos)) return false;
+            pos.z += 1.0f;
+            return true;
+        },
+        [this, spellId, targetGuid, hit, impactSound]() {
+            if (hit) triggerImpactVisual(spellId, targetGuid);
+            if (impactSound) playSpellImpactSound(spellId);
+        });
+}
+
 void SpellHandler::launchRangedWeaponProjectile(uint32_t spellId, uint64_t targetGuid) {
     if (targetGuid == 0) targetGuid = owner_.getTargetGuid();
     auto* renderer = owner_.services().renderer;
@@ -2254,8 +2290,9 @@ void SpellHandler::handleSpellGo(network::Packet& packet) {
             owner_.addonEventCallbackRef()("UNIT_SPELLCAST_SUCCEEDED", spellcastArgs(unitId, data.spellId));
     }
 
-    if ((playerIsHit || playerHitEnemy) && !rangedWeaponAttack)
-        playSpellImpactSound(data.spellId);
+    // A spell that travels is heard, like it is seen, when its missile gets
+    // there; the first missile launched takes the sound with it.
+    bool impactSoundDue = (playerIsHit || playerHitEnemy) && !rangedWeaponAttack;
 
     // Trigger spell visual effects: cast kit at caster + impact kit at each hit target.
     // Skip profession spells and melee (schoolMask == 1) abilities.
@@ -2272,14 +2309,25 @@ void SpellHandler::handleSpellGo(network::Packet& packet) {
                     }
                 }
             }
-            // Impact visual at each hit target
+            // Impact visual at each hit target - at once, or when the
+            // spell's missile reaches it. The server holds the damage of a
+            // travelling spell back by the same flight time.
             for (const auto& tgt : data.hitTargets) {
-                if (tgt != 0) {
+                if (tgt == 0) continue;
+                if (launchSpellMissile(data.spellId, data.casterUnit, tgt, /*hit=*/true, impactSoundDue)) {
+                    impactSoundDue = false;
+                } else {
                     triggerImpactVisual(data.spellId, tgt);
                 }
             }
+            // A resisted or dodged spell still flies; it just lands without effect.
+            for (const auto& m : data.missTargets) {
+                launchSpellMissile(data.spellId, data.casterUnit, m.targetGuid, /*hit=*/false, false);
+            }
         }
     }
+
+    if (impactSoundDue) playSpellImpactSound(data.spellId);
 }
 
 void SpellHandler::handleSpellCooldown(network::Packet& packet) {
@@ -3273,6 +3321,12 @@ void SpellHandler::loadSpellNameCache() const {
     const uint32_t rangeIdxField = spellL ? spellL->field("RangeIndex") : 0xFFFFFFFF;
     const uint32_t targetAuraStateField = spellL ? spellL->field("TargetAuraState") : 0xFFFFFFFF;
     const uint32_t spellVisualIdField = spellL ? spellL->field("SpellVisualID") : 0xFFFFFFFF;
+    // Looked up quietly: only the WotLK layout names it, and without it
+    // spells simply land at once, as they did before missiles were drawn.
+    uint32_t speedField = 0xFFFFFFFF;
+    if (spellL) {
+        if (auto it = spellL->fields.find("Speed"); it != spellL->fields.end()) speedField = it->second;
+    }
     // Read off the file's own shape. Only TBC's layout named these two, so on
     // WotLK, Classic and Turtle every cooldown this client worked out for itself
     // came back zero - which is most of them, since the server sends a cooldown
@@ -3348,6 +3402,10 @@ void SpellHandler::loadSpellNameCache() const {
             // SpellVisualID: references SpellVisual.dbc for cast/impact M2 effects
             if (spellVisualIdField != 0xFFFFFFFF && spellVisualIdField < dbc->getFieldCount())
                 entry.spellVisualId = dbc->getUInt32(i, spellVisualIdField);
+            if (speedField != 0xFFFFFFFF && speedField < fieldCount) {
+                const float speed = dbc->getFloat(i, speedField);
+                if (std::isfinite(speed) && speed > 0.0f) entry.missileSpeed = speed;
+            }
             if (recoveryField != 0xFFFFFFFF && recoveryField < fieldCount)
                 entry.recoveryMs = dbc->getUInt32(i, recoveryField);
             if (categoryRecoveryField != 0xFFFFFFFF && categoryRecoveryField < fieldCount)

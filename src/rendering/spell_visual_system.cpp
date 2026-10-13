@@ -1,6 +1,7 @@
 #include "rendering/spell_visual_system.hpp"
 #include "rendering/m2_renderer.hpp"
 #include "rendering/renderer.hpp"
+#include "rendering/camera.hpp"
 #include "rendering/character_renderer.hpp"
 #include "pipeline/asset_manager.hpp"
 #include "pipeline/dbc_loader.hpp"
@@ -10,7 +11,10 @@
 #include "core/logger.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace wowee {
 namespace rendering {
@@ -137,6 +141,11 @@ void SpellVisualSystem::loadSpellVisualDbc() {
             if (svPrecastKitField < svFc)
                 path = kitPath(svDbc->getUInt32(i, svPrecastKitField));
             if (!path.empty()) { spellVisualPrecastPath_[vid] = path; ++loadedPrecast; }
+        }
+        // Missile: the model that travels from caster to target
+        if (svMissileField < svFc) {
+            std::string path = missilePath(svDbc->getUInt32(i, svMissileField));
+            if (!path.empty()) spellVisualMissilePath_[vid] = std::move(path);
         }
         // Cast path: CastKit → SpecialEffect0/BaseEffect, fallback to MissileModel
         {
@@ -507,6 +516,92 @@ void SpellVisualSystem::playSpellVisual(uint32_t visualId, const glm::vec3& worl
     }
 }
 
+uint32_t SpellVisualSystem::spellEffectModel(const std::string& modelPath) {
+    uint32_t modelId = 0;
+    if (auto it = spellVisualModelIds_.find(modelPath); it != spellVisualModelIds_.end()) {
+        modelId = it->second;
+    } else {
+        if (nextSpellVisualModelId_ >= 999800) {
+            LOG_WARNING("SpellVisual: model ID pool exhausted");
+            return 0;
+        }
+        modelId = nextSpellVisualModelId_++;
+        spellVisualModelIds_[modelPath] = modelId;
+    }
+    if (spellVisualFailedModels_.count(modelId)) return 0;
+    if (m2Renderer_->hasModel(modelId)) return modelId;
+
+    auto m2Data = cachedAssetManager_->readFile(modelPath);
+    if (m2Data.empty()) {
+        LOG_WARNING("SpellVisual: could not read model: ", modelPath);
+        spellVisualFailedModels_.insert(modelId);
+        return 0;
+    }
+    pipeline::M2Model model = pipeline::M2Loader::load(m2Data);
+    if (model.name.empty()) model.name = modelPath;
+    if (model.vertices.empty() && model.particleEmitters.empty() && model.ribbonEmitters.empty()) {
+        LOG_WARNING("SpellVisual: empty model: ", modelPath);
+        spellVisualFailedModels_.insert(modelId);
+        return 0;
+    }
+    if (model.version >= 264) {
+        auto skinData = cachedAssetManager_->readFile(pipeline::skinPathForM2(modelPath));
+        if (!skinData.empty()) pipeline::M2Loader::loadSkin(skinData, model);
+    }
+    if (!m2Renderer_->loadModel(model, modelId)) {
+        LOG_WARNING("SpellVisual: failed to load model to GPU: ", modelPath);
+        spellVisualFailedModels_.insert(modelId);
+        return 0;
+    }
+    m2Renderer_->markModelAsSpellEffect(modelId);
+    LOG_INFO("SpellVisual: loaded model id=", modelId, " path=", modelPath,
+             " verts=", model.vertices.size(), " particles=", model.particleEmitters.size(),
+             " ribbons=", model.ribbonEmitters.size());
+    return modelId;
+}
+
+// Missile models are authored flying along +X; turn that onto the heading.
+static glm::mat4 missileTransform(const glm::vec3& position, const glm::vec3& heading) {
+    const float horizontal = std::sqrt(heading.x * heading.x + heading.y * heading.y);
+    glm::mat4 m = glm::translate(glm::mat4(1.0f), position);
+    m = glm::rotate(m, std::atan2(heading.y, heading.x), glm::vec3(0.0f, 0.0f, 1.0f));
+    m = glm::rotate(m, -std::atan2(heading.z, std::max(horizontal, 0.001f)), glm::vec3(0.0f, 1.0f, 0.0f));
+    return m;
+}
+
+bool SpellVisualSystem::playSpellMissile(uint32_t visualId, const glm::vec3& start, float speed,
+                                         std::function<bool(glm::vec3&)> target,
+                                         std::function<void()> onArrive) {
+    if (!m2Renderer_ || visualId == 0 || speed <= 0.0f || !target) return false;
+    if (!cachedAssetManager_)
+        cachedAssetManager_ = core::Application::getInstance().getAssetManager();
+    if (!cachedAssetManager_) return false;
+    if (!spellVisualDbcLoaded_) loadSpellVisualDbc();
+
+    auto pathIt = spellVisualMissilePath_.find(visualId);
+    if (pathIt == spellVisualMissilePath_.end()) return false;
+    glm::vec3 end;
+    if (!target(end)) return false;
+    const uint32_t modelId = spellEffectModel(pathIt->second);
+    if (modelId == 0) return false;
+
+    // Two missiles of one volley leave the same hand in the same frame, so
+    // the instance must not be folded into one already standing there.
+    const uint32_t instanceId = m2Renderer_->createInstance(modelId, start, glm::vec3(0.0f), 1.0f,
+                                                            /*allowPositionDedup=*/false);
+    if (instanceId == 0) return false;
+    const glm::vec3 toEnd = end - start;
+    if (glm::dot(toEnd, toEnd) > 1e-6f)
+        m2Renderer_->setInstanceTransform(instanceId, missileTransform(start, glm::normalize(toEnd)));
+    m2Renderer_->restartInstanceAnimation(instanceId);
+
+    LOG_INFO("SpellVisual: missile visualId=", visualId, " model=", pathIt->second,
+             " speed=", speed, " distance=", glm::length(toEnd));
+    spellMissiles_.push_back({.instanceId = instanceId, .position = start, .end = end, .speed = speed,
+                              .elapsed = 0.0f, .target = std::move(target), .onArrive = std::move(onArrive)});
+    return true;
+}
+
 void SpellVisualSystem::playPhysicalProjectile(const std::string& modelPath,
                                                 const std::string& texturePath,
                                                 const glm::vec3& start,
@@ -561,7 +656,55 @@ void SpellVisualSystem::playPhysicalProjectile(const std::string& modelPath,
 }
 
 void SpellVisualSystem::update(float deltaTime) {
-    if (activeSpellVisuals_.empty() && physicalProjectiles_.empty()) return;
+    // WOWEE_SPELL_MISSILE_DIAG=<SpellVisual id>[:<speed>]: every three seconds, fly that
+    // visual's missile across the view in front of the character and play its
+    // impact where it lands. Looking at a missile needs no target this way.
+    static const uint32_t diagVisual = [] {
+        const char* v = std::getenv("WOWEE_SPELL_MISSILE_DIAG");
+        return v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 10)) : 0u;
+    }();
+    static const float diagSpeed = [] {
+        const char* v = std::getenv("WOWEE_SPELL_MISSILE_DIAG");
+        const char* colon = v ? std::strchr(v, ':') : nullptr;
+        const float speed = colon ? std::strtof(colon + 1, nullptr) : 0.0f;
+        return speed > 0.0f ? speed : 12.0f;
+    }();
+    if (diagVisual != 0 && renderer_ && renderer_->getCamera()) {
+        static float sinceLast = 0.0f;
+        sinceLast += deltaTime;
+        if (sinceLast >= 3.0f) {
+            sinceLast = 0.0f;
+            const glm::vec3 right = renderer_->getCamera()->getRight();
+            const glm::vec3 centre = renderer_->getCharacterPosition() + glm::vec3(0.0f, 0.0f, 1.5f);
+            const glm::vec3 end = centre + right * 10.0f;
+            playSpellMissile(diagVisual, centre - right * 10.0f, diagSpeed,
+                             [end](glm::vec3& pos) { pos = end; return true; },
+                             [this, end]() { playSpellVisual(diagVisual, end, /*useImpactKit=*/true); });
+        }
+    }
+    if (activeSpellVisuals_.empty() && physicalProjectiles_.empty() && spellMissiles_.empty()) return;
+
+    // Missiles first, and their arrivals after the list is settled: an
+    // arrival plays an impact, which adds to the lists walked below.
+    std::vector<std::function<void()>> arrivals;
+    for (auto it = spellMissiles_.begin(); it != spellMissiles_.end(); ) {
+        it->elapsed += deltaTime;
+        if (glm::vec3 aim; it->target && it->target(aim)) it->end = aim;
+        const glm::vec3 toEnd = it->end - it->position;
+        const float distance = glm::length(toEnd);
+        const float step = it->speed * deltaTime;
+        if (distance <= step || it->elapsed >= SPELL_MISSILE_MAX_FLIGHT) {
+            m2Renderer_->removeInstance(it->instanceId);
+            if (it->onArrive) arrivals.push_back(std::move(it->onArrive));
+            it = spellMissiles_.erase(it);
+        } else {
+            const glm::vec3 heading = toEnd / distance;
+            it->position += heading * step;
+            m2Renderer_->setInstanceTransform(it->instanceId, missileTransform(it->position, heading));
+            ++it;
+        }
+    }
+    for (auto& arrive : arrivals) arrive();
 
     // Get character bone tracking context (once per frame)
     CharacterRenderer* charRenderer = renderer_ ? renderer_->getCharacterRenderer() : nullptr;
@@ -631,6 +774,11 @@ void SpellVisualSystem::reset() {
             renderer_->getCharacterRenderer()->removeInstance(projectile.instanceId);
     }
     physicalProjectiles_.clear();
+    // Dropped without arriving: what they were flying at is gone with the map.
+    for (const auto& missile : spellMissiles_) {
+        if (m2Renderer_) m2Renderer_->removeInstance(missile.instanceId);
+    }
+    spellMissiles_.clear();
     // Reset the negative cache so models that failed during asset loading can retry.
     spellVisualFailedModels_.clear();
 }

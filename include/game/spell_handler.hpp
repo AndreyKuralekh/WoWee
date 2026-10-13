@@ -413,6 +413,12 @@ private:
     // Play the impact visual effect at the target's position.
     void triggerImpactVisual(uint32_t spellId, uint64_t targetGuid);
     void launchRangedWeaponProjectile(uint32_t spellId, uint64_t targetGuid);
+    // Send a travelling spell's missile from the caster to one target. On
+    // arrival the impact visual plays if the spell hit, and the impact sound
+    // if asked. False when the spell has no missile - nothing was launched
+    // and the caller plays the impact itself.
+    bool launchSpellMissile(uint32_t spellId, uint64_t casterGuid, uint64_t targetGuid,
+                            bool hit, bool impactSound);
     void refreshRestorationFromPlayerAuras();
     void stopRestorationPresentation();
 

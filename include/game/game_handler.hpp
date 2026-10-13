@@ -3967,6 +3967,9 @@ public:
         uint32_t implicitTargetA = 0;
         float durationSec = 0.0f;
         uint32_t spellVisualId = 0;
+        // Spell.dbc Speed, yards a second: how fast the spell's missile
+        // travels. Zero for a spell that lands the moment it is cast.
+        float missileSpeed = 0.0f;
         uint32_t recoveryMs = 0;
         uint32_t categoryRecoveryMs = 0;
         uint32_t createdItemId = 0;
