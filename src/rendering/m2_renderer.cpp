@@ -120,7 +120,9 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
     };
     std::vector<Candidate> candidates;
 
-    for (const auto& instance : instances) {
+    for (const size_t lightIndex : lightInstanceIndices_) {
+        if (lightIndex >= instances.size()) continue;
+        const auto& instance = instances[lightIndex];
         const M2ModelGPU* model = instance.cachedModel;
         if (!model || (!model->isLanternLike && !model->isTorch &&
                        !model->isBrazierOrFire && !model->isForge &&

@@ -290,11 +290,13 @@ void M2Renderer::removeInstance(uint32_t instanceId) {
     animatedInstanceIndices_.clear();
     particleOnlyInstanceIndices_.clear();
     particleInstanceIndices_.clear();
+    lightInstanceIndices_.clear();
     for (size_t i = 0; i < instances.size(); i++) {
         auto& ri = instances[i];
         if (ri.cachedIsSmoke) smokeInstanceIndices_.push_back(i);
         if (ri.cachedIsInstancePortal) portalInstanceIndices_.push_back(i);
         if (ri.cachedHasParticleEmitters) particleInstanceIndices_.push_back(i);
+        if (ri.cachedModel && givesLight(*ri.cachedModel)) lightInstanceIndices_.push_back(i);
         if (ri.cachedHasAnimation && !ri.cachedDisableAnimation)
             animatedInstanceIndices_.push_back(i);
         else if (ri.cachedHasParticleEmitters)
@@ -442,6 +444,7 @@ void M2Renderer::clear() {
     animatedInstanceIndices_.clear();
     particleOnlyInstanceIndices_.clear();
     particleInstanceIndices_.clear();
+    lightInstanceIndices_.clear();
     smokeEmitAccum = 0.0f;
 
     // Clear texture cache so stale textures don't block loads for the next
@@ -474,6 +477,7 @@ void M2Renderer::clearInstances() {
     animatedInstanceIndices_.clear();
     particleOnlyInstanceIndices_.clear();
     particleInstanceIndices_.clear();
+    lightInstanceIndices_.clear();
     smokeParticles.clear();
     smokeEmitAccum = 0.0f;
 }
@@ -498,6 +502,7 @@ void M2Renderer::rebuildSpatialIndex() {
     animatedInstanceIndices_.clear();
     particleOnlyInstanceIndices_.clear();
     particleInstanceIndices_.clear();
+    lightInstanceIndices_.clear();
 
     for (size_t i = 0; i < instances.size(); i++) {
         auto& inst = instances[i];
@@ -524,6 +529,9 @@ void M2Renderer::rebuildSpatialIndex() {
         }
         if (inst.cachedHasParticleEmitters) {
             particleInstanceIndices_.push_back(i);
+        }
+        if (inst.cachedModel && givesLight(*inst.cachedModel)) {
+            lightInstanceIndices_.push_back(i);
         }
         if (inst.cachedHasAnimation && !inst.cachedDisableAnimation) {
             animatedInstanceIndices_.push_back(i);

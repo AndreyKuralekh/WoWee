@@ -1139,6 +1139,14 @@ private:
     std::vector<size_t> animatedInstanceIndices_;   // hasAnimation && !disableAnimation
     std::vector<size_t> particleOnlyInstanceIndices_; // !hasAnimation && hasParticleEmitters
     std::vector<size_t> particleInstanceIndices_;    // ALL instances with particle emitters
+    // Instances of models that can light their surroundings - lanterns,
+    // torches, fires, forges, lava. gatherLocalLights is asked every frame and
+    // walked all ninety thousand instances to find the few hundred of these.
+    std::vector<size_t> lightInstanceIndices_;
+    [[nodiscard]] static bool givesLight(const M2ModelGPU& model) {
+        return model.isLanternLike || model.isTorch || model.isBrazierOrFire || model.isForge ||
+               model.isLavaModel;
+    }
 
     // Smoke particle system
     std::vector<SmokeParticle> smokeParticles;

@@ -201,6 +201,7 @@ uint32_t M2Renderer::createInstance(uint32_t modelId, const glm::vec3& position,
     if (!mdlRef.particleEmitters.empty()) {
         particleInstanceIndices_.push_back(idx);
     }
+    if (givesLight(mdlRef)) lightInstanceIndices_.push_back(idx);
     if (mdlRef.hasAnimation && !mdlRef.disableAnimation) {
         animatedInstanceIndices_.push_back(idx);
     } else if (!mdlRef.particleEmitters.empty()) {
@@ -305,6 +306,7 @@ uint32_t M2Renderer::createInstanceWithMatrix(uint32_t modelId, const glm::mat4&
     if (!mdl2.particleEmitters.empty()) {
         particleInstanceIndices_.push_back(idx);
     }
+    if (givesLight(mdl2)) lightInstanceIndices_.push_back(idx);
     if (mdl2.hasAnimation && !mdl2.disableAnimation) {
         animatedInstanceIndices_.push_back(idx);
     } else if (!mdl2.particleEmitters.empty()) {
