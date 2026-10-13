@@ -5,6 +5,9 @@
 // client does what it always did with them - the checks that stop a seated
 // character walking or a chat line being typed into the world included.
 //
+// The other buttons do what vr_controls.cfg says (xr_controls.cpp), and nearly
+// all of that is a key again: an action button, Tab, Num Lock.
+//
 // The right controller is the mouse as well. Where its ray meets the panel
 // the real pointer is put, as the gamepad puts it, so that everything asking
 // where the mouse is gets one answer; the trigger and the grip are its buttons.
@@ -14,8 +17,11 @@
 
 #include "xr/xr_system.hpp"
 
+#include "core/application.hpp"
 #include "core/input.hpp"
 #include "core/logger.hpp"
+#include "game/entity.hpp"
+#include "game/game_handler.hpp"
 #include "rendering/camera_controller.hpp"
 #include "ui/framexml_takeover.hpp"
 
@@ -28,6 +34,8 @@
 #include <cmath>
 #include <cstring>
 #include <iterator>
+#include <memory>
+#include <vector>
 
 namespace wowee::xr {
 
@@ -35,8 +43,7 @@ struct XrSystem::InputData {
     XrActionSet set = XR_NULL_HANDLE;
     XrAction move = XR_NULL_HANDLE;      // left stick
     XrAction turn = XR_NULL_HANDLE;      // right stick
-    XrAction jump = XR_NULL_HANDLE;      // A
-    XrAction recenter = XR_NULL_HANDLE;  // pressing the right stick in
+    XrAction buttons[kControlButtonCount] = {};  // everything a function can be given to
     XrAction aim = XR_NULL_HANDLE;       // where the right controller points
     XrAction click = XR_NULL_HANDLE;     // its trigger: the left mouse button
     XrAction grab = XR_NULL_HANDLE;      // its grip: the right mouse button
@@ -63,15 +70,83 @@ struct XrSystem::InputData {
     // What this is holding down, so that only that is ever let go: the
     // keyboard and the gamepad hold the same keys by the same means.
     bool held[4] = {};  // W, S, Q, E
-    bool jumpHeld = false;
     bool turnArmed = true;
-    bool recenterWasDown = false;
+
+    // The buttons: which are down, and what each was doing when it went down
+    // - kept until it comes up, so that letting go of the modifier first does
+    // not leave another key held.
+    bool buttonDown[kControlButtonCount] = {};
+    ControlFunction latched[kControlButtonCount] = {};
+    bool keyHeld[kControlFunctionCount] = {};  // by function; see functionKey
+    bool escapeDown = false;
 };
 
 namespace {
 
 constexpr SDL_Scancode kMoveKeys[4] = {SDL_SCANCODE_W, SDL_SCANCODE_S, SDL_SCANCODE_Q, SDL_SCANCODE_E};
 constexpr int kMouseButtons[2] = {SDL_BUTTON_LEFT, SDL_BUTTON_RIGHT};
+
+// Where each button is on a Touch controller, and what its action is called.
+struct ButtonSource {
+    const char* action;
+    const char* shown;
+    const char* touchPath;
+};
+constexpr ButtonSource kButtonSources[kControlButtonCount] = {
+    {"button_left_trigger", "Left trigger", "/user/hand/left/input/trigger/value"},
+    {"button_left_grip", "Left grip", "/user/hand/left/input/squeeze/value"},
+    {"button_a", "A", "/user/hand/right/input/a/click"},
+    {"button_b", "B", "/user/hand/right/input/b/click"},
+    {"button_x", "X", "/user/hand/left/input/x/click"},
+    {"button_y", "Y", "/user/hand/left/input/y/click"},
+    {"button_left_stick", "Left stick press", "/user/hand/left/input/thumbstick/click"},
+    {"button_right_stick", "Right stick press", "/user/hand/right/input/thumbstick/click"},
+    {"button_menu", "Menu", "/user/hand/left/input/menu/click"},
+};
+
+// The key a function holds down, for those that are a key: the ones the
+// action bar, the camera and the target key poll.
+SDL_Scancode functionKey(ControlFunction function) {
+    switch (function) {
+        case ControlFunction::Jump: return SDL_SCANCODE_SPACE;
+        case ControlFunction::Action1: return SDL_SCANCODE_1;
+        case ControlFunction::Action2: return SDL_SCANCODE_2;
+        case ControlFunction::Action3: return SDL_SCANCODE_3;
+        case ControlFunction::Action4: return SDL_SCANCODE_4;
+        case ControlFunction::Action5: return SDL_SCANCODE_5;
+        case ControlFunction::Action6: return SDL_SCANCODE_6;
+        case ControlFunction::Action7: return SDL_SCANCODE_7;
+        case ControlFunction::Action8: return SDL_SCANCODE_8;
+        case ControlFunction::Action9: return SDL_SCANCODE_9;
+        case ControlFunction::Action10: return SDL_SCANCODE_0;
+        case ControlFunction::Action11: return SDL_SCANCODE_MINUS;
+        case ControlFunction::Action12: return SDL_SCANCODE_EQUALS;
+        case ControlFunction::TargetEnemy: return SDL_SCANCODE_TAB;
+        case ControlFunction::Autorun: return SDL_SCANCODE_NUMLOCKCLEAR;
+        default: return SDL_SCANCODE_UNKNOWN;
+    }
+}
+
+// What a right click does when the ray meets nothing: the current target is
+// looted if it is dead, spoken to if it will speak, and attacked otherwise.
+void interactWithTarget() {
+    game::GameHandler* game = core::Application::getInstance().getGameHandler();
+    if (!game || !game->hasTarget()) return;
+    const auto target = game->getTarget();
+    if (!target) return;
+    if (target->getType() == game::ObjectType::GAMEOBJECT) {
+        game->interactWithGameObject(target->getGuid());
+    } else if (target->getType() == game::ObjectType::UNIT) {
+        const auto unit = std::static_pointer_cast<game::Unit>(target);
+        if (unit->getHealth() == 0 && unit->getMaxHealth() > 0) {
+            game->lootTarget(target->getGuid());
+        } else if (!unit->isHostile() && unit->isInteractable()) {
+            game->interactWithNpc(target->getGuid());
+        } else {
+            game->startAutoAttack(target->getGuid());
+        }
+    }
+}
 
 XrPath path(XrInstance instance, const char* text) {
     XrPath result = XR_NULL_PATH;
@@ -145,32 +220,40 @@ bool XrSystem::createActions() {
 
     in.move = createAction(in.set, XR_ACTION_TYPE_VECTOR2F_INPUT, "move", "Move");
     in.turn = createAction(in.set, XR_ACTION_TYPE_VECTOR2F_INPUT, "turn", "Turn");
-    in.jump = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "jump", "Jump");
-    in.recenter = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "recenter", "Recenter");
+    bool buttonsMade = true;
+    for (size_t i = 0; i < kControlButtonCount; ++i) {
+        in.buttons[i] = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, kButtonSources[i].action,
+                                     kButtonSources[i].shown);
+        buttonsMade = buttonsMade && in.buttons[i] != XR_NULL_HANDLE;
+    }
     in.aim = createAction(in.set, XR_ACTION_TYPE_POSE_INPUT, "aim", "Pointer");
     in.click = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "click", "Left mouse button");
     in.grab = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "grab", "Right mouse button");
-    if (!in.move || !in.turn || !in.jump || !in.recenter || !in.aim || !in.click || !in.grab) {
+    if (!in.move || !in.turn || !buttonsMade || !in.aim || !in.click || !in.grab) {
         LOG_WARNING("VR: no controllers - an action could not be created");
         return false;
     }
 
     // The Touch controllers, which is what a Quest has and what every runtime
     // for one offers.
-    const XrActionSuggestedBinding touch[] = {
+    // Every button is bound to its own action here and stays so; which
+    // function a button has is decided when it is pressed, so changing that
+    // on the settings page needs nothing from the runtime.
+    std::vector<XrActionSuggestedBinding> touch = {
         {in.aim, path(instance_, "/user/hand/right/input/aim/pose")},
         {in.click, path(instance_, "/user/hand/right/input/trigger/value")},
         {in.grab, path(instance_, "/user/hand/right/input/squeeze/value")},
         {in.move, path(instance_, "/user/hand/left/input/thumbstick")},
         {in.turn, path(instance_, "/user/hand/right/input/thumbstick")},
-        {in.jump, path(instance_, "/user/hand/right/input/a/click")},
-        {in.recenter, path(instance_, "/user/hand/right/input/thumbstick/click")},
     };
+    for (size_t i = 0; i < kControlButtonCount; ++i) {
+        touch.push_back({in.buttons[i], path(instance_, kButtonSources[i].touchPath)});
+    }
     XrInteractionProfileSuggestedBinding suggested{};
     suggested.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
     suggested.interactionProfile = path(instance_, "/interaction_profiles/oculus/touch_controller");
-    suggested.countSuggestedBindings = static_cast<uint32_t>(std::size(touch));
-    suggested.suggestedBindings = touch;
+    suggested.countSuggestedBindings = static_cast<uint32_t>(touch.size());
+    suggested.suggestedBindings = touch.data();
     result = xrSuggestInteractionProfileBindings(instance_, &suggested);
     if (XR_FAILED(result)) {
         LOG_WARNING("VR: no controllers - the runtime refused the bindings: ", resultName(result));
@@ -211,9 +294,16 @@ bool XrSystem::createActions() {
         in.aimSpace = XR_NULL_HANDLE;
         LOG_WARNING("VR: no pointer - xrCreateActionSpace failed: ", resultName(result));
     }
+    loadControls();
     if (debug_) {
-        LOG_WARNING("VR: controllers - left stick moves, right stick turns and recentres, A jumps, "
-                    "the right controller points, trigger and grip are the mouse buttons");
+        LOG_WARNING("VR: controllers - left stick moves, right stick turns, the right controller points, "
+                    "its trigger and grip are the mouse buttons");
+        for (size_t i = 0; i < kControlButtonCount; ++i) {
+            LOG_WARNING("VR:   ", kButtonSources[i].shown, " - ", controlFunctionName(controls_.plain[i]),
+                        controls_.shifted[i] != ControlFunction::None ? ", with the modifier " : "",
+                        controls_.shifted[i] != ControlFunction::None
+                            ? controlFunctionName(controls_.shifted[i]) : "");
+        }
     }
     return true;
 }
@@ -236,8 +326,37 @@ void XrSystem::releaseControllerKeys() {
         if (input_->held[i]) input.setVirtualKey(kMoveKeys[i], false);
         input_->held[i] = false;
     }
-    if (input_->jumpHeld) input.setVirtualKey(SDL_SCANCODE_SPACE, false);
-    input_->jumpHeld = false;
+    for (size_t f = 0; f < kControlFunctionCount; ++f) {
+        if (input_->keyHeld[f]) input.setVirtualKey(functionKey(static_cast<ControlFunction>(f)), false);
+        input_->keyHeld[f] = false;
+    }
+    if (input_->escapeDown && ImGui::GetCurrentContext()) ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
+    input_->escapeDown = false;
+    // Forgotten as well as released: a button still down when the controllers
+    // are live again is a fresh press.
+    for (size_t i = 0; i < kControlButtonCount; ++i) {
+        input_->buttonDown[i] = false;
+        input_->latched[i] = ControlFunction::None;
+    }
+}
+
+void XrSystem::loadControls() {
+    if (controlsLoaded_) return;
+    controlsLoaded_ = true;
+    controls_.load(controlsConfigPath());
+}
+
+std::string XrSystem::controlSetting(const std::string& key) {
+    loadControls();
+    return controlSettingValue(controls_, key);
+}
+
+bool XrSystem::setControlSetting(const std::string& key, int value) {
+    loadControls();
+    bool changed = false;
+    if (!setControlSettingValue(controls_, key, value, changed)) return false;
+    if (changed) controls_.save(controlsConfigPath());
+    return true;
 }
 
 void XrSystem::releasePointer() {
@@ -486,19 +605,51 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
         in.held[i] = down;
     }
 
-    const bool jump = button(session_, in.jump);
-    if (jump != in.jumpHeld) input.setVirtualKey(SDL_SCANCODE_SPACE, jump);
-    in.jumpHeld = jump;
+    // Not while a line is being typed: a key held then is a letter in it.
+    const bool typing = ImGui::GetCurrentContext() && ImGui::GetIO().WantTextInput;
 
-    const bool recenterDown = button(session_, in.recenter);
-    if (recenterDown && !in.recenterWasDown) recenter();
-    in.recenterWasDown = recenterDown;
+    // The buttons. What one does is settled as it goes down - with the
+    // modifier or without - and kept until it comes up.
+    bool down[kControlButtonCount];
+    bool modifier = false;
+    for (size_t i = 0; i < kControlButtonCount; ++i) {
+        down[i] = !typing && button(session_, in.buttons[i]);
+        if (down[i] && controls_.plain[i] == ControlFunction::Modifier) modifier = true;
+    }
+    bool keyWanted[kControlFunctionCount] = {};
+    bool escape = false;
+    for (size_t i = 0; i < kControlButtonCount; ++i) {
+        if (down[i] && !in.buttonDown[i]) {
+            const bool second = modifier && controls_.shifted[i] != ControlFunction::None;
+            in.latched[i] = second ? controls_.shifted[i] : controls_.plain[i];
+            if (in.latched[i] == ControlFunction::Recenter) recenter();
+            if (in.latched[i] == ControlFunction::Interact) interactWithTarget();
+        } else if (!down[i]) {
+            in.latched[i] = ControlFunction::None;
+        }
+        in.buttonDown[i] = down[i];
+        keyWanted[static_cast<size_t>(in.latched[i])] = true;
+        if (in.latched[i] == ControlFunction::Escape) escape = true;
+    }
+    // By function, so that two buttons given the same one hold one key
+    // between them and neither lets go of it for the other.
+    for (size_t f = 0; f < kControlFunctionCount; ++f) {
+        const SDL_Scancode key = functionKey(static_cast<ControlFunction>(f));
+        if (key == SDL_SCANCODE_UNKNOWN || keyWanted[f] == in.keyHeld[f]) continue;
+        input.setVirtualKey(key, keyWanted[f]);
+        in.keyHeld[f] = keyWanted[f];
+    }
+    // Escape is the interface's: it is asked of ImGui, which a held scancode
+    // never reaches.
+    if (escape != in.escapeDown && ImGui::GetCurrentContext()) {
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, escape);
+        in.escapeDown = escape;
+    }
 
     // The turn is the mouse's: so many pixels of it, which the camera scales
     // by its own sensitivity - divided out here so that the angle is an angle.
     // Not while a line is being typed, as the keys are not.
     const float turn = stick(session_, in.turn).x;
-    const bool typing = ImGui::GetCurrentContext() && ImGui::GetIO().WantTextInput;
     const float perDegree = 1.0f / std::max(camera->getMouseSensitivity(), 0.0001f);
     if (typing) {
         in.turnArmed = false;

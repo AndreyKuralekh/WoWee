@@ -687,6 +687,10 @@ void SettingsPanel::renderSettingsWindow(ChatPanel& chatPanel,
             if (ImGui::BeginTabItem("VR", nullptr, tabFlagFor("VR"))) {
                 ImGui::Spacing();
                 drawSchemaCategory("VR", saveCallback);
+                ImGui::SeparatorText("Controller buttons");
+                drawSchemaCategory("VR buttons", saveCallback);
+                ImGui::SeparatorText("Controller buttons with the modifier held");
+                drawSchemaCategory("VR buttons with modifier", saveCallback);
                 ImGui::EndTabItem();
             }
 #endif
@@ -1563,6 +1567,10 @@ std::string SettingsPanel::settingValue(const std::string& key) const {
         if (!chatSettings_) return {};
         return chatSettings_->*(c->asBool) ? "1" : "0";
     }
+#ifdef WOWEE_VR
+    // The controllers' buttons are kept by the VR module, in its own file.
+    if (xr::isControlSettingKey(key)) return xr::system().controlSetting(key);
+#endif
     const FieldBinding* b = findFieldBinding(key);
     if (!b) return {};
     if (b->asBool)  return this->*(b->asBool) ? "1" : "0";
@@ -1622,6 +1630,11 @@ bool SettingsPanel::setSettingValue(const std::string& key, const std::string& v
         addons::noteClientSettingChanged(key, settingValue(key));
         return true;
     }
+#ifdef WOWEE_VR
+    if (xr::isControlSettingKey(key)) {
+        return xr::system().setControlSetting(key, static_cast<int>(clampedToSchema(key, v) + 0.5));
+    }
+#endif
     const FieldBinding* b = findFieldBinding(key);
     if (!b) return false;
     if (b->asBool) {

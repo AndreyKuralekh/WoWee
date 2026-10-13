@@ -922,8 +922,9 @@ constexpr SettingDesc kSchema[] = {
     //
     // Each names the section, though it is the same one: a row after a
     // conditional row may not lean on its heading, and all of these are
-    // conditional. The schema test counts conditional rows and allows ten
-    // in the file; two were there already, which with these makes ten.
+    // conditional. The schema test counts conditional rows and allows
+    // twenty-eight in the file: two were there already, eight are these and
+    // eighteen are the controllers' buttons below.
     {"vrpanelfollow", "Panel follows the head", SettingKind::Enum, 0, 2, 1, "VR", "Interface panel",
      "How the interface panel keeps up with you in the world; before you\n"
      "enter it the panel always stands still. In front: it turns with\n"
@@ -956,6 +957,67 @@ constexpr SettingDesc kSchema[] = {
      "At 1 they shine as on a monitor, where it reads as polish; in a\n"
      "headset the highlight slides as the head moves and differs between\n"
      "the eyes, and stone looks like glass. 0 leaves it out.", "", 0.0f},
+
+    // What the controllers' buttons do. Not fields of the settings panel: the
+    // VR module keeps the table (xr_controls.cpp) in vr_controls.cfg, and the
+    // panel reads and writes it by these keys - see isControlSettingKey. The
+    // choices are xr::ControlFunction in order and the defaults are
+    // ControlBindings::defaults(); all three have to agree.
+#define WOWEE_VR_ACTIONS                                                                       \
+    "Jump|Action button 1|Action button 2|Action button 3|Action button 4|Action button 5|"    \
+    "Action button 6|Action button 7|Action button 8|Action button 9|Action button 10|"        \
+    "Action button 11|Action button 12|Target nearest enemy|Interact with target|Autorun|"     \
+    "Escape / game menu|Recenter view"
+#define WOWEE_VR_BUTTON_CHOICES "Nothing|Modifier (hold)|" WOWEE_VR_ACTIONS
+#define WOWEE_VR_MODIFIER_CHOICES "Same as alone|(not used)|" WOWEE_VR_ACTIONS
+#define WOWEE_VR_BUTTON_HELP                                                 \
+    "What this button does. The right trigger and grip are the mouse\n"      \
+    "buttons and the sticks walk and turn; those are not offered here.\n"    \
+    "Modifier: while held, the other buttons do what the next page says."
+#define WOWEE_VR_MODIFIER_HELP                                               \
+    "What this button does while the modifier button is held. Same as\n"     \
+    "alone leaves it doing what it does without the modifier."
+    {"vrbtnlefttrigger", "Left trigger", SettingKind::Enum, 0, 19, 1, "VR buttons", "Controller buttons",
+     WOWEE_VR_BUTTON_HELP, WOWEE_VR_BUTTON_CHOICES, 3},
+    {"vrbtnleftgrip", "Left grip", SettingKind::Enum, 0, 19, 1, "VR buttons", "Controller buttons",
+     WOWEE_VR_BUTTON_HELP, WOWEE_VR_BUTTON_CHOICES, 1},
+    {"vrbtna", "A", SettingKind::Enum, 0, 19, 1, "VR buttons", "Controller buttons",
+     WOWEE_VR_BUTTON_HELP, WOWEE_VR_BUTTON_CHOICES, 2},
+    {"vrbtnb", "B", SettingKind::Enum, 0, 19, 1, "VR buttons", "Controller buttons",
+     WOWEE_VR_BUTTON_HELP, WOWEE_VR_BUTTON_CHOICES, 4},
+    {"vrbtnx", "X", SettingKind::Enum, 0, 19, 1, "VR buttons", "Controller buttons",
+     WOWEE_VR_BUTTON_HELP, WOWEE_VR_BUTTON_CHOICES, 15},
+    {"vrbtny", "Y", SettingKind::Enum, 0, 19, 1, "VR buttons", "Controller buttons",
+     WOWEE_VR_BUTTON_HELP, WOWEE_VR_BUTTON_CHOICES, 16},
+    {"vrbtnleftstick", "Left stick press", SettingKind::Enum, 0, 19, 1, "VR buttons", "Controller buttons",
+     WOWEE_VR_BUTTON_HELP, WOWEE_VR_BUTTON_CHOICES, 17},
+    {"vrbtnrightstick", "Right stick press", SettingKind::Enum, 0, 19, 1, "VR buttons", "Controller buttons",
+     WOWEE_VR_BUTTON_HELP, WOWEE_VR_BUTTON_CHOICES, 19},
+    {"vrbtnmenu", "Menu", SettingKind::Enum, 0, 19, 1, "VR buttons", "Controller buttons",
+     WOWEE_VR_BUTTON_HELP, WOWEE_VR_BUTTON_CHOICES, 18},
+    {"vrmodlefttrigger", "Left trigger", SettingKind::Enum, 0, 19, 1, "VR buttons with modifier", "With the modifier held",
+     WOWEE_VR_MODIFIER_HELP, WOWEE_VR_MODIFIER_CHOICES, 9},
+    {"vrmodleftgrip", "Left grip", SettingKind::Enum, 0, 19, 1, "VR buttons with modifier", "With the modifier held",
+     WOWEE_VR_MODIFIER_HELP, WOWEE_VR_MODIFIER_CHOICES, 0},
+    {"vrmoda", "A", SettingKind::Enum, 0, 19, 1, "VR buttons with modifier", "With the modifier held",
+     WOWEE_VR_MODIFIER_HELP, WOWEE_VR_MODIFIER_CHOICES, 5},
+    {"vrmodb", "B", SettingKind::Enum, 0, 19, 1, "VR buttons with modifier", "With the modifier held",
+     WOWEE_VR_MODIFIER_HELP, WOWEE_VR_MODIFIER_CHOICES, 6},
+    {"vrmodx", "X", SettingKind::Enum, 0, 19, 1, "VR buttons with modifier", "With the modifier held",
+     WOWEE_VR_MODIFIER_HELP, WOWEE_VR_MODIFIER_CHOICES, 7},
+    {"vrmody", "Y", SettingKind::Enum, 0, 19, 1, "VR buttons with modifier", "With the modifier held",
+     WOWEE_VR_MODIFIER_HELP, WOWEE_VR_MODIFIER_CHOICES, 8},
+    {"vrmodleftstick", "Left stick press", SettingKind::Enum, 0, 19, 1, "VR buttons with modifier", "With the modifier held",
+     WOWEE_VR_MODIFIER_HELP, WOWEE_VR_MODIFIER_CHOICES, 0},
+    {"vrmodrightstick", "Right stick press", SettingKind::Enum, 0, 19, 1, "VR buttons with modifier", "With the modifier held",
+     WOWEE_VR_MODIFIER_HELP, WOWEE_VR_MODIFIER_CHOICES, 0},
+    {"vrmodmenu", "Menu", SettingKind::Enum, 0, 19, 1, "VR buttons with modifier", "With the modifier held",
+     WOWEE_VR_MODIFIER_HELP, WOWEE_VR_MODIFIER_CHOICES, 0},
+#undef WOWEE_VR_ACTIONS
+#undef WOWEE_VR_BUTTON_CHOICES
+#undef WOWEE_VR_MODIFIER_CHOICES
+#undef WOWEE_VR_BUTTON_HELP
+#undef WOWEE_VR_MODIFIER_HELP
 #endif
 };
 

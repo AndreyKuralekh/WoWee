@@ -30,6 +30,7 @@
  * as the flat client it was going to be anyway.
  */
 
+#include "xr/xr_controls.hpp"
 #include <glm/glm.hpp>
 #include <openxr/openxr.h>
 #include <vulkan/vulkan.h>
@@ -244,6 +245,12 @@ public:
     /// it: the turn is given to the game and taken off the head in one step.
     void setBodyFollowsHead(bool follows) { bodyFollowsHead_ = follows; }
 
+    /// What each button does, as the settings page reads and writes it; see
+    /// isControlSettingKey. A change is in force at once and is written to
+    /// vr_controls.cfg. The setter is false for a key that is not a binding.
+    [[nodiscard]] std::string controlSetting(const std::string& key);
+    bool setControlSetting(const std::string& key, int value);
+
     /// Whether the right stick turns by a fixed angle at a push, or smoothly.
     void setSnapTurn(bool snap) { snapTurn_ = snap; }
 
@@ -264,6 +271,7 @@ private:
     bool createActions();
     void destroyActions();
     void releaseControllerKeys();
+    void loadControls();
     void releasePointer();
     void updatePointer(SDL_Window* window, bool inWorld);
     /// The right controller's ray in `base` at `time`. False while it is not tracked.
@@ -301,6 +309,9 @@ private:
     // The actions and what they hold down; xr_input.cpp. Null without controllers.
     struct InputData;
     InputData* input_ = nullptr;
+    // What the buttons do; read from vr_controls.cfg when the actions are made.
+    ControlBindings controls_ = ControlBindings::defaults();
+    bool controlsLoaded_ = false;
     // What recenter took: a place in the tracking space and a turn round its
     // vertical, taken off every eye pose before it is stood in the world.
     bool recenterPending_ = false;
