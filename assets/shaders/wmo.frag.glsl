@@ -390,11 +390,18 @@ void main() {
         vec3 reflectDir = reflect(-viewDir, norm);
         float sunGlint = pow(max(dot(reflectDir, ldir), 0.0), 32.0);
 
-        float baseBrightness = mix(0.3, 0.9, sunGlint);
+        // Outdoors the pane is what its texture paints - the original draws
+        // these materials opaque and lit like the wall round them, and the
+        // texture is the window: Northshire Abbey's lilies in coloured glass.
+        // Darkening it to a third and pulling it toward blue turned every
+        // stained window into a dark blue slot. A touch of sky in it at a
+        // grazing angle is all the glass it gets. Dungeon glass (2) keeps
+        // the see-through look it was made for.
+        float baseBrightness = isWindow == 2 ? mix(0.3, 0.9, sunGlint) : 1.0;
         vec3 glass = result * baseBrightness;
 
         vec3 reflectTint = mix(ambientColor.rgb * 1.2, vec3(0.6, 0.75, 1.0), 0.6);
-        glass = mix(glass, reflectTint, fresnel * 0.8);
+        glass = mix(glass, reflectTint, fresnel * (isWindow == 2 ? 0.8 : 0.25));
 
         vec3 halfDir = normalize(ldir + viewDir);
         float spec = pow(max(dot(norm, halfDir), 0.0), 256.0);
@@ -408,7 +415,7 @@ void main() {
             // Instance/dungeon glass: mostly transparent to see through
             alpha = mix(0.12, 0.35, fresnel);
         } else {
-            alpha = mix(0.4, 0.95, NdotV);
+            alpha = 1.0;
         }
     }
 
