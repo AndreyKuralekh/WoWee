@@ -275,6 +275,9 @@ public:
     /// view is put, in metres.
     void setWorldScale(float scale) { worldScale_ = scale < 0.25f ? 0.25f : (scale > 4.0f ? 4.0f : scale); }
     void setEyeHeightOffset(float metres) { eyeHeightOffset_ = metres; }
+    /// How much glow is added over the eyes: 0 none, 1 strong. See EyeGlow.
+    void setGlow(float strength) { glow_ = strength < 0.0f ? 0.0f : (strength > 1.0f ? 1.0f : strength); }
+    [[nodiscard]] float glow() const { return glow_; }
 
     /// Where the panel stands, from the settings page. A value the environment
     /// set at start is left alone: that is how one is tried without saving it.
@@ -329,6 +332,7 @@ private:
     bool leftHanded_ = false;
     float worldScale_ = 1.0f;
     float eyeHeightOffset_ = 0.0f;
+    float glow_ = 0.35f;
     /// Yards of the world to a metre of the room.
     [[nodiscard]] float yardsPerMetre() const { return 1.0f / (0.9144f * worldScale_); }
     int vignetteLevel_ = 1;

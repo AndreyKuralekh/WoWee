@@ -16,6 +16,7 @@
 #include "rendering/wmo_renderer.hpp"
 #include "rendering/vk_context.hpp"
 #include "rendering/vk_utils.hpp"
+#include "xr/xr_glow.hpp"
 #include "xr/xr_system.hpp"
 
 #include <SDL3/SDL.h>
@@ -62,6 +63,9 @@ struct Renderer::VrEyes {
     VkCommandBuffer secondary[kEyeCount][NUM_SECONDARIES][MAX_FRAMES] = {};
     VkCommandPool secondaryPoolSeen = VK_NULL_HANDLE;  // which pools they came from
 
+    // The glow added onto each eye before it goes to the headset.
+    xr::EyeGlow glow;
+
     xr::StereoViews views;
     bool viewsValid = false;
     bool refusedLogged = false;
@@ -73,6 +77,7 @@ void Renderer::vrDestroyEyes() {
         const VkDevice device = vkCtx->getDevice();
         const VmaAllocator allocator = vkCtx->getAllocator();
         vkDeviceWaitIdle(device);
+        vrEyes_->glow.destroy();
         for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
             if (vrEyes_->framebuffer[eye]) vkDestroyFramebuffer(device, vrEyes_->framebuffer[eye], nullptr);
             destroyImage(device, allocator, vrEyes_->color[eye]);
@@ -205,6 +210,9 @@ bool Renderer::vrEnsureEyes() {
             return false;
         }
     }
+    // Without it the eyes are drawn as before, so a failure is only said.
+    const VkImageView eyeViews[VrEyes::kEyeCount] = {vrEyes_->color[0].imageView, vrEyes_->color[1].imageView};
+    vrEyes_->glow.create(vkCtx, wanted, vkCtx->getSwapchainFormat(), eyeViews);
     LOG_WARNING("VR: eye targets ", wanted.width, "x", wanted.height);
     return true;
 }
@@ -411,6 +419,7 @@ void Renderer::vrReplayWorldForEye(uint32_t eye) {
         vkCmdExecuteCommands(currentCmd, 1, &buffer);
     }
     vkCmdEndRenderPass(currentCmd);
+    vrEyes_->glow.record(currentCmd, eye, vrEyes_->color[eye].image, xr::system().glow());
     xr::system().recordEyeCopy(currentCmd, eye, vrEyes_->color[eye].image);
 }
 
@@ -536,6 +545,7 @@ void Renderer::vrRenderEyes() {
 
         vkCmdEndRenderPass(currentCmd);
         if (threaded) swapSecondaries();
+        vrEyes_->glow.record(currentCmd, eye, vrEyes_->color[eye].image, xr::system().glow());
         xr::system().recordEyeCopy(currentCmd, eye, vrEyes_->color[eye].image);
     }
 
