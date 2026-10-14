@@ -1095,6 +1095,20 @@ void Renderer::setMsaaSamples(VkSampleCountFlagBits samples) {
         return;
     }
 
+#ifdef WOWEE_VR
+    // The eyes are drawn single sampled; with multisampling on, stereo gives
+    // up and the headset shows the flat window. A graphics preset turns it on
+    // (Ultra asks for 8x), and that is how choosing Ultra made the game flat.
+    // The eyes are already rendered above their size, which is their
+    // antialiasing.
+    if (samples > VK_SAMPLE_COUNT_1_BIT && (xr::system().available() || xr::system().fakeHeadset())) {
+        static bool said = false;
+        if (!said) LOG_WARNING("Multisampling left off: a headset is connected and stereo needs it off");
+        said = true;
+        samples = VK_SAMPLE_COUNT_1_BIT;
+    }
+#endif
+
     // Clamp to device maximum
     VkSampleCountFlagBits maxSamples = vkCtx->getMaxUsableSampleCount();
     if (samples > maxSamples) samples = maxSamples;
