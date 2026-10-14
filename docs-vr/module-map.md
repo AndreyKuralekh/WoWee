@@ -338,7 +338,7 @@ Render pass'ы (классические `VkRenderPass`; dynamic rendering — �
   (`debug|info|warn|error|fatal`, по умолчанию warn), сброс на диск раз в 250 мс, ошибки сразу (`src/core/logger.cpp:129`).
 - **Полезные переменные:** `WOWEE_REALM_HOST_OVERRIDE` (`src/core/ui_screen_callback_handler.cpp:61`),
   `WOWEE_VULKAN_VALIDATION=1`, `WOWEE_VULKAN_GPU_VALIDATION=1` (`vk_context.cpp:411`), `WOWEE_SKIP_{WMO,CHARS,M2,
-  TERRAIN,SKY,SHADOWS}` (`renderer.cpp:2865`), `WOWEE_FRAME_PROFILE`, `WOWEE_TIME_OF_DAY=HH:MM` (держать час суток для сравнения снимков), `WOWEE_GROUND_CAST_AT_FEET=1` (наземные заклинания — под ноги, без прицеливания), `WOWEE_VR_EYE_REPLAY=0` (каждый глаз записывается сам), `WOWEE_SPELL_MISSILE_DIAG=<visual>[:<speed>]`, `WOWEE_M2_PARTICLE_DISTANCE=<yd>`, `WOWEE_SCREENSHOT=<png>` (снимок и выход),
+  TERRAIN,SKY,SHADOWS}` (`renderer.cpp:2865`), `WOWEE_FRAME_PROFILE`, `WOWEE_TIME_OF_DAY=HH:MM` (держать час суток для сравнения снимков), `WOWEE_NO_BAKED_SHADOW=1` (без запечённых теней земли), `WOWEE_GROUND_CAST_AT_FEET=1` (наземные заклинания — под ноги, без прицеливания), `WOWEE_VR_EYE_REPLAY=0` (каждый глаз записывается сам), `WOWEE_SPELL_MISSILE_DIAG=<visual>[:<speed>]`, `WOWEE_M2_PARTICLE_DISTANCE=<yd>`, `WOWEE_SCREENSHOT=<png>` (снимок и выход),
   `WOWEE_RECORD=<mp4>` (`application.cpp:4910`), `WOWEE_VK_NO_DYNAMIC_RENDERING`.
 - **Локаль:** в AUTH уходит `profile->locale` (`auth_screen.cpp:1216`), по умолчанию `enUS`; задаётся полем `locale` в
   `expansion.json` (`src/game/expansion_profile.cpp:239`). Строки DBC клиент читает из колонки enUS
