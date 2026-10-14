@@ -2267,6 +2267,28 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                     if (tw > 0.001f) animAlpha *= tw;
                 }
                 bgpu.batchOpacity *= animAlpha;
+                bgpu.restAlpha = animAlpha;
+                // The tracks themselves, where they move: more than one key
+                // in some sequence. Sampled per instance for spell effects.
+                const auto animates = [](const pipeline::M2AnimationTrack& track) {
+                    for (const auto& seq : track.sequences) {
+                        if (seq.floatValues.size() > 1) return true;
+                    }
+                    return false;
+                };
+                if (batch.colorIndex < model.colorAlphaTracks.size() &&
+                    animates(model.colorAlphaTracks[batch.colorIndex])) {
+                    bgpu.alphaTrack = std::make_shared<const pipeline::M2AnimationTrack>(
+                        model.colorAlphaTracks[batch.colorIndex]);
+                }
+                if (batch.transparencyIndex < model.textureWeightLookup.size()) {
+                    const uint16_t trackIndex = model.textureWeightLookup[batch.transparencyIndex];
+                    if (trackIndex < model.textureWeightTracks.size() &&
+                        animates(model.textureWeightTracks[trackIndex])) {
+                        bgpu.weightTrack = std::make_shared<const pipeline::M2AnimationTrack>(
+                            model.textureWeightTracks[trackIndex]);
+                    }
+                }
             }
 
             // Compute batch center and radius for glow sprite positioning

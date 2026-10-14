@@ -2127,6 +2127,23 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             e.model = instance.modelMatrix;
             e.uvOffset = uvOffset;
             e.fadeAlpha = instanceFadeAlpha;
+            // A spell effect fades as it was authored to - Blizzard's shard is
+            // seen only for the last moment of its fall and gone as it enters
+            // the ground. Everything else keeps the alpha it was given at load.
+            if (model.isSpellEffect && (batch.alphaTrack || batch.weightTrack)) {
+                float animated = 1.0f;
+                if (batch.alphaTrack) {
+                    animated *= m2_track::sampleFloat(*batch.alphaTrack, instance.currentSequenceIndex,
+                                                      instance.animTime, instance.globalSequenceTime,
+                                                      model.globalSequenceDurations, 1.0f);
+                }
+                if (batch.weightTrack) {
+                    animated *= m2_track::sampleFloat(*batch.weightTrack, instance.currentSequenceIndex,
+                                                      instance.animTime, instance.globalSequenceTime,
+                                                      model.globalSequenceDurations, 1.0f);
+                }
+                e.fadeAlpha *= std::clamp(animated, 0.0f, 1.0f) / std::max(batch.restAlpha, 0.001f);
+            }
             e.useBones = (needsBones && !kM2NoSkinning) ? 1 : 0;
             e.boneBase = needsBones ? static_cast<int32_t>(instance.megaBoneOffset) : 0;
             e.boneCount = static_cast<int32_t>(instance.boneMatrices.size());

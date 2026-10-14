@@ -89,6 +89,13 @@ struct M2ModelGPU {
         bool volumetricBeam = false;
         uint8_t glowTint = 0; // 0=warm, 1=cool, 2=red
         float batchOpacity = 1.0f; // Resolved texture weight opacity (0=transparent, skip batch)
+        // The batch's alpha as it animates, where it does: the colour track's
+        // alpha and the texture weight, kept so a spell effect can fade as it
+        // was authored to. `restAlpha` is what batchOpacity was given from
+        // them at load, which an animated value replaces.
+        std::shared_ptr<const pipeline::M2AnimationTrack> alphaTrack;
+        std::shared_ptr<const pipeline::M2AnimationTrack> weightTrack;
+        float restAlpha = 1.0f;
         glm::vec3 center = glm::vec3(0.0f); // Center of batch geometry (model space)
         float glowSize = 1.0f;              // Approx radius of batch geometry
 
