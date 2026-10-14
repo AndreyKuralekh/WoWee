@@ -428,7 +428,24 @@ void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_
         newParams.fogEnd = 300.0f;
     } else if (!activeVolumes_.empty()) {
         // Outdoor with DBC lighting - blend multiple volumes
-        newParams = {}; // Zero-initialize
+        // Every term the volumes are summed into starts at zero. This was
+        // `newParams = {}`, which is not zero: LightingParams carries defaults
+        // (a pale blue sky, a white sun, grey fog), and the weighted sum went
+        // on top of them. Every place lit by the DBC got the default light
+        // added to its own - a sky that stayed light blue all night, an
+        // ambient and sun near twice the zone's, fog washed toward grey.
+        newParams.ambientColor = glm::vec3(0.0f);
+        newParams.diffuseColor = glm::vec3(0.0f);
+        newParams.fogColor = glm::vec3(0.0f);
+        newParams.skyTopColor = glm::vec3(0.0f);
+        newParams.skyMiddleColor = glm::vec3(0.0f);
+        newParams.skyBand1Color = glm::vec3(0.0f);
+        newParams.skyBand2Color = glm::vec3(0.0f);
+        newParams.fogStart = 0.0f;
+        newParams.fogEnd = 0.0f;
+        newParams.fogDensity = 0.0f;
+        newParams.cloudDensity = 0.0f;
+        newParams.horizonGlow = 0.0f;
         glm::vec3 blendedDir(0.0f);  // Accumulate weighted directions
 
         // The first MAX_BLEND_VOLUMES only: the list is the whole
@@ -582,7 +599,10 @@ void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_
             LOG_INFO("sky: zone=", zoneId, " hour=", visualTimeOfDayHours_,
                      " skyLuma=", skyLuma, " volumes=", firstVolume, "/", secondVolume,
                      " inRange=", activeVolumes_.size(),
-                     " skybox=", topSkybox.empty() ? "-" : topSkybox);
+                     " skybox=", topSkybox.empty() ? "-" : topSkybox,
+                     " top=(", newParams.skyTopColor.r, ",", newParams.skyTopColor.g, ",",
+                     newParams.skyTopColor.b, ") mid=(", newParams.skyMiddleColor.r, ",",
+                     newParams.skyMiddleColor.g, ",", newParams.skyMiddleColor.b, ")");
             diagZoneId_ = zoneId;
             diagSkyboxPath_ = topSkybox;
             diagFirstVolume_ = firstVolume;
