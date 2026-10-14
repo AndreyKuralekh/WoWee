@@ -58,6 +58,7 @@
 #include <functional>
 #include <array>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <openssl/sha.h>
@@ -712,6 +713,31 @@ void GameHandler::update(float deltaTime) {
 
     updateNetworking();
     if (!socket) return;  // disconnect() may have been called
+
+    // The game clock runs between the server's time packets. timeSpeed_ is in
+    // game minutes per real second - 1/60 on every realm, which is real time -
+    // and nothing advanced the hour, so the light stayed at whatever time it
+    // was on login for as long as the session lasted.
+    //
+    // WOWEE_TIME_OF_DAY=HH:MM holds it at one hour instead, so two runs can be
+    // compared under the same light. Debugging only: the server's clock is
+    // not changed, just what this client draws.
+    static const float heldHours = [] {
+        const char* v = std::getenv("WOWEE_TIME_OF_DAY");
+        if (!v || !*v) return -1.0f;
+        int h = 0, m = 0;
+        if (std::sscanf(v, "%d:%d", &h, &m) < 1 || h < 0 || h > 23 || m < 0 || m > 59) {
+            LOG_WARNING("WOWEE_TIME_OF_DAY='", v, "' is not HH:MM - ignored");
+            return -1.0f;
+        }
+        LOG_INFO("Time of day held at ", h, ":", m, " (WOWEE_TIME_OF_DAY)");
+        return static_cast<float>(h) + static_cast<float>(m) / 60.0f;
+    }();
+    if (heldHours >= 0.0f) {
+        gameTime_ = heldHours;
+    } else if (gameTime_ >= 0.0f) {
+        gameTime_ = std::fmod(gameTime_ + deltaTime * timeSpeed_ / 60.0f, 24.0f);
+    }
 
     // Sends a Warden response built off the main thread. Nothing else does:
     // without this the server's check goes unanswered and it drops the

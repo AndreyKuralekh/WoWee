@@ -676,7 +676,7 @@ void GameHandler::handleLoginSetTimeSpeed(network::Packet& packet) {
     // 86400 to get a time of day, which made the sky's clock a number with no
     // relation to the hour the server sent.
     //
-    // timeScale: time speed multiplier (typically 0.0166 for 1 day = 1 hour)
+    // timeScale: game minutes per real second (0.0166 = 1/60, real time)
 
     if (packet.getSize() < 8) {
         LOG_WARNING("SMSG_LOGIN_SETTIMESPEED: packet too small (", packet.getSize(), " bytes)");
@@ -693,7 +693,11 @@ void GameHandler::handleLoginSetTimeSpeed(network::Packet& packet) {
 
     LOG_INFO("Server time: ", now.hour, ":", now.minute, " (gameTime=", gameTime_,
              "h), timeSpeed=", timeSpeed_);
-    LOG_INFO("  (1 game day = ", (1.0f / timeSpeed_) / 60.0f, " real minutes)");
+    // Game minutes per real second, so a day of 1440 game minutes takes
+    // 1440 / timeSpeed seconds.
+    if (timeSpeed_ > 0.0f) {
+        LOG_INFO("  (1 game day = ", 24.0f / timeSpeed_, " real minutes)");
+    }
 }
 
 void GameHandler::handleLoginVerifyWorld(network::Packet& packet) {

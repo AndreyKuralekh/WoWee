@@ -4966,7 +4966,7 @@ private:
     ///
     /// The old comment said seconds. The code that assigns it writes hours.
     float gameTime_ = -1.0f;
-    float timeSpeed_ = 0.0166f;   // Time scale (default: 1 game day = 1 real hour)
+    float timeSpeed_ = 0.0166f;   // Game minutes per real second (1/60 = real time)
     void handleLoginSetTimeSpeed(network::Packet& packet);
 
     // ---- Global Cooldown (GCD) ----
