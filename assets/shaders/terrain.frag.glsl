@@ -31,6 +31,9 @@ layout(set = 1, binding = 3) uniform sampler2D uLayer3Texture;
 layout(set = 1, binding = 4) uniform sampler2D uLayer1Alpha;
 layout(set = 1, binding = 5) uniform sampler2D uLayer2Alpha;
 layout(set = 1, binding = 6) uniform sampler2D uLayer3Alpha;
+// The chunk's baked shadow (MCSH): 1 where what stands on the ground shades
+// it - the dark under a tree, along a wall, behind a rock - 0 elsewhere.
+layout(set = 1, binding = 8) uniform sampler2D uBakedShadow;
 
 layout(set = 1, binding = 7) uniform TerrainParams {
     int layerCount;
@@ -260,6 +263,13 @@ void main() {
 
     RtLight rt = rtLightAt(FragPos);
     shadow = rtShadow(rt, shadow);
+
+    // The shade the map was painted with. The original draws it whatever its
+    // shadow setting, and it is most of what gives the ground its depth: the
+    // headset draws no live shadows at all. Not full - the shadow takes the
+    // sun, and the original's shaded ground keeps some of it.
+    float baked = texture(uBakedShadow, LayerUV).r;
+    shadow = min(shadow, 1.0 - 0.75 * baked);
     ambient = rtAmbient(rt, ambientColor.rgb) * finalColor.rgb;
 
     vec3 result = ambient + shadow * diffuse;

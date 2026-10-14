@@ -50,6 +50,7 @@ struct TerrainChunkGPU {
     VkTexture* baseTexture = nullptr;
     VkTexture* layerTextures[3] = {nullptr, nullptr, nullptr};
     VkTexture* alphaTextures[3] = {nullptr, nullptr, nullptr};
+    VkTexture* shadowTexture = nullptr;  // baked shadow (MCSH), cache-owned
     int layerCount = 0;
 
     // World position for culling
@@ -258,6 +259,7 @@ private:
     // Fallback textures
     std::unique_ptr<VkTexture> whiteTexture;
     std::unique_ptr<VkTexture> opaqueAlphaTexture;
+    std::unique_ptr<VkTexture> noShadowTexture;
 
     // Rendering state
     bool wireframe = false;

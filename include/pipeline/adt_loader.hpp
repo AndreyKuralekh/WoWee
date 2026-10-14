@@ -61,6 +61,10 @@ struct MapChunk {
     HeightMap heightMap;
     std::vector<TextureLayer> layers;
     std::vector<uint8_t> alphaMap;  // Alpha blend maps for layers
+    // The baked shadow (MCSH): 64x64, 255 where the ground is in the shade of
+    // what stands on it - trees, walls, rocks - and 0 elsewhere. Empty when
+    // the chunk has none.
+    std::vector<uint8_t> shadowMap;
 
     // Normals (compressed)
     std::array<int8_t, 145 * 3> normals;  // X, Y, Z per vertex
@@ -231,6 +235,7 @@ private:
     static void parseMCNR(std::span<const uint8_t> data, MapChunk& chunk);
     static void parseMCLY(std::span<const uint8_t> data, MapChunk& chunk);
     static void parseMCAL(std::span<const uint8_t> data, MapChunk& chunk);
+    static void parseMCSH(std::span<const uint8_t> data, MapChunk& chunk);
     static void parseMH2O(std::span<const uint8_t> data, ADTTerrain& terrain);
     static void parseMCLQ(std::span<const uint8_t> data, int chunkIndex,
                           uint32_t mcnkFlags, ADTTerrain& terrain);

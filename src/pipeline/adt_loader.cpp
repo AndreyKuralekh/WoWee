@@ -399,6 +399,19 @@ void ADTLoader::parseMCNK(std::span<const uint8_t> data, int chunkIndex, ADTTerr
         }
     }
 
+    // Baked shadow (MCSH) - 64x64 bits, at MCNK header offsets 0x2C/0x30,
+    // present when flag 0x1 says so.
+    const uint32_t ofsShadow = readUInt32(data, 44);
+    const uint32_t sizeShadow = readUInt32(data, 48);
+    if ((chunk.flags & 0x1) && ofsShadow > 0 && sizeShadow > 0 &&
+        ofsShadow + sizeShadow <= data.size()) {
+        const uint32_t possibleMagic = readUInt32(data, ofsShadow);
+        const uint32_t skip = (possibleMagic == MCSH) ? 8 : 0;
+        if (sizeShadow > skip) {
+            parseMCSH(data.subspan(ofsShadow + skip, sizeShadow - skip), chunk);
+        }
+    }
+
     // Liquid (MCLQ) - vanilla/TBC per-chunk water (no MH2O in these expansions)
     // ofsLiquid at MCNK header offset 0x60, sizeLiquid at 0x64
     uint32_t ofsLiquid = readUInt32(data, 0x60);
@@ -484,6 +497,32 @@ void ADTLoader::parseMCLY(std::span<const uint8_t> data, MapChunk& chunk) {
 
         chunk.layers.push_back(layer);
     }
+}
+
+void ADTLoader::parseMCSH(std::span<const uint8_t> data, MapChunk& chunk) {
+    // One bit a texel, eight to a byte, lowest bit first, row by row.
+    constexpr size_t kBytes = 64 * 64 / 8;
+    if (data.size() < kBytes) return;
+    chunk.shadowMap.assign(64 * 64, 0);
+    bool any = false;
+    for (size_t y = 0; y < 64; ++y) {
+        for (size_t x = 0; x < 64; ++x) {
+            if (data[y * 8 + x / 8] & (1u << (x % 8))) {
+                chunk.shadowMap[y * 64 + x] = 255;
+                any = true;
+            }
+        }
+    }
+    // Unless the chunk says otherwise (0x8000, do_not_fix_alpha_map), the
+    // last row and column are not painted and repeat the ones before them -
+    // the same rule the alpha maps follow.
+    if (!(chunk.flags & 0x8000)) {
+        for (size_t i = 0; i < 64; ++i) {
+            chunk.shadowMap[i * 64 + 63] = chunk.shadowMap[i * 64 + 62];
+            chunk.shadowMap[63 * 64 + i] = chunk.shadowMap[62 * 64 + i];
+        }
+    }
+    if (!any) chunk.shadowMap.clear();
 }
 
 void ADTLoader::parseMCAL(std::span<const uint8_t> data, MapChunk& chunk) {

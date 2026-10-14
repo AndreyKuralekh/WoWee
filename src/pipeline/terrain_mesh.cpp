@@ -145,6 +145,7 @@ ChunkMesh TerrainMeshGenerator::generateChunkMesh(const MapChunk& chunk, int chu
 
         mesh.layers.push_back(layerInfo);
     }
+    mesh.shadowData = chunk.shadowMap;
 
     return mesh;
 }
