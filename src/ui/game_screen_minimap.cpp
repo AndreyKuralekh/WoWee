@@ -1814,6 +1814,7 @@ void GameScreen::saveSettings() {
     out << "view_distance=" << settingsPanel_.pendingViewDistance << "\n";
     out << "fog_sky_blend=" << settingsPanel_.pendingFogSkyBlend << "\n";
     out << "fog_strength=" << settingsPanel_.pendingFogStrength << "\n";
+    out << "daylight=" << settingsPanel_.pendingLightCeiling << "\n";
     out << "light_shafts=" << settingsPanel_.pendingVolumetricFog << "\n";
     out << "ray_traced_lighting=" << settingsPanel_.pendingRtLighting << "\n";
     out << "mist_density=" << settingsPanel_.pendingVolumetricDensity << "\n";
@@ -2096,6 +2097,7 @@ void GameScreen::loadSettings() {
             else if (key == "view_distance") settingsPanel_.pendingViewDistance = std::clamp(std::stof(val), 400.0f, 2400.0f);
             else if (key == "fog_sky_blend") settingsPanel_.pendingFogSkyBlend = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "fog_strength") settingsPanel_.pendingFogStrength = std::clamp(std::stof(val), 0.0f, 2.0f);
+            else if (key == "daylight") settingsPanel_.pendingLightCeiling = std::clamp(std::stof(val), 1.0f, 1.5f);
             else if (key == "light_shafts") settingsPanel_.pendingVolumetricFog = std::clamp(std::stoi(val), 0, 3);
             else if (key == "ray_traced_lighting") settingsPanel_.pendingRtLighting = std::clamp(std::stoi(val), 0, 3);
             else if (key == "mist_density") settingsPanel_.pendingVolumetricDensity = std::clamp(std::stof(val), 0.0f, 3.0f);

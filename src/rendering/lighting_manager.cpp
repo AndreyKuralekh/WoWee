@@ -2,6 +2,7 @@
 #include "rendering/lighting_manager.hpp"
 #include "rendering/light_coords.hpp"
 #include "rendering/light_band_block.hpp"
+#include "rendering/light_headroom.hpp"
 #include "rendering/light_volume_order.hpp"
 #include <glm/gtc/constants.hpp>
 #include "pipeline/asset_manager.hpp"
@@ -514,11 +515,13 @@ void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_
         newParams.fogEnd *= scale;
     }
 
-    // Ambient and diffuse are not scaled to fit under 1.0. Their sum passes it
-    // in most zones at noon - Elwynn's is 1.4 in red - and the original client
-    // lets each channel clip there: that is what makes sunlit stone white and
-    // the day warm. Scaling both down to keep the hue (applyLightHeadroom)
-    // darkened every such zone by up to half and read as an overcast day.
+    // How far ambient + diffuse may pass 1.0 before both are scaled down.
+    // Their sum passes it in most zones at noon - Elwynn's is 1.4 in red - and
+    // the original client lets each channel clip: sunlit stone white, the day
+    // warm. Fitting it under 1.0 read as an overcast evening; not fitting it
+    // at all burnt the grass yellow and showed every facet of a tree's
+    // crown in the headset. The player picks between the two (Daylight).
+    applyLightHeadroom(newParams.ambientColor, newParams.diffuseColor, lightCeiling_);
 
     // What the sky is being told, whenever it changes.
     //

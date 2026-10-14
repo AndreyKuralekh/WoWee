@@ -213,6 +213,9 @@ public:
     /// LightingManager::update.
     void setFogStrength(float strength) { fogStrength_ = strength; }
     [[nodiscard]] float getFogStrength() const { return fogStrength_; }
+    /// How far ambient + diffuse may pass 1.0 before both are scaled down:
+    /// 1 never clips and is dim, 1.5 is about the original's full clip.
+    void setLightCeiling(float ceiling) { lightCeiling_ = ceiling; }
 
     /**
      * Get current time of day (0.0-1.0)
@@ -322,6 +325,7 @@ private:
     bool isIndoors_ = false;
     float fogSkyBlend_ = 0.7f;
     float fogStrength_ = 0.4f;
+    float lightCeiling_ = 1.15f;
 
     // Last values the sky diagnostic reported, so it prints on a change
     // rather than every frame. See LightingManager::update.

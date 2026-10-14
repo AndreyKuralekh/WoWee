@@ -24,17 +24,22 @@
 
 namespace wowee::rendering {
 
-/// The factor that brings `ambient + diffuse` inside 1.0, or 1 if it already is.
+/// The factor that brings `ambient + diffuse` inside `ceiling`, or 1 if it
+/// already is. A ceiling above 1.0 lets the light clip a little, the way the
+/// original client lets it clip fully: sunlit stone goes white and the day
+/// warm, where a ceiling of 1.0 reads as overcast.
 inline float lightHeadroomScale(const glm::vec3& ambient,
-                                const glm::vec3& diffuse) {
+                                const glm::vec3& diffuse,
+                                float ceiling = 1.0f) {
     const glm::vec3 sum = ambient + diffuse;
     const float peak = std::max({sum.r, sum.g, sum.b});
-    return (peak > 1.0f) ? (1.0f / peak) : 1.0f;
+    return (peak > ceiling) ? (ceiling / peak) : 1.0f;
 }
 
-/// Scale both terms together so no channel of their sum passes 1.0.
-inline void applyLightHeadroom(glm::vec3& ambient, glm::vec3& diffuse) {
-    const float scale = lightHeadroomScale(ambient, diffuse);
+/// Scale both terms together so no channel of their sum passes `ceiling`.
+inline void applyLightHeadroom(glm::vec3& ambient, glm::vec3& diffuse,
+                               float ceiling = 1.0f) {
+    const float scale = lightHeadroomScale(ambient, diffuse, ceiling);
     if (scale >= 1.0f) return;
     ambient *= scale;
     diffuse *= scale;
