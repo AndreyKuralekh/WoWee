@@ -266,11 +266,12 @@ void main() {
 
     // The shade the map was painted with. The original draws it whatever its
     // shadow setting, and it is most of what gives the ground its depth: the
-    // headset draws no live shadows at all. Not full - the shadow takes the
-    // sun, and the original's shaded ground keeps some of it.
+    // headset draws no live shadows at all. It takes most of the sun and some
+    // of the sky's light too - with the sun alone it vanished whenever the
+    // sun was low, which is the whole evening.
     float baked = texture(uBakedShadow, LayerUV).r;
     shadow = min(shadow, 1.0 - 0.75 * baked);
-    ambient = rtAmbient(rt, ambientColor.rgb) * finalColor.rgb;
+    ambient = rtAmbient(rt, ambientColor.rgb) * finalColor.rgb * (1.0 - 0.35 * baked);
 
     vec3 result = ambient + shadow * diffuse;
     result += localLightContribution(FragPos, norm, finalColor.rgb);

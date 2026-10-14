@@ -16,6 +16,30 @@
 namespace wowee {
 namespace rendering {
 
+namespace {
+
+// Where the sun is on its circle at a time of day, as the angle the sun
+// direction below is built from: pi/2 is sunrise, pi noon, 3pi/2 sunset.
+//
+// It was the day fraction times two pi, which rises at six and sets at six.
+// The zones' light does not: Elwynn keeps its day colours from six to nine
+// in the evening, so from six on the ground was lit by a day sky with no sun
+// on it - no shading on the hills, and the baked shadows, which take the sun
+// away, had nothing to take. Day now runs 05:30 to 21:30, night the rest.
+float sunAngleForDayFraction(float dayFraction) {
+    constexpr float kRise = 5.5f;
+    constexpr float kSet = 21.5f;
+    const float hours = std::fmod(std::fmod(dayFraction, 1.0f) + 1.0f, 1.0f) * 24.0f;
+    const float pi = glm::pi<float>();
+    if (hours >= kRise && hours <= kSet) {
+        return pi * 0.5f + (hours - kRise) / (kSet - kRise) * pi;
+    }
+    const float sinceSet = std::fmod(hours - kSet + 24.0f, 24.0f);
+    return pi * 1.5f + sinceSet / (24.0f - (kSet - kRise)) * pi;
+}
+
+}  // namespace
+
 
 // WoW's Light.dbc stores time-of-day as half-minutes (0..2879).
 // 24 hours × 60 minutes × 2 = 2880 half-minute ticks per day cycle.
@@ -452,7 +476,7 @@ void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_
         newParams = fallbackParams_;
 
         // Animate sun direction
-        float angle = timeOfDay_ * glm::two_pi<float>();
+        float angle = sunAngleForDayFraction(timeOfDay_);
         newParams.directionalDir = glm::normalize(glm::vec3(
             std::sin(angle) * 0.6f,
             -0.6f + std::cos(angle) * 0.4f,
@@ -743,7 +767,7 @@ LightingParams LightingManager::sampleLightParams(const LightParamsProfile* prof
     }
 
     // Compute sun direction from time
-    float angle = (timeHalfMinutes / static_cast<float>(kHalfMinutesPerDay)) * glm::two_pi<float>();
+    float angle = sunAngleForDayFraction(timeHalfMinutes / static_cast<float>(kHalfMinutesPerDay));
     params.directionalDir = glm::normalize(glm::vec3(
         std::sin(angle) * 0.6f,
         -0.6f + std::cos(angle) * 0.4f,
