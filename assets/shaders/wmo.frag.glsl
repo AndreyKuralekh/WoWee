@@ -419,5 +419,16 @@ void main() {
         }
     }
 
+    // Lit from inside once the sun is down: the windows of a town, and what
+    // the artist marked to glow at night (MOMT SIDN, emissive 3) - lamps,
+    // signs, the abbey's stained glass. The original turns these on at dusk.
+    // By the sun's height, not by how bright the light is: the zones' night
+    // light is far from black, and a glow that waits for black never comes.
+    if (isWindow == 1 || emissive == 3) {
+        float sunHeight = -normalize(lightDir.xyz).z;
+        float night = smoothstep(0.12, -0.08, sunHeight);
+        result += texColor.rgb * vec3(1.0, 0.82, 0.58) * (0.9 * night);
+    }
+
     outColor = vec4(result, alpha);
 }

@@ -750,6 +750,11 @@ WMORenderer::ModelLoadResult WMORenderer::loadModelIncremental(
                     }
                     isWindow = emissiveLevel == 0 &&
                                wmoMaterialIsGlass(matFlags, texName);
+                    // Marked to glow at night (SIDN): lit by day like the
+                    // rest, lit from inside once the sun is down.
+                    if (emissiveLevel == 0 && (matFlags & WMO_MAT_SIDN) != 0) {
+                        emissiveLevel = 3;
+                    }
                     isLava = (texNameLower.find("lava") != std::string::npos ||
                               texNameLower.find("molten") != std::string::npos ||
                               texNameLower.find("magma") != std::string::npos);
