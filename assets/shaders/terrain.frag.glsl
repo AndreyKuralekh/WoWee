@@ -271,7 +271,7 @@ void main() {
     // sun was low, which is the whole evening.
     float baked = texture(uBakedShadow, LayerUV).r;
     shadow = min(shadow, 1.0 - 0.75 * baked);
-    ambient = rtAmbient(rt, ambientColor.rgb) * finalColor.rgb * (1.0 - 0.35 * baked);
+    ambient = rtAmbient(rt, ambientColor.rgb) * finalColor.rgb * (1.0 - 0.5 * baked);
 
     vec3 result = ambient + shadow * diffuse;
     result += localLightContribution(FragPos, norm, finalColor.rgb);
