@@ -1,4 +1,5 @@
 #include "game/entity_controller.hpp"
+#include "game/spell_handler.hpp"
 #include "core/env_flag.hpp"
 #include "game/game_handler.hpp"
 #include "game/protocol_constants.hpp"
@@ -241,6 +242,8 @@ void EntityController::processOutOfRangeObjects(const std::vector<uint64_t>& gui
             owner_.gameObjectDespawnCallbackRef()(guid);
         } else if (entity->getType() == ObjectType::CORPSE && owner_.playerDespawnCallbackRef()) {
             owner_.playerDespawnCallbackRef()(guid);
+        } else if (entity->getType() == ObjectType::DYNAMICOBJECT && owner_.getSpellHandler()) {
+            owner_.getSpellHandler()->onDynamicObjectRemoved(guid);
         }
         transportGuids_.erase(guid);
         serverUpdatedTransportGuids_.erase(guid);
@@ -1964,6 +1967,32 @@ struct EntityController::CorpseTypeHandler : EntityController::IObjectTypeHandle
     void onCreate(const UpdateBlock& block, std::shared_ptr<Entity>& /*entity*/, bool&) override { ctl_.onCreateCorpse(block); }
 };
 
+// A spell's area left on the ground - Blizzard, Consecration, a trap's cloud.
+// It carries the spell's visual and is drawn for as long as it exists.
+struct EntityController::DynamicObjectTypeHandler : EntityController::IObjectTypeHandler {
+    EntityController& ctl_;
+    explicit DynamicObjectTypeHandler(EntityController& c) : ctl_(c) {}
+    void onCreate(const UpdateBlock& block, std::shared_ptr<Entity>& /*entity*/, bool&) override {
+        // DYNAMICOBJECT_BYTES (0x8): the SpellVisual id, with the object's
+        // kind in the top four bits; DYNAMICOBJECT_SPELLID (0x9),
+        // DYNAMICOBJECT_RADIUS (0xA). The WotLK update fields.
+        const auto field = [&block](uint16_t index) -> uint32_t {
+            auto it = block.fields.find(index);
+            return it != block.fields.end() ? it->second : 0u;
+        };
+        if (!block.hasMovement) return;
+        const uint32_t visualId = field(0x8) & 0x0FFFFFFFu;
+        const uint32_t radiusBits = field(0xA);
+        float radius = 0.0f;
+        std::memcpy(&radius, &radiusBits, sizeof(radius));
+        if (auto* spells = ctl_.owner_.getSpellHandler()) {
+            spells->onDynamicObjectCreated(block.guid, field(0x9), visualId,
+                                           core::coords::serverToCanonical(glm::vec3(block.x, block.y, block.z)),
+                                           radius);
+        }
+    }
+};
+
 // ============================================================
 // Handler registry infrastructure
 // ============================================================
@@ -1975,6 +2004,7 @@ void EntityController::initTypeHandlers() {
     typeHandlers_[static_cast<uint8_t>(ObjectType::ITEM)] = std::make_unique<ItemTypeHandler>(*this);
     typeHandlers_[static_cast<uint8_t>(ObjectType::CONTAINER)] = std::make_unique<ItemTypeHandler>(*this);
     typeHandlers_[static_cast<uint8_t>(ObjectType::CORPSE)] = std::make_unique<CorpseTypeHandler>(*this);
+    typeHandlers_[static_cast<uint8_t>(ObjectType::DYNAMICOBJECT)] = std::make_unique<DynamicObjectTypeHandler>(*this);
 }
 
 EntityController::IObjectTypeHandler* EntityController::getTypeHandler(ObjectType type) const {
@@ -2760,6 +2790,8 @@ void EntityController::handleDestroyObject(network::Packet& packet) {
                 owner_.gameObjectDespawnCallbackRef()(data.guid);
             } else if (entity->getType() == ObjectType::CORPSE && owner_.playerDespawnCallbackRef()) {
                 owner_.playerDespawnCallbackRef()(data.guid);
+            } else if (entity->getType() == ObjectType::DYNAMICOBJECT && owner_.getSpellHandler()) {
+                owner_.getSpellHandler()->onDynamicObjectRemoved(data.guid);
             }
         }
         if (transportGuids_.count(data.guid) > 0) {

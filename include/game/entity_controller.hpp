@@ -312,6 +312,7 @@ private:
     struct GameObjectTypeHandler;
     struct ItemTypeHandler;
     struct CorpseTypeHandler;
+    struct DynamicObjectTypeHandler;
     std::unordered_map<uint8_t, std::unique_ptr<IObjectTypeHandler>> typeHandlers_;
     void initTypeHandlers();
     [[nodiscard]] IObjectTypeHandler* getTypeHandler(ObjectType type) const;

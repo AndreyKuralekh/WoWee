@@ -62,6 +62,12 @@ public:
     void castSpellAtGround(const glm::vec3& canonicalPos);
     void cancelGroundTargeting() { groundSpellId_ = 0; }
 
+    // A dynamic object - the area a spell like Blizzard leaves on the ground -
+    // came into view or went. Its visual is drawn there in between.
+    void onDynamicObjectCreated(uint64_t guid, uint32_t spellId, uint32_t visualId,
+                                const glm::vec3& canonicalPos, float radius);
+    void onDynamicObjectRemoved(uint64_t guid);
+
     /// Spell.dbc EffectImplicitTargetA, or 0 when the spell is unknown. 21 means
     /// the spell has to be aimed at a friendly unit.
     [[nodiscard]] uint32_t getSpellImplicitTargetA(uint32_t spellId) const;
@@ -433,6 +439,7 @@ private:
     void armGroundTarget(uint32_t spellId);
     uint32_t groundSpellId_ = 0;
     float groundSpellRadius_ = 8.0f;
+    std::unordered_map<uint64_t, uint32_t> areaVisuals_;  // dynamic object guid -> SpellVisualSystem handle
     // Send a travelling spell's missile from the caster to one target. On
     // arrival the impact visual plays if the spell hit, and the impact sound
     // if asked. False when the spell has no missile - nothing was launched

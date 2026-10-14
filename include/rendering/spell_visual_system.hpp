@@ -62,6 +62,12 @@ public:
                           std::function<bool(glm::vec3&)> target,
                           std::function<void()> onArrive);
 
+    // The visual a spell leaves on an area of ground for as long as it lasts
+    // - SpellVisual.dbc PersistentAreaKit - at a point, until stopAreaVisual.
+    // A handle, or 0 when the visual has no such model.
+    uint32_t playAreaVisual(uint32_t visualId, const glm::vec3& worldPosition, float radius);
+    void stopAreaVisual(uint32_t handle);
+
     // Advance lifetime timers and remove expired instances.
     void update(float deltaTime);
 
@@ -115,6 +121,9 @@ private:
     std::vector<PhysicalProjectile> physicalProjectiles_;
     std::vector<SpellMissile> spellMissiles_;
     std::unordered_map<uint32_t, std::string> spellVisualMissilePath_; // visualId → missile M2 path
+    std::unordered_map<uint32_t, std::string> spellVisualAreaPath_;    // visualId → persistent area M2 path
+    std::unordered_map<uint32_t, uint32_t> areaVisualInstances_;       // handle → M2 instance
+    uint32_t nextAreaVisualHandle_ = 1;
     std::unordered_map<uint32_t, std::string> spellVisualPrecastPath_; // visualId → precast M2 path
     std::unordered_map<uint32_t, std::string> spellVisualCastPath_;   // visualId → cast M2 path
     std::unordered_map<uint32_t, std::string> spellVisualImpactPath_; // visualId → impact M2 path

@@ -1174,6 +1174,25 @@ void SpellHandler::castSpell(uint32_t spellId, uint64_t targetGuid) {
     }
 }
 
+void SpellHandler::onDynamicObjectCreated(uint64_t guid, uint32_t spellId, uint32_t visualId,
+                                          const glm::vec3& canonicalPos, float radius) {
+    if (visualId == 0) visualId = resolveSpellVisualId(spellId);
+    auto* renderer = owner_.services().renderer;
+    auto* svs = renderer ? renderer->getSpellVisualSystem() : nullptr;
+    if (!svs || visualId == 0) return;
+    onDynamicObjectRemoved(guid);
+    const uint32_t handle = svs->playAreaVisual(visualId, core::coords::canonicalToRender(canonicalPos), radius);
+    if (handle != 0) areaVisuals_[guid] = handle;
+}
+
+void SpellHandler::onDynamicObjectRemoved(uint64_t guid) {
+    auto it = areaVisuals_.find(guid);
+    if (it == areaVisuals_.end()) return;
+    auto* renderer = owner_.services().renderer;
+    if (auto* svs = renderer ? renderer->getSpellVisualSystem() : nullptr) svs->stopAreaVisual(it->second);
+    areaVisuals_.erase(it);
+}
+
 bool SpellHandler::spellNeedsGroundTarget(uint32_t spellId) const {
     constexpr uint32_t kDestLocation = 0x40;  // TARGET_FLAG_DEST_LOCATION
     auto it = owner_.spellNameCacheRef().find(spellId);

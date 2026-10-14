@@ -95,6 +95,11 @@ void SpellVisualSystem::loadSpellVisualDbc() {
     // Probes all effect slots in priority order and keeps the first valid hit.
     auto kitDbc = cachedAssetManager_->loadDBC("SpellVisualKit.dbc");
     std::unordered_map<uint32_t, uint32_t> kitToEffectName; // kitId → effectNameId
+    // A kit's WorldEffect (field 14, WotLK): the model an area kit puts on the
+    // ground. The persistent area kits carry nothing else - Blizzard's is
+    // Blizzard_AreaBase in that one field.
+    std::unordered_map<uint32_t, uint32_t> kitToWorldEffect;
+    constexpr uint32_t kKitWorldEffectField = 14;
     if (kitDbc && kitDbc->isLoaded()) {
         uint32_t fc = kitDbc->getFieldCount();
         for (uint32_t i = 0; i < kitDbc->getRecordCount(); ++i) {
@@ -106,6 +111,9 @@ void SpellVisualSystem::loadSpellVisualDbc() {
                     eff = kitDbc->getUInt32(i, kitFields[k]);
             }
             if (eff) kitToEffectName[kitId] = eff;
+            if (fc == 38 && kKitWorldEffectField < fc) {
+                if (const uint32_t world = kitDbc->getUInt32(i, kKitWorldEffectField)) kitToWorldEffect[kitId] = world;
+            }
         }
     }
 
@@ -141,6 +149,14 @@ void SpellVisualSystem::loadSpellVisualDbc() {
             if (svPrecastKitField < svFc)
                 path = kitPath(svDbc->getUInt32(i, svPrecastKitField));
             if (!path.empty()) { spellVisualPrecastPath_[vid] = path; ++loadedPrecast; }
+        }
+        // Persistent area: SpellVisual field 25 in WotLK's 32-field layout.
+        if (svFc == 32) {
+            const uint32_t areaKit = svDbc->getUInt32(i, 25);
+            std::string path;
+            if (auto w = kitToWorldEffect.find(areaKit); w != kitToWorldEffect.end()) path = missilePath(w->second);
+            if (path.empty()) path = kitPath(areaKit);
+            if (!path.empty()) spellVisualAreaPath_[vid] = std::move(path);
         }
         // Missile: the model that travels from caster to target
         if (svMissileField < svFc) {
@@ -603,6 +619,36 @@ bool SpellVisualSystem::playSpellMissile(uint32_t visualId, const glm::vec3& sta
     return true;
 }
 
+uint32_t SpellVisualSystem::playAreaVisual(uint32_t visualId, const glm::vec3& worldPosition, float radius) {
+    if (!m2Renderer_ || visualId == 0) return 0;
+    if (!cachedAssetManager_)
+        cachedAssetManager_ = core::Application::getInstance().getAssetManager();
+    if (!cachedAssetManager_) return 0;
+    if (!spellVisualDbcLoaded_) loadSpellVisualDbc();
+    auto pathIt = spellVisualAreaPath_.find(visualId);
+    if (pathIt == spellVisualAreaPath_.end()) {
+        LOG_INFO("SpellVisual: area visualId=", visualId, " has no persistent area model");
+        return 0;
+    }
+    const uint32_t modelId = spellEffectModel(pathIt->second);
+    if (modelId == 0) return 0;
+    const uint32_t instanceId = m2Renderer_->createInstance(modelId, worldPosition, glm::vec3(0.0f), 1.0f,
+                                                            /*allowPositionDedup=*/false);
+    if (instanceId == 0) return 0;
+    m2Renderer_->restartInstanceAnimation(instanceId);
+    const uint32_t handle = nextAreaVisualHandle_++;
+    areaVisualInstances_[handle] = instanceId;
+    LOG_INFO("SpellVisual: area visualId=", visualId, " model=", pathIt->second, " radius=", radius);
+    return handle;
+}
+
+void SpellVisualSystem::stopAreaVisual(uint32_t handle) {
+    auto it = areaVisualInstances_.find(handle);
+    if (it == areaVisualInstances_.end()) return;
+    if (m2Renderer_) m2Renderer_->removeInstance(it->second);
+    areaVisualInstances_.erase(it);
+}
+
 void SpellVisualSystem::playPhysicalProjectile(const std::string& modelPath,
                                                 const std::string& texturePath,
                                                 const glm::vec3& start,
@@ -784,6 +830,10 @@ void SpellVisualSystem::reset() {
         if (m2Renderer_) m2Renderer_->removeInstance(missile.instanceId);
     }
     spellMissiles_.clear();
+    for (const auto& [handle, instanceId] : areaVisualInstances_) {
+        if (m2Renderer_) m2Renderer_->removeInstance(instanceId);
+    }
+    areaVisualInstances_.clear();
     // Reset the negative cache so models that failed during asset loading can retry.
     spellVisualFailedModels_.clear();
 }
