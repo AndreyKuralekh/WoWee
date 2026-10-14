@@ -325,7 +325,7 @@ private:
     bool isIndoors_ = false;
     float fogSkyBlend_ = 0.7f;
     float fogStrength_ = 0.4f;
-    float lightCeiling_ = 1.15f;
+    float lightCeiling_ = 1.25f;
 
     // Last values the sky diagnostic reported, so it prints on a change
     // rather than every frame. See LightingManager::update.

@@ -86,7 +86,7 @@ constexpr SettingDesc kSchema[] = {
      "How bright sunlit ground and walls may get. Most zones' noon is\n"
      "brighter than a colour can hold; 1 dims the whole light to fit\n"
      "and reads overcast, 1.5 lets it burn out the way the original\n"
-     "client does.", "", 1.15f},
+     "client does.", "", 1.25f},
     {"fogskyblend", "Fog takes the sky's colour", SettingKind::Float, 0, 1, 0.05f, "Graphics", "",
      "How much distant fog is tinted toward the sky behind it, so the\n"
      "horizon does not stand out pale against a dark sky. 0 uses the\n"
