@@ -119,11 +119,22 @@ bool LightingManager::loadLightDbc(pipeline::AssetManager* assetManager) {
             volume.lightParamsIdUnderwater = dbc->getUInt32(i, lL ? (*lL)["LightParamsIDUnderwater"] : 9);
         }
 
+        // A record at the origin with no radius is not a volume but the map's
+        // own light - Azeroth's is light 1 - and it is what lights everywhere
+        // the local volumes do not reach: all of Elwynn, for one. Kept as a
+        // volume it sat at the tile grid's corner with a radius of nothing, so
+        // it was never in range and those places got the built-in grey.
+        if (dbcX == 0.0f && dbcY == 0.0f && dbcZ == 0.0f && volume.outerRadius <= 0.0f) {
+            defaultLightByMap_[volume.mapId] = volume;
+            continue;
+        }
+
         // Add to map-specific list
         lightVolumesByMap_[volume.mapId].push_back(volume);
     }
 
-    LOG_INFO("Loaded ", lightVolumesByMap_.size(), " maps with lighting volumes");
+    LOG_INFO("Loaded ", lightVolumesByMap_.size(), " maps with lighting volumes, ",
+             defaultLightByMap_.size(), " with a map-wide light");
     return true;
 }
 
@@ -577,19 +588,17 @@ void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_
 }
 
 std::vector<LightingManager::WeightedVolume> LightingManager::findLightVolumes(const glm::vec3& playerPos, uint32_t mapId) const {
+    static const std::vector<LightVolume> kNoVolumes;
     auto it = lightVolumesByMap_.find(mapId);
-    if (it == lightVolumesByMap_.end()) {
-        return {};
-    }
-
-    const std::vector<LightVolume>& volumes = it->second;
-    if (volumes.empty()) {
-        return {};
-    }
+    const std::vector<LightVolume>& volumes =
+        it != lightVolumesByMap_.end() ? it->second : kNoVolumes;
+    auto mapLightIt = defaultLightByMap_.find(mapId);
+    const LightVolume* mapLight =
+        mapLightIt != defaultLightByMap_.end() ? &mapLightIt->second : nullptr;
 
     // Collect all volumes with weight > 0
     std::vector<WeightedVolume> weighted;
-    weighted.reserve(volumes.size());
+    weighted.reserve(volumes.size() + 1);
 
     for (const auto& volume : volumes) {
         glm::vec3 toPlayer = playerPos - volume.position;
@@ -612,7 +621,7 @@ std::vector<LightingManager::WeightedVolume> LightingManager::findLightVolumes(c
         }
     }
 
-    if (weighted.empty()) {
+    if (weighted.empty() && !mapLight) {
         return {};
     }
 
@@ -629,6 +638,17 @@ std::vector<LightingManager::WeightedVolume> LightingManager::findLightVolumes(c
     // which sky is overhead, and cutting the list here meant it dropped out
     // and back in as the player walked.
     std::sort(weighted.begin(), weighted.end(), moreSpecific);
+
+    // The map's light takes whatever the local volumes leave: all of it away
+    // from them, the rest of a falloff at their edge - where a lone volume was
+    // otherwise normalized up to full weight and popped at its outer radius.
+    // Only when there is a blend slot free for it; two overlapping volumes are
+    // a town, and the map's light would only wash it out.
+    if (mapLight && weighted.size() < MAX_BLEND_VOLUMES) {
+        float covered = 0.0f;
+        for (const auto& wv : weighted) covered += wv.weight;
+        if (covered < 1.0f) weighted.push_back({.volume = mapLight, .weight = 1.0f - covered});
+    }
 
     // Normalize the ones that will be blended, so their weights sum to 1.0.
     // The rest keep the weight they were given; nothing reads it but the

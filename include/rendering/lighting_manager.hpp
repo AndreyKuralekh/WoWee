@@ -302,6 +302,9 @@ private:
 
     // Light volumes by map
     std::map<uint32_t, std::vector<LightVolume>> lightVolumesByMap_;
+    // Each map's own light: the record with no position and no radius, which
+    // lights everything no local volume covers.
+    std::map<uint32_t, LightVolume> defaultLightByMap_;
 
     // LightParams profiles by ID
     std::map<uint32_t, LightParamsProfile> lightParamsProfiles_;
