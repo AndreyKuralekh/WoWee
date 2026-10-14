@@ -1854,6 +1854,16 @@ bool Renderer::updateSkyboxLayers() {
     };
     const auto& layers = lightingManager->getSkyboxLayers();
 
+    // Centred on the eyes. In a headset that is the head, not the game's
+    // camera behind the character, or the dome sat off-centre around them.
+    glm::vec3 skyCentre = camera->getPosition();
+#ifdef WOWEE_VR
+    {
+        glm::mat4 unusedViewProj;
+        vrLastHeadView(skyCentre, unusedViewProj);
+    }
+#endif
+
     // Faded out and no longer wanted.
     std::erase_if(skyLayers_, [&](const SkyLayerInstance& sky) {
         const bool wanted = std::any_of(layers.begin(), layers.end(), [&](const auto& l) {
@@ -1871,14 +1881,14 @@ bool Renderer::updateSkyboxLayers() {
             const uint32_t modelId = loadSkyboxModel(path);
             if (modelId == 0) continue;
             const uint32_t instanceId = skyboxModelRenderer_->createInstance(
-                modelId, camera->getPosition(), glm::vec3(0.0f), 1.0f);
+                modelId, skyCentre, glm::vec3(0.0f), 1.0f);
             if (instanceId == 0) continue;
             skyboxModelRenderer_->setSkipCollision(instanceId, true);
             skyLayers_.push_back({.path = path, .instanceId = instanceId});
             it = std::prev(skyLayers_.end());
         }
         skyboxModelRenderer_->setInstanceFade(it->instanceId, layer.weight);
-        skyboxModelRenderer_->setInstancePosition(it->instanceId, camera->getPosition());
+        skyboxModelRenderer_->setInstancePosition(it->instanceId, skyCentre);
     }
     return !skyLayers_.empty();
 }
@@ -2237,8 +2247,12 @@ void Renderer::update(float deltaTime) {
         skySystem->update(deltaTime);
     }
     if (updateSkyboxLayers() && skyboxModelRenderer_ && camera) {
-        skyboxModelRenderer_->update(deltaTime, camera->getPosition(),
-            camera->getProjectionMatrix() * camera->getViewMatrix());
+        glm::vec3 skyCamPos = camera->getPosition();
+        glm::mat4 skyViewProj = camera->getProjectionMatrix() * camera->getViewMatrix();
+#ifdef WOWEE_VR
+        vrLastHeadView(skyCamPos, skyViewProj);
+#endif
+        skyboxModelRenderer_->update(deltaTime, skyCamPos, skyViewProj);
     }
 
     // Update weather particles

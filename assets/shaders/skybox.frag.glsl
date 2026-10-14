@@ -44,8 +44,13 @@ void main() {
     float ndcX =  TexCoord.x * 2.0 - 1.0;
     float ndcY = -(TexCoord.y * 2.0 - 1.0);
 
-    vec3 viewDir = vec3(ndcX / projection[0][0],
-                        ndcY / abs(projection[1][1]),
+    // With the frustum's off-centre terms: a headset's eye looks through an
+    // asymmetric frustum, and without them each eye put the horizon and the
+    // gradient somewhere else, so the sky swam between them. Zero for the
+    // window's symmetric projection. Row 1 is flipped for Vulkan and its
+    // off-centre term is not, hence the opposite sign.
+    vec3 viewDir = vec3((ndcX + projection[2][0]) / projection[0][0],
+                        (ndcY - projection[2][1]) / abs(projection[1][1]),
                         -1.0);
 
     mat3 invViewRot = transpose(mat3(view));
