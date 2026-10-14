@@ -1219,11 +1219,12 @@ void registerSpellLuaAPI(lua_State* L) {
             // kind of targeting and escape has to put it down.
             auto* gh = getGameHandler(L);
             if (gh && gh->isAwaitingItemTarget()) gh->cancelItemTargeting();
+            if (gh && gh->isAwaitingGroundTarget()) gh->cancelGroundTargeting();
             return 0;
         }},
                 {"SpellIsTargeting", [](lua_State* L) -> int {
             auto* gh = getGameHandler(L);
-            lua_pushboolean(L, gh && gh->isAwaitingItemTarget());
+            lua_pushboolean(L, gh && (gh->isAwaitingItemTarget() || gh->isAwaitingGroundTarget()));
             return 1;
         }},
                 {"IsSpellInRange",    lua_IsSpellInRange},

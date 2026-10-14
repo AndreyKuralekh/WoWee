@@ -1136,6 +1136,13 @@ void SpellHandler::castSpell(uint32_t spellId, uint64_t targetGuid) {
     // TARGET_FLAG_SELF is actually for, so they are not caught by this; a
     // friendly spell has already fallen back to the caster above when the
     // player has auto self-cast on, and is left to the server when they do not.
+    // A place, not a unit: armed here, and cast when the ground is clicked.
+    // Sent as it was, it went with no destination and the server refused it.
+    if (spellNeedsGroundTarget(spellId)) {
+        armGroundTarget(spellId);
+        return;
+    }
+
     if (target == 0 && !selfCast && !fishingCast &&
         spellclass::requiresHostileTarget(getSpellImplicitTargetA(spellId))) {
         owner_.raiseUiError("You have no target.");
@@ -1167,7 +1174,59 @@ void SpellHandler::castSpell(uint32_t spellId, uint64_t targetGuid) {
     }
 }
 
+bool SpellHandler::spellNeedsGroundTarget(uint32_t spellId) const {
+    constexpr uint32_t kDestLocation = 0x40;  // TARGET_FLAG_DEST_LOCATION
+    auto it = owner_.spellNameCacheRef().find(spellId);
+    return it != owner_.spellNameCacheRef().end() && (it->second.targetFlags & kDestLocation) != 0;
+}
+
+void SpellHandler::armGroundTarget(uint32_t spellId) {
+    groundSpellId_ = spellId;
+    // The marker's size: the first effect's radius, SpellRadius.dbc through
+    // Spell.dbc's EffectRadiusIndex. Eight yards - what most of these have -
+    // where either is missing.
+    groundSpellRadius_ = 8.0f;
+    if (auto* assets = owner_.services().assetManager) {
+        auto spells = assets->loadDBC("Spell.dbc");
+        auto radii = assets->loadDBC("SpellRadius.dbc");
+        constexpr uint32_t kEffectRadiusIndex0 = 92;  // WotLK's 234-field layout
+        if (spells && spells->isLoaded() && spells->getFieldCount() == 234 && radii && radii->isLoaded()) {
+            const int32_t row = spells->findRecordById(spellId);
+            if (row >= 0) {
+                const uint32_t index = spells->getUInt32(static_cast<uint32_t>(row), kEffectRadiusIndex0);
+                const int32_t radiusRow = index ? radii->findRecordById(index) : -1;
+                if (radiusRow >= 0) {
+                    const float radius = radii->getFloat(static_cast<uint32_t>(radiusRow), 1);
+                    if (std::isfinite(radius) && radius > 0.5f && radius < 60.0f) groundSpellRadius_ = radius;
+                }
+            }
+        }
+    }
+    LOG_INFO("Ground target armed: spell ", spellId, " radius ", groundSpellRadius_);
+}
+
+void SpellHandler::castSpellAtGround(const glm::vec3& canonicalPos) {
+    const uint32_t spellId = groundSpellId_;
+    groundSpellId_ = 0;
+    if (spellId == 0 || owner_.getState() != WorldState::IN_WORLD || !owner_.getSocket()) return;
+    // On the wire the two horizontal axes are the other way round.
+    const glm::vec3 wire = core::coords::canonicalToServer(canonicalPos);
+    auto packet = CastSpellPacket::buildLocationTarget(spellId, wire.x, wire.y, wire.z,
+                                                       ++castCount_);
+    owner_.getSocket()->send(packet);
+    LOG_INFO("Casting spell: ", spellId, " at server (", wire.x, ", ", wire.y, ", ", wire.z, ")");
+    if (owner_.addonEventCallbackRef()) {
+        owner_.addonEventCallbackRef()("UNIT_SPELLCAST_SENT", {"player", "", std::to_string(spellId)});
+    }
+}
+
 void SpellHandler::cancelCast() {
+    // A spell waiting for the ground to be clicked is put down by the same
+    // Escape that stops a cast - first, and on its own.
+    if (groundSpellId_ != 0) {
+        groundSpellId_ = 0;
+        return;
+    }
     if (restorationActive_) {
         const uint32_t auraSpell = restorationSpellId_;
         cancelAura(auraSpell);

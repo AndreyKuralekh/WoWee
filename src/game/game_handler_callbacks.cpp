@@ -2352,6 +2352,16 @@ void GameHandler::requestPvpLog() {
 // Spells
 // ============================================================
 
+bool GameHandler::isAwaitingGroundTarget() const { return spellHandler_ && spellHandler_->isAwaitingGroundTarget(); }
+float GameHandler::groundTargetRadius() const { return spellHandler_ ? spellHandler_->groundTargetRadius() : 0.0f; }
+uint32_t GameHandler::groundTargetSpell() const { return spellHandler_ ? spellHandler_->groundTargetSpell() : 0; }
+void GameHandler::castSpellAtGround(const glm::vec3& canonicalPos) {
+    if (spellHandler_) spellHandler_->castSpellAtGround(canonicalPos);
+}
+void GameHandler::cancelGroundTargeting() {
+    if (spellHandler_) spellHandler_->cancelGroundTargeting();
+}
+
 void GameHandler::castSpell(uint32_t spellId, uint64_t targetGuid) {
     if (spellHandler_) spellHandler_->castSpell(spellId, targetGuid);
 }

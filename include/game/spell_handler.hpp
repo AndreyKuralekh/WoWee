@@ -50,6 +50,18 @@ public:
     // --- Public API (delegated from GameHandler) ---
     void castSpell(uint32_t spellId, uint64_t targetGuid = 0);
 
+    // Spells cast at a place rather than at a unit (Spell.dbc Targets names
+    // DEST_LOCATION): castSpell arms one instead of sending it, and the next
+    // click on the ground casts it there. Escape, a right click or another
+    // spell puts it down again.
+    [[nodiscard]] bool isAwaitingGroundTarget() const { return groundSpellId_ != 0; }
+    [[nodiscard]] uint32_t groundTargetSpell() const { return groundSpellId_; }
+    /// How far the spell reaches round the point, in yards, for the marker.
+    [[nodiscard]] float groundTargetRadius() const { return groundSpellRadius_; }
+    /// `canonicalPos` in server coordinates.
+    void castSpellAtGround(const glm::vec3& canonicalPos);
+    void cancelGroundTargeting() { groundSpellId_ = 0; }
+
     /// Spell.dbc EffectImplicitTargetA, or 0 when the spell is unknown. 21 means
     /// the spell has to be aimed at a friendly unit.
     [[nodiscard]] uint32_t getSpellImplicitTargetA(uint32_t spellId) const;
@@ -417,6 +429,10 @@ private:
     // Play the impact visual effect at the target's position.
     void triggerImpactVisual(uint32_t spellId, uint64_t targetGuid);
     void launchRangedWeaponProjectile(uint32_t spellId, uint64_t targetGuid);
+    [[nodiscard]] bool spellNeedsGroundTarget(uint32_t spellId) const;
+    void armGroundTarget(uint32_t spellId);
+    uint32_t groundSpellId_ = 0;
+    float groundSpellRadius_ = 8.0f;
     // Send a travelling spell's missile from the caster to one target. On
     // arrival the impact visual plays if the spell hit, and the impact sound
     // if asked. False when the spell has no missile - nothing was launched

@@ -1049,6 +1049,12 @@ public:
     const std::vector<ThreatEntry>* getTargetThreatList() const;
 
     void castSpell(uint32_t spellId, uint64_t targetGuid = 0);
+    /// A spell cast at a place: see SpellHandler::isAwaitingGroundTarget.
+    [[nodiscard]] bool isAwaitingGroundTarget() const;
+    [[nodiscard]] float groundTargetRadius() const;
+    [[nodiscard]] uint32_t groundTargetSpell() const;
+    void castSpellAtGround(const glm::vec3& canonicalPos);
+    void cancelGroundTargeting();
     void cancelCast();
     void cancelAura(uint32_t spellId);
     void dismissPet();

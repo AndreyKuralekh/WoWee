@@ -388,6 +388,10 @@ private:
     // Left-click targeting: distinguish click from camera drag
     glm::vec2 leftClickPressPos_ = glm::vec2(0.0f);
     bool leftClickWasPress_ = false;
+    // Where a spell cast at the ground would land, under the cursor - or the
+    // headset's pointer - this frame; empty when it meets no ground.
+    bool groundAimValid_ = false;
+    glm::vec3 groundAim_{0.0f};
     // Right-click interact/attack fires on release only if the press was a tap, not a
     // camera-rotation drag - so turning the view near a mob doesn't auto-attack it.
     glm::vec2 rightClickPressPos_ = glm::vec2(0.0f);

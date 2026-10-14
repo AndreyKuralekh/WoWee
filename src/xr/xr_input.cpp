@@ -565,7 +565,11 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
         if (io) io->AddMouseButtonEvent(static_cast<int>(i), down);
     }
 
-    in.inCharge = inWorld && (onPanel || in.worldPress);
+    // A spell waiting for a place on the ground is aimed by the ray wherever
+    // it points, not only while a button is held beside the panel.
+    game::GameHandler* game = core::Application::getInstance().getGameHandler();
+    const bool aimingGround = tracked && game && game->isAwaitingGroundTarget();
+    in.inCharge = inWorld && (onPanel || in.worldPress || aimingGround);
     if (in.worldPress && !in.mouseHeld[0] && !in.mouseHeld[1]) {
         if (in.worldPressOver) {
             in.worldPress = false;

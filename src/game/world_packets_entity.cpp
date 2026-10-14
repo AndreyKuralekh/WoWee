@@ -1178,6 +1178,24 @@ network::Packet CastSpellPacket::buildItemTarget(uint32_t spellId, uint64_t item
     return packet;
 }
 
+network::Packet CastSpellPacket::buildLocationTarget(uint32_t spellId, float x, float y, float z,
+                                                     uint8_t castCount) {
+    network::Packet packet(wireOpcode(Opcode::CMSG_CAST_SPELL));
+    packet.writeUInt8(castCount);
+    packet.writeUInt32(spellId);
+    packet.writeUInt8(0x00); // castFlags = 0 for normal cast
+    // Blizzard, Rain of Fire, Volley: the server reads a destination - a
+    // transport guid, packed and here empty, then the point itself.
+    packet.writeUInt32(0x40); // TARGET_FLAG_DEST_LOCATION
+    packet.writePackedGuid(0);
+    packet.writeFloat(x);
+    packet.writeFloat(y);
+    packet.writeFloat(z);
+
+    LOG_DEBUG("Built CMSG_CAST_SPELL: spell=", spellId, " at (", x, ", ", y, ", ", z, ")");
+    return packet;
+}
+
 network::Packet CancelAuraPacket::build(uint32_t spellId) {
     network::Packet packet(wireOpcode(Opcode::CMSG_CANCEL_AURA));
     packet.writeUInt32(spellId);

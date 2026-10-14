@@ -68,6 +68,33 @@
 #include <unordered_set>
 
 namespace {
+
+// The first ground along a ray: terrain, or the floor of a building where
+// there is one above the terrain. Walked in half-yard steps, which is finer
+// than any slope a spell is aimed at, out to as far as anything is cast.
+bool groundUnderRay(const wowee::rendering::Ray& ray, wowee::rendering::Renderer* renderer, glm::vec3& hit) {
+    if (!renderer) return false;
+    auto* terrain = renderer->getTerrainManager();
+    auto* wmo = renderer->getWMORenderer();
+    constexpr float kStep = 0.5f;
+    constexpr float kFurthest = 100.0f;
+    for (float t = kStep; t <= kFurthest; t += kStep) {
+        const glm::vec3 p = ray.origin + ray.direction * t;
+        std::optional<float> ground = terrain ? terrain->getHeightAt(p.x, p.y) : std::nullopt;
+        if (wmo) {
+            const std::optional<float> floor = wmo->getFloorHeight(p.x, p.y, p.z + 2.0f);
+            if (floor && (!ground || *floor > *ground)) ground = floor;
+        }
+        if (ground && p.z <= *ground) {
+            hit = glm::vec3(p.x, p.y, *ground);
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+namespace {
     using namespace wowee::ui::colors;
     using namespace wowee::ui::helpers;
     constexpr auto& kColorRed        = kRed;
@@ -937,6 +964,16 @@ void GameScreen::render(game::GameHandler& gameHandler) {
             if (auto* ac = renderer->getAnimationController()) ac->setTargetPosition(nullptr);
             renderer->clearSelectionCircle();
         }
+
+        // A spell waiting for the ground to be clicked shows where it would
+        // land, in place of the target's circle: green within reach, red past it.
+        if (gameHandler.isAwaitingGroundTarget() && groundAimValid_) {
+            const float reach = gameHandler.getSpellHandler()
+                ? gameHandler.getSpellHandler()->getSpellMaxRange(gameHandler.groundTargetSpell()) : -1.0f;
+            const bool inReach = reach <= 0.0f || glm::distance(groundAim_, renderer->getCharacterPosition()) <= reach;
+            renderer->setSelectionCircle(groundAim_, gameHandler.groundTargetRadius(),
+                                         inReach ? glm::vec3(0.3f, 1.0f, 0.4f) : glm::vec3(1.0f, 0.25f, 0.2f));
+        }
     }
 
     // Screen edge damage flash - red vignette that fires on HP decrease
@@ -1519,7 +1556,8 @@ void GameScreen::processTargetInput(game::GameHandler& gameHandler) {
             // an item still stuck to the pointer.
             st.holdingItem           = inventoryScreen.isHoldingItem() ||
                                        !frameXmlCursorItem().empty();
-            st.casting               = gameHandler.isCasting();
+            // A spell waiting for the ground is put down as a cast is stopped.
+            st.casting               = gameHandler.isCasting() || gameHandler.isAwaitingGroundTarget();
             st.lootOpen              = gameHandler.isLootWindowOpen();
             st.gossipOpen            = gameHandler.isGossipWindowOpen();
             st.vendorOpen            = gameHandler.isVendorWindowOpen();
@@ -1856,6 +1894,33 @@ void GameScreen::processTargetInput(game::GameHandler& gameHandler) {
                     !drawWorldObjectCursor(gameHandler, hoverPick)) {
                     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
                 }
+            }
+        }
+    }
+
+    // A spell cast at the ground: where the cursor - or the headset's pointer,
+    // which screenToWorldRay answers with - meets it, every frame; a click
+    // there casts it, and a right click puts it down. The click is the
+    // spell's and selects nothing.
+    groundAimValid_ = false;
+    if (gameHandler.isAwaitingGroundTarget()) {
+        auto* renderer = services_.renderer;
+        auto* camera = renderer ? renderer->getCamera() : nullptr;
+        if (camera && services_.window && !io.WantCaptureMouse && !frameXmlOwnsMouse()) {
+            const glm::vec2 mousePos = input.getMousePosition();
+            const rendering::Ray ray = camera->screenToWorldRay(
+                mousePos.x, mousePos.y, static_cast<float>(services_.window->getWidth()),
+                static_cast<float>(services_.window->getHeight()));
+            groundAimValid_ = groundUnderRay(ray, renderer, groundAim_);
+        }
+        if (input.isMouseButtonJustPressed(SDL_BUTTON_RIGHT)) {
+            gameHandler.cancelGroundTargeting();
+        } else if (leftClickWasPress_ && input.isMouseButtonJustReleased(SDL_BUTTON_LEFT)) {
+            leftClickWasPress_ = false;
+            const glm::vec2 dragDelta = input.getMousePosition() - leftClickPressPos_;
+            const float threshold = clickDragThreshold();
+            if (groundAimValid_ && glm::dot(dragDelta, dragDelta) < threshold * threshold) {
+                gameHandler.castSpellAtGround(core::coords::renderToCanonical(groundAim_));
             }
         }
     }
