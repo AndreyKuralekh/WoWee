@@ -129,22 +129,31 @@ void Clouds::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const SkyP
         return;
     }
 
-    // Derive cloud base color from DBC horizon band, slightly brightened
-    glm::vec3 cloudBaseColor = params.skyBand1Color * 1.1f;
-    cloudBaseColor = glm::clamp(cloudBaseColor, glm::vec3(0.0f), glm::vec3(1.0f));
-
     // Sun direction (opposite of light direction). Guard the hemisphere like
     // Celestial/SkySystem do - directionalDir's sign convention is not stable,
     // and a flipped vector puts the cloud scatter glow opposite the real sun.
     glm::vec3 sunDir = -glm::normalize(params.directionalDir);
     if (sunDir.z < 0.0f) sunDir = -sunDir;
-    float sunAboveHorizon = glm::clamp(sunDir.z, 0.0f, 1.0f);
 
-    // Sun intensity based on elevation
-    float sunIntensity = sunAboveHorizon;
+    // How much day it is, read from the sky the zone is showing rather than
+    // from the sun's height. The sun's path here is a fixed curve that sets
+    // around seven in the evening, while Elwynn's light keeps its day colours
+    // until nine - so at seven the clouds were lit as at dusk, dark grey under
+    // a blue sky. The sky's middle band is near black at night and a full
+    // blue by day in every zone.
+    const glm::vec3& mid = params.skyMiddleColor;
+    const float skyLuma = 0.2126f * mid.r + 0.7152f * mid.g + 0.0722f * mid.b;
+    const float daylight = glm::clamp(skyLuma * 2.2f, 0.0f, 1.0f);
 
+    // White by day, the horizon band's colour at dusk and night: the band
+    // alone made a noon cloud the pale blue of the sky behind it.
+    glm::vec3 cloudBaseColor = glm::mix(params.skyBand1Color * 1.1f, glm::vec3(1.0f),
+                                        0.6f * daylight);
+    cloudBaseColor = glm::clamp(cloudBaseColor, glm::vec3(0.0f), glm::vec3(1.0f));
+
+    float sunIntensity = daylight;
     // Ambient light - brighter during day, dimmer at night
-    float ambient = glm::mix(0.3f, 0.7f, sunAboveHorizon);
+    float ambient = glm::mix(0.3f, 0.75f, daylight);
 
     CloudPush push{};
     push.cloudColor    = glm::vec4(cloudBaseColor, 1.0f);

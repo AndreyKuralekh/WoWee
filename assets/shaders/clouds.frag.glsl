@@ -118,7 +118,10 @@ void main() {
     if (cloud < 0.01) discard;
 
     // --- Lighting ---
-    float sunUp = clamp(sunDir.z, 0.0, 1.0);      // day factor
+    // Day factor. Not the sun's height alone: its path sets hours before the
+    // zone's light does, and the clouds went dark under a daytime sky.
+    // sunIntensity is the day the sky itself shows.
+    float sunUp = max(clamp(sunDir.z, 0.0, 1.0), 0.6 * sunIntensity);
     float sunView = max(dot(dir, sunDir), 0.0);   // view alignment with the sun
 
     // Self-shadowing: re-sample the shape a step toward the sun; if the cloud
@@ -127,7 +130,7 @@ void main() {
     float shadow = clamp(1.0 - (towardSun - shape) * 2.2, 0.35, 1.0);
 
     // Thick cores read darker - sunlight doesn't penetrate deep cloud
-    float coreDarken = mix(1.0, 0.55, cumulus * cumulus);
+    float coreDarken = mix(1.0, 0.72, cumulus * cumulus);
 
     vec3 baseColor = push.cloudColor.rgb;
     vec3 shadowColor = baseColor * ambient * 0.75;
