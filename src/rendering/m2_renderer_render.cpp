@@ -1492,7 +1492,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             bool modelNeedsAnimation = model.hasAnimation && !model.disableAnimation;
             const bool foliageLikeModel = model.isFoliageLike;
             const bool particleDominantEffect = model.isSpellEffect &&
-                !model.particleEmitters.empty() && model.batches.size() <= 2;
+                !model.particleEmitters.empty() && isEmissionOnlyMesh(model);
 
             // Collect per-instance data for this model group
             pending.clear();
@@ -2036,7 +2036,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         while (targetLOD > 0 && !(model.availableLODs & (1u << targetLOD))) --targetLOD;
 
         const bool particleDominantEffect = model.isSpellEffect &&
-            !model.particleEmitters.empty() && model.batches.size() <= 2;
+            !model.particleEmitters.empty() && isEmissionOnlyMesh(model);
 
         for (const auto& batch : model.batches) {
             if (batch.indexCount == 0) continue;

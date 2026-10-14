@@ -1143,6 +1143,16 @@ private:
     // torches, fires, forges, lava. gatherLocalLights is asked every frame and
     // walked all ninety thousand instances to find the few hundred of these.
     std::vector<size_t> lightInstanceIndices_;
+    /// A spell effect whose mesh is only what its particles are emitted
+    /// from: a card or two, a few triangles. Such a mesh is not drawn. One
+    /// or two batches used to be the whole test, and a Blizzard shard - one
+    /// batch, 276 triangles of falling ice - was never drawn either.
+    [[nodiscard]] static bool isEmissionOnlyMesh(const M2ModelGPU& model) {
+        if (model.batches.size() > 2) return false;
+        uint32_t indices = 0;
+        for (const auto& batch : model.batches) indices += batch.indexCount;
+        return indices <= 36;
+    }
     [[nodiscard]] static bool givesLight(const M2ModelGPU& model) {
         return model.isLanternLike || model.isTorch || model.isBrazierOrFire || model.isForge ||
                model.isLavaModel;

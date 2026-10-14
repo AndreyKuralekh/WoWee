@@ -122,6 +122,9 @@ private:
     std::vector<SpellMissile> spellMissiles_;
     std::unordered_map<uint32_t, std::string> spellVisualMissilePath_; // visualId → missile M2 path
     std::unordered_map<uint32_t, std::string> spellVisualAreaPath_;    // visualId → persistent area M2 path
+    // TargetImpactKit: on the units hit, and only there - unlike the impact
+    // path above it is never a stand-in for a cast effect at the caster.
+    std::unordered_map<uint32_t, std::string> spellVisualTargetImpactPath_;
     std::unordered_map<uint32_t, uint32_t> areaVisualInstances_;       // handle → M2 instance
     uint32_t nextAreaVisualHandle_ = 1;
     std::unordered_map<uint32_t, std::string> spellVisualPrecastPath_; // visualId → precast M2 path

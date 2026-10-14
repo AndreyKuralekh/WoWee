@@ -180,8 +180,10 @@ void SpellVisualSystem::loadSpellVisualDbc() {
             // TargetImpactKit (field 15 of WotLK's 32): what plays on each unit
             // a spell hits. A periodic spell's ticks have only this - every
             // shard of Blizzard falling on a target is one.
-            if (path.empty() && svFc == 32)
-                path = kitPath(svDbc->getUInt32(i, 15));            if (path.empty() && svMissileField < svFc)
+            if (svFc == 32) {
+                std::string onTarget = kitPath(svDbc->getUInt32(i, 15));
+                if (!onTarget.empty()) spellVisualTargetImpactPath_[vid] = std::move(onTarget);
+            }            if (path.empty() && svMissileField < svFc)
                 path = missilePath(svDbc->getUInt32(i, svMissileField));
             if (!path.empty()) { spellVisualImpactPath_[vid] = path; ++loadedImpact; }
         }
@@ -403,18 +405,22 @@ void SpellVisualSystem::playSpellVisual(uint32_t visualId, const glm::vec3& worl
 
     if (!spellVisualDbcLoaded_) loadSpellVisualDbc();
 
-    // Select cast or impact path map; fall back to the other if missing
+    // Select cast or impact path map; fall back to the other if missing - but
+    // a target impact only ever stands in for an impact, on the unit hit.
     auto& primaryMap = useImpactKit ? spellVisualImpactPath_ : spellVisualCastPath_;
     auto& fallbackMap = useImpactKit ? spellVisualCastPath_ : spellVisualImpactPath_;
-    auto pathIt = primaryMap.find(visualId);
-    if (pathIt == primaryMap.end()) {
-        pathIt = fallbackMap.find(visualId);
-        if (pathIt == fallbackMap.end()) {
-            return;
-        }
+    const std::string* found = nullptr;
+    if (auto it = primaryMap.find(visualId); it != primaryMap.end()) found = &it->second;
+    if (!found && useImpactKit) {
+        if (auto it = spellVisualTargetImpactPath_.find(visualId); it != spellVisualTargetImpactPath_.end())
+            found = &it->second;
     }
+    if (!found) {
+        if (auto it = fallbackMap.find(visualId); it != fallbackMap.end()) found = &it->second;
+    }
+    if (!found) return;
 
-    const std::string& modelPath = pathIt->second;
+    const std::string& modelPath = *found;
     LOG_INFO("SpellVisual: ", (useImpactKit ? "impact" : "cast"), " path resolved to: ", modelPath);
 
     // Get or assign a model ID for this path
@@ -708,6 +714,7 @@ void SpellVisualSystem::playPhysicalProjectile(const std::string& modelPath,
 
 void SpellVisualSystem::update(float deltaTime) {
     // WOWEE_SPELL_MISSILE_DIAG=<SpellVisual id>[:<speed>]: every three seconds, fly that
+    // (or, for a visual with no missile, play its impact six yards ahead)
     // visual's missile across the view in front of the character and play its
     // impact where it lands. Looking at a missile needs no target this way.
     static const uint32_t diagVisual = [] {
@@ -728,6 +735,12 @@ void SpellVisualSystem::update(float deltaTime) {
             const glm::vec3 right = renderer_->getCamera()->getRight();
             const glm::vec3 centre = renderer_->getCharacterPosition() + glm::vec3(0.0f, 0.0f, 1.5f);
             const glm::vec3 end = centre + right * 10.0f;
+            // A visual with no missile has its impact played in front instead.
+            if (spellVisualDbcLoaded_ && !spellVisualMissilePath_.count(diagVisual)) {
+                const glm::vec3 feet = renderer_->getCharacterPosition();
+                const glm::vec3 fwd = glm::normalize(glm::vec3(renderer_->getCamera()->getForward().x, renderer_->getCamera()->getForward().y, 0.0f));
+                playSpellVisual(diagVisual, feet + fwd * 6.0f, /*useImpactKit=*/true);
+            } else
             playSpellMissile(diagVisual, centre - right * 10.0f, diagSpeed,
                              [end](glm::vec3& pos) { pos = end; return true; },
                              [this, end]() { playSpellVisual(diagVisual, end, /*useImpactKit=*/true); });
