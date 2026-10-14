@@ -2338,6 +2338,11 @@ void Renderer::update(float deltaTime) {
         float m2DeltaTime = deltaTime;
         glm::vec3 m2CamPos = camera->getPosition();
         glm::mat4 m2ViewProj = camera->getProjectionMatrix() * camera->getViewMatrix();
+#ifdef WOWEE_VR
+        // In a headset what is seen is what the head sees, not the game's
+        // camera behind the character: animations are kept up by that.
+        vrLastHeadView(m2CamPos, m2ViewProj);
+#endif
         m2AnimFuture = core::ThreadPool::frameWorkers().submit(
             [this, m2DeltaTime, m2CamPos, m2ViewProj]() {
                 m2Renderer->update(m2DeltaTime, m2CamPos, m2ViewProj);

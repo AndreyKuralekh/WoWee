@@ -325,6 +325,21 @@ void Renderer::vrBeginViews() {
     if (xr::system().pickRay(pointer.origin, pointer.direction)) camera->setPickRay(pointer);
 }
 
+// Where the head looked in the last stereo frame: the point between the eyes
+// and its view-projection, as wide as both eyes. The M2 animation update culls
+// against this in a headset - against the game's camera, which in the
+// character's eyes stands behind them looking its own way, a spell effect the
+// player was looking straight at could sit outside it, keep its bones frozen
+// at their first pose and never be seen: Blizzard's shards stayed in the sky.
+// False when the last frame was not a stereo one.
+bool Renderer::vrLastHeadView(glm::vec3& position, glm::mat4& viewProjection) const {
+    if (!vrEyes_ || !vrEyes_->viewsValid || !vrWorldInEyes_) return false;
+    const xr::EyeView& center = vrEyes_->views.center;
+    position = center.position;
+    viewProjection = center.projection * center.view;
+    return true;
+}
+
 // The second eye of a frame whose world was recorded once: the first eye's
 // secondaries again, in its own pass, after its own matrices have been put
 // where those secondaries read them.

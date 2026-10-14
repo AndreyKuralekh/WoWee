@@ -480,6 +480,7 @@ private:
     void vrBeginViews();
     void vrRenderEyes();
     void vrReplayWorldForEye(uint32_t eye);
+    bool vrLastHeadView(glm::vec3& position, glm::mat4& viewProjection) const;
     void vrRenderWindowMinimap(game::GameHandler* gameHandler);
     VrEyes* vrEyes_ = nullptr;
     game::GameHandler* vrGameHandler_ = nullptr;
