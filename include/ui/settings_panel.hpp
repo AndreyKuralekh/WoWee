@@ -247,7 +247,7 @@ public:
     bool pendingVrLeftHanded = false;       // the controllers change places
     float pendingVrWorldScale = 1.0f;       // how big the world looks, 1 = its own size
     float pendingVrEyeHeight = 0.0f;        // metres above the character's own eyes
-    float pendingVrGlow = 0.35f;            // glow over the eyes, 0 none - see xr::EyeGlow
+    float pendingVrGlow = 0.8f;             // glow over the eyes, 0 none - see xr::EyeGlow
     float pendingVrShine = 0.0f;            // sun highlights on buildings, 1 = the flat client's
     int pendingPOMQuality = 1;          // 0=Low(16), 1=Medium(32), 2=High(64)
     bool pendingFSR = false;

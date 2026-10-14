@@ -992,7 +992,7 @@ constexpr SettingDesc kSchema[] = {
     {"vrglow", "Glow", SettingKind::Float, 0.0f, 1.0f, 0.05f, "VR comfort", "Picture",
      "The original client's full-screen glow: what is bright bleeds\n"
      "softly into what is round it, and the picture reads warmer and\n"
-     "less hard-edged. 0 turns it off.", "", 0.35f},
+     "less hard-edged. 0 turns it off.", "", 0.8f},
 
     // What the controllers' buttons do. Not fields of the settings panel: the
     // VR module keeps the table (xr_controls.cpp) in vr_controls.cfg, and the

@@ -332,7 +332,7 @@ private:
     bool leftHanded_ = false;
     float worldScale_ = 1.0f;
     float eyeHeightOffset_ = 0.0f;
-    float glow_ = 0.35f;
+    float glow_ = 0.8f;
     /// Yards of the world to a metre of the room.
     [[nodiscard]] float yardsPerMetre() const { return 1.0f / (0.9144f * worldScale_); }
     int vignetteLevel_ = 1;
