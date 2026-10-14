@@ -177,7 +177,11 @@ void SpellVisualSystem::loadSpellVisualDbc() {
             std::string path;
             if (svImpactKitField < svFc)
                 path = kitPath(svDbc->getUInt32(i, svImpactKitField));
-            if (path.empty() && svMissileField < svFc)
+            // TargetImpactKit (field 15 of WotLK's 32): what plays on each unit
+            // a spell hits. A periodic spell's ticks have only this - every
+            // shard of Blizzard falling on a target is one.
+            if (path.empty() && svFc == 32)
+                path = kitPath(svDbc->getUInt32(i, 15));            if (path.empty() && svMissileField < svFc)
                 path = missilePath(svDbc->getUInt32(i, svMissileField));
             if (!path.empty()) { spellVisualImpactPath_[vid] = path; ++loadedImpact; }
         }

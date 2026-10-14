@@ -1140,6 +1140,17 @@ void SpellHandler::castSpell(uint32_t spellId, uint64_t targetGuid) {
     // Sent as it was, it went with no destination and the server refused it.
     if (spellNeedsGroundTarget(spellId)) {
         armGroundTarget(spellId);
+        // WOWEE_GROUND_CAST_AT_FEET=1: cast it where the character stands at
+        // once, with nothing to aim - for trying these spells without a mouse.
+        static const bool atFeet = [] {
+            const char* v = std::getenv("WOWEE_GROUND_CAST_AT_FEET");
+            return v && *v == '1';
+        }();
+        if (atFeet) {
+            if (auto entity = owner_.getEntityManager().getEntity(owner_.getPlayerGuid())) {
+                castSpellAtGround(glm::vec3(entity->getX(), entity->getY(), entity->getZ()));
+            }
+        }
         return;
     }
 

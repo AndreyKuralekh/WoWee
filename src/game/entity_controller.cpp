@@ -1973,15 +1973,18 @@ struct EntityController::DynamicObjectTypeHandler : EntityController::IObjectTyp
     EntityController& ctl_;
     explicit DynamicObjectTypeHandler(EntityController& c) : ctl_(c) {}
     void onCreate(const UpdateBlock& block, std::shared_ptr<Entity>& /*entity*/, bool&) override {
-        // DYNAMICOBJECT_BYTES (0x8): the SpellVisual id, with the object's
-        // kind in the top four bits; DYNAMICOBJECT_SPELLID (0x9),
-        // DYNAMICOBJECT_RADIUS (0xA). The WotLK update fields.
+        // DYNAMICOBJECT_SPELLID (0x9) and DYNAMICOBJECT_RADIUS (0xA), the
+        // WotLK update fields. The visual is the spell's own: DYNAMICOBJECT_BYTES
+        // (0x8) is said to carry it in its low bits, but AzerothCore puts only
+        // the object's kind there - 1 for a spell's area - so it is not read.
         const auto field = [&block](uint16_t index) -> uint32_t {
             auto it = block.fields.find(index);
             return it != block.fields.end() ? it->second : 0u;
         };
+        LOG_INFO("DynamicObject created: guid=0x", std::hex, block.guid, std::dec, " spell=", field(0x9),
+                 " hasPosition=", block.hasMovement ? 1 : 0);
         if (!block.hasMovement) return;
-        const uint32_t visualId = field(0x8) & 0x0FFFFFFFu;
+        constexpr uint32_t visualId = 0;  // the spell's, looked up by the spell handler
         const uint32_t radiusBits = field(0xA);
         float radius = 0.0f;
         std::memcpy(&radius, &radiusBits, sizeof(radius));
