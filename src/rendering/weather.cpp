@@ -161,18 +161,18 @@ void Weather::update(const Camera& camera, float deltaTime) {
     while (static_cast<int>(particles.size()) < targetParticleCount) {
         Particle p;
         p.position = getRandomPosition(camera.getPosition());
-        p.position.y = camera.getPosition().y + SPAWN_HEIGHT;
+        p.position.z = camera.getPosition().z + SPAWN_HEIGHT;
         p.lifetime = 0.0f;
 
         if (weatherType == Type::RAIN) {
-            p.velocity = glm::vec3(0.0f, -50.0f, 0.0f);  // Fast downward
+            p.velocity = glm::vec3(0.0f, 0.0f, -50.0f);  // Fast downward
             p.maxLifetime = 5.0f;
         } else if (weatherType == Type::STORM) {
             // Storm: faster, angled rain with wind
-            p.velocity = glm::vec3(15.0f, -70.0f, 8.0f);
+            p.velocity = glm::vec3(15.0f, 8.0f, -70.0f);
             p.maxLifetime = 3.5f;
         } else {  // SNOW
-            p.velocity = glm::vec3(0.0f, -5.0f, 0.0f);   // Slow downward
+            p.velocity = glm::vec3(0.0f, 0.0f, -5.0f);   // Slow downward
             p.maxLifetime = 10.0f;
         }
 
@@ -205,10 +205,10 @@ void Weather::updateParticle(Particle& particle, const glm::vec3& cameraPos, flo
     float distSq = glm::dot(toCamera, toCamera);
 
     if (particle.lifetime >= particle.maxLifetime || distSq > SPAWN_VOLUME_SIZE * SPAWN_VOLUME_SIZE ||
-        particle.position.y < cameraPos.y - 20.0f) {
+        particle.position.z < cameraPos.z - 20.0f) {
         // Respawn at top
         particle.position = getRandomPosition(cameraPos);
-        particle.position.y = cameraPos.y + SPAWN_HEIGHT;
+        particle.position.z = cameraPos.z + SPAWN_HEIGHT;
         particle.lifetime = 0.0f;
     }
 
@@ -217,13 +217,13 @@ void Weather::updateParticle(Particle& particle, const glm::vec3& cameraPos, flo
         float windX = std::sin(particle.lifetime * 0.5f) * 2.0f;
         float windZ = std::cos(particle.lifetime * 0.3f) * 2.0f;
         particle.velocity.x = windX;
-        particle.velocity.z = windZ;
+        particle.velocity.y = windZ;
     }
     // Storm: gusty, turbulent wind with varying direction
     if (weatherType == Type::STORM) {
         float gust = std::sin(particle.lifetime * 1.5f + particle.position.x * 0.1f) * 5.0f;
         particle.velocity.x = 15.0f + gust;
-        particle.velocity.z = 8.0f + std::cos(particle.lifetime * 2.0f) * 3.0f;
+        particle.velocity.y = 8.0f + std::cos(particle.lifetime * 2.0f) * 3.0f;
     }
 
     // Update position
@@ -292,14 +292,14 @@ void Weather::resetParticles(const Camera& camera) {
     for (int i = 0; i < particleCount; ++i) {
         Particle p;
         p.position = getRandomPosition(cameraPos);
-        p.position.y = cameraPos.y + SPAWN_HEIGHT * (weatherRandFloat());
+        p.position.z = cameraPos.z + SPAWN_HEIGHT * (weatherRandFloat());
         p.lifetime = 0.0f;
 
         if (weatherType == Type::RAIN) {
-            p.velocity = glm::vec3(0.0f, -50.0f, 0.0f);
+            p.velocity = glm::vec3(0.0f, 0.0f, -50.0f);
             p.maxLifetime = 5.0f;
         } else {  // SNOW
-            p.velocity = glm::vec3(0.0f, -5.0f, 0.0f);
+            p.velocity = glm::vec3(0.0f, 0.0f, -5.0f);
             p.maxLifetime = 10.0f;
         }
 
@@ -311,9 +311,12 @@ glm::vec3 Weather::getRandomPosition(const glm::vec3& center) const {
     // Reuse the shared weather RNG to avoid duplicate generator state
     static std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
 
+    // Z is up in this world: the box is spread over the ground plane, x and
+    // y. It was written for a y-up one, so the rain fell sideways along y and
+    // was spawned in a wall beside the camera rather than a sheet above it.
     float x = center.x + dist(weatherRng()) * SPAWN_VOLUME_SIZE;
-    float z = center.z + dist(weatherRng()) * SPAWN_VOLUME_SIZE;
-    float y = center.y;
+    float y = center.y + dist(weatherRng()) * SPAWN_VOLUME_SIZE;
+    float z = center.z;
 
     return glm::vec3(x, y, z);
 }

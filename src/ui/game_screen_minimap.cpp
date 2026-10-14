@@ -61,6 +61,9 @@
 
 #include <unordered_set>
 #include "core/local_time.hpp"
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 
 namespace {
     using namespace wowee::ui::colors;
@@ -2237,6 +2240,12 @@ void GameScreen::renderWeatherOverlay(game::GameHandler& gameHandler) {
     uint32_t wType     = gameHandler.getWeatherType();
     float    intensity = gameHandler.getWeatherIntensity();
     if (wType == 0 || intensity < 0.05f) return;
+#ifdef WOWEE_VR
+    // Streaks drawn over the screen are rain on the glass of a window. In a
+    // headset the screen is a panel floating in the world, and the world has
+    // its own rain falling round the player.
+    if (xr::system().stereoFrame()) return;
+#endif
 
     const ImGuiIO& io = ImGui::GetIO();
     float sw = io.DisplaySize.x;
