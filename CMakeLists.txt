@@ -1275,12 +1275,15 @@ if(WOWEE_VR)
     target_sources(wowee PRIVATE
         src/xr/xr_frame.cpp
         src/xr/xr_glow.cpp
+        src/xr/xr_hands.cpp
+        src/xr/xr_hand_renderer.cpp
         src/xr/xr_controls.cpp
         src/xr/xr_input.cpp
         src/xr/xr_platform.cpp
         src/xr/xr_renderer.cpp
         src/xr/xr_session.cpp
         src/xr/xr_system.cpp
+        include/xr/xr_hands.hpp
         include/xr/xr_platform.hpp
         include/xr/xr_system.hpp
     )

@@ -160,6 +160,7 @@ bool XrSystem::createSession(rendering::VkContext& ctx) {
     if (!createReferenceSpaces()) return giveUp("the runtime gave no local reference space");
     if (!createEyeSwapchains()) return giveUp("the eye swapchains could not be created");
     if (!createActions()) destroyActions();
+    createHandTrackers();
 
     LOG_WARNING("VR: session created");
     return true;
@@ -215,6 +216,7 @@ void XrSystem::destroySession() {
         endSession();
     }
     destroyEyeSwapchains();
+    destroyHandTrackers();
     destroyActions();
     if (localSpace_ != XR_NULL_HANDLE) xrDestroySpace(localSpace_);
     if (stageSpace_ != XR_NULL_HANDLE) xrDestroySpace(stageSpace_);

@@ -17,6 +17,7 @@
 #include "rendering/vk_context.hpp"
 #include "rendering/vk_utils.hpp"
 #include "xr/xr_glow.hpp"
+#include "xr/xr_hands.hpp"
 #include "xr/xr_system.hpp"
 
 #include <SDL3/SDL.h>
@@ -65,6 +66,9 @@ struct Renderer::VrEyes {
 
     // The glow added onto each eye before it goes to the headset.
     xr::EyeGlow glow;
+    // The player's hands, drawn at the end of each eye's pass.
+    xr::HandRenderer hands;
+    bool handsThisFrame = false;
 
     xr::StereoViews views;
     bool viewsValid = false;
@@ -78,6 +82,7 @@ void Renderer::vrDestroyEyes() {
         const VmaAllocator allocator = vkCtx->getAllocator();
         vkDeviceWaitIdle(device);
         vrEyes_->glow.destroy();
+        vrEyes_->hands.destroy();
         for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
             if (vrEyes_->framebuffer[eye]) vkDestroyFramebuffer(device, vrEyes_->framebuffer[eye], nullptr);
             destroyImage(device, allocator, vrEyes_->color[eye]);
@@ -213,6 +218,8 @@ bool Renderer::vrEnsureEyes() {
     // Without it the eyes are drawn as before, so a failure is only said.
     const VkImageView eyeViews[VrEyes::kEyeCount] = {vrEyes_->color[0].imageView, vrEyes_->color[1].imageView};
     vrEyes_->glow.create(vkCtx, wanted, vkCtx->getSwapchainFormat(), eyeViews);
+    // Nor without these: the eyes are drawn without hands.
+    vrEyes_->hands.create(vkCtx, vkCtx->getImGuiRenderPass());
     LOG_WARNING("VR: eye targets ", wanted.width, "x", wanted.height);
     return true;
 }
@@ -418,9 +425,35 @@ void Renderer::vrReplayWorldForEye(uint32_t eye) {
         const VkCommandBuffer buffer = (i == vrWorldSelectionAt_ && selection) ? selection : vrWorldCmds_[i];
         vkCmdExecuteCommands(currentCmd, 1, &buffer);
     }
+    vrRecordHands(eye, true);
     vkCmdEndRenderPass(currentCmd);
     vrEyes_->glow.record(currentCmd, eye, vrEyes_->color[eye].image, xr::system().glow());
     xr::system().recordEyeCopy(currentCmd, eye, vrEyes_->color[eye].image);
+}
+
+// The hands, last in an eye's pass, against the depth the world left: into a
+// buffer of their own where the pass takes only secondaries, or straight in.
+void Renderer::vrRecordHands(uint32_t eye, bool secondaryOnly) {
+    if (!vrEyes_->handsThisFrame) return;
+    const uint32_t frame = vkCtx->getCurrentFrame();
+    const xr::EyeView& view = vrEyes_->views.eye[eye];
+    const glm::mat4 viewProjection = view.projection * view.view;
+    if (secondaryOnly) {
+        const VkCommandBuffer hands =
+            vrEyes_->hands.recordSecondary(frame, eye, vkCtx->getImGuiRenderPass(), vrEyes_->framebuffer[eye],
+                                           vrEyes_->extent, viewProjection, view.position);
+        if (hands != VK_NULL_HANDLE) vkCmdExecuteCommands(currentCmd, 1, &hands);
+        return;
+    }
+    VkViewport viewport{};
+    viewport.width = static_cast<float>(vrEyes_->extent.width);
+    viewport.height = static_cast<float>(vrEyes_->extent.height);
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(currentCmd, 0, 1, &viewport);
+    VkRect2D scissor{};
+    scissor.extent = vrEyes_->extent;
+    vkCmdSetScissor(currentCmd, 0, 1, &scissor);
+    vrEyes_->hands.record(currentCmd, frame, viewProjection, view.position);
 }
 
 // The world, once per eye, before the window's own pass opens.
@@ -453,6 +486,14 @@ void Renderer::vrRenderEyes() {
     const bool shared = threaded && replayWanted;
     vrWorldShared_ = shared;
     const auto eyesStart = std::chrono::steady_clock::now();
+
+    // The hands are the same for both eyes; only the matrix they are seen by
+    // differs, and that is handed to each eye's draw.
+    vrEyes_->handsThisFrame =
+        xr::system().showHands() &&
+        vrEyes_->hands.prepare(frame, xr::system().handsInWorld(), glm::vec3(currentFrameData.lightDir),
+                               glm::vec3(currentFrameData.lightColor), glm::vec3(currentFrameData.ambientColor),
+                               xr::system().handTone());
 
     for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
         const xr::EyeView& view = vrEyes_->views.eye[eye];
@@ -542,6 +583,7 @@ void Renderer::vrRenderEyes() {
         }
 
         renderWorld(nullptr, vrGameHandler_);
+        vrRecordHands(eye, threaded);
 
         vkCmdEndRenderPass(currentCmd);
         if (threaded) swapSecondaries();

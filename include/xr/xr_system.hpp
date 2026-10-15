@@ -31,6 +31,7 @@
  */
 
 #include "xr/xr_controls.hpp"
+#include "xr/xr_hands.hpp"
 #include <glm/glm.hpp>
 #include <openxr/openxr.h>
 #include <vulkan/vulkan.h>
@@ -279,6 +280,17 @@ public:
     void setGlow(float strength) { glow_ = strength < 0.0f ? 0.0f : (strength > 1.0f ? 1.0f : strength); }
     [[nodiscard]] float glow() const { return glow_; }
 
+    // --- Hands ---
+
+    /// Where the player's hands are this frame, placed in the world by the
+    /// last stereoViews. Untracked hands are left out; see HandPoses.
+    [[nodiscard]] const HandPoses& handsInWorld() const { return handsInWorld_; }
+    /// Whether the hands are drawn, and the colour of their skin: 0 pale, 1 dark.
+    void setShowHands(bool show) { showHands_ = show; }
+    [[nodiscard]] bool showHands() const { return showHands_; }
+    void setHandTone(float tone) { handTone_ = tone < 0.0f ? 0.0f : (tone > 1.0f ? 1.0f : tone); }
+    [[nodiscard]] float handTone() const { return handTone_; }
+
     /// Where the panel stands, from the settings page. A value the environment
     /// set at start is left alone: that is how one is tried without saving it.
     void setPanelPlacement(PanelFollow follow, float distanceMetres, float widthMetres);
@@ -312,6 +324,13 @@ private:
     /// When the frame last begun is to be shown; 0 before the first.
     [[nodiscard]] XrTime frameTime() const;
     void logInteractionProfile();
+    // The hand trackers (XR_EXT_hand_tracking); xr_hands.cpp. Without the
+    // extension there are none and no hands are drawn.
+    void enableHandTrackingExtensions(std::vector<const char*>& enabled);
+    void createHandTrackers();
+    void destroyHandTrackers();
+    void locateHands(XrTime time);
+    void placeHands(const glm::mat4& trackingToWorld);
     void beginSession();
     void endSession();
     void onSessionStateChanged(XrSessionState newState);
@@ -333,6 +352,11 @@ private:
     float worldScale_ = 1.0f;
     float eyeHeightOffset_ = 0.0f;
     float glow_ = 0.8f;
+    bool showHands_ = true;
+    float handTone_ = 0.5f;
+    struct HandData;
+    HandData* hands_ = nullptr;  // null without hand tracking
+    HandPoses handsInWorld_;
     /// Yards of the world to a metre of the room.
     [[nodiscard]] float yardsPerMetre() const { return 1.0f / (0.9144f * worldScale_); }
     int vignetteLevel_ = 1;

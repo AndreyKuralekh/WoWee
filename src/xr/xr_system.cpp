@@ -134,6 +134,7 @@ bool XrSystem::createInstance() {
             return false;
         }
     }
+    enableHandTrackingExtensions(enabled);
 
     XrInstanceCreateInfo createInfo{};
     createInfo.type = XR_TYPE_INSTANCE_CREATE_INFO;

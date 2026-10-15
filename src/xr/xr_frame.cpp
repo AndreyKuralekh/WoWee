@@ -395,6 +395,14 @@ bool XrSystem::stereoViews(const glm::vec3& characterEyes, float referenceYawDeg
     wide.angleUp = std::max(f.views[0].fov.angleUp, f.views[1].fov.angleUp) + kMargin;
     place(centre, out.center);
     out.center.projection = project(wide);
+
+    // The same placing as a matrix, for the hands: a pose in the tracking
+    // space, in metres, to the world in yards.
+    glm::mat4 trackingToWorld(basis);
+    trackingToWorld[3] = glm::vec4(referencePosition, 1.0f);
+    trackingToWorld = trackingToWorld * glm::scale(glm::mat4(1.0f), glm::vec3(kYardsPerMetre)) *
+                      glm::mat4_cast(recentre) * glm::translate(glm::mat4(1.0f), -headOrigin_);
+    placeHands(trackingToWorld);
     return true;
 }
 
@@ -502,6 +510,7 @@ void XrSystem::beginFrame() {
         f.shouldRender = false;
         return;
     }
+    locateHands(f.displayTime);
 
     // The pointer is the system's, and the system's is not in the picture;
     // drawPointer draws one that is.
