@@ -1341,14 +1341,18 @@ void WMORenderer::removeInstances(const std::vector<uint32_t>& instanceIds) {
 
     std::unordered_set<uint32_t> toRemove(instanceIds.begin(), instanceIds.end());
     if (m2Renderer_) {
+        // One batch: removeInstance() rescans every M2 instance per call, and
+        // a big WMO carries hundreds of doodads.
+        std::vector<uint32_t> doodadIds;
         for (const auto& inst : instances) {
             if (toRemove.find(inst.id) == toRemove.end()) {
                 continue;
             }
             for (const auto& doodad : inst.doodads) {
-                m2Renderer_->removeInstance(doodad.m2InstanceId);
+                doodadIds.push_back(doodad.m2InstanceId);
             }
         }
+        m2Renderer_->removeInstances(doodadIds);
     }
 
     const size_t oldSize = instances.size();

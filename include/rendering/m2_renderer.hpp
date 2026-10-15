@@ -1031,6 +1031,9 @@ private:
     CollisionFocus collisionFocus;
 
     void rebuildSpatialIndex();
+    // The per-kind index lists only (smoke, portals, animated, ...), after
+    // instances were swap-removed; leaves the grid and the id map alone.
+    void rebuildAuxIndices();
     void gatherCandidates(const glm::vec3& queryMin, const glm::vec3& queryMax, std::vector<size_t>& outIndices) const;
 
     SpatialGrid spatialGrid;

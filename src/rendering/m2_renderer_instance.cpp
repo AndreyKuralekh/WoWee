@@ -283,6 +283,10 @@ void M2Renderer::removeInstance(uint32_t instanceId) {
         instances.pop_back();
     }
 
+    rebuildAuxIndices();
+}
+
+void M2Renderer::rebuildAuxIndices() {
     // Rebuild the lightweight auxiliary index vectors (smoke, portal, etc.)
     // These are small vectors of indices that are rebuilt cheaply.
     smokeInstanceIndices_.clear();
@@ -333,22 +337,60 @@ void M2Renderer::removeInstances(const std::vector<uint32_t>& instanceIds) {
         return;
     }
 
-    std::unordered_set<uint32_t> toRemove(instanceIds.begin(), instanceIds.end());
-    const size_t oldSize = instances.size();
-    for (auto& inst : instances) {
-        if (toRemove.count(inst.id)) {
-            destroyInstanceBones(inst, /*defer=*/true);
-        }
-    }
-    instances.erase(std::remove_if(instances.begin(), instances.end(),
-                   [&toRemove](const M2Instance& inst) {
-                       return toRemove.find(inst.id) != toRemove.end();
-                   }),
-                   instances.end());
+    // Taken out of the indexes one by one rather than by rebuilding them: a
+    // tile unload removes a thousand instances out of tens of thousands, and
+    // the full rebuild cost ~100 ms per unloaded tile with a wide view.
+    std::unordered_set<uint32_t> toRemove;
+    std::unordered_set<GridCell, GridCellHash> touchedCells;
+    for (uint32_t id : instanceIds) {
+        auto idxIt = instanceIndexById.find(id);
+        if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) continue;
+        auto& inst = instances[idxIt->second];
+        if (!toRemove.insert(id).second) continue;
 
-    if (instances.size() != oldSize) {
-        rebuildSpatialIndex();
+        const GridCell minCell = toSpatialCell(inst.worldBoundsMin);
+        const GridCell maxCell = toSpatialCell(inst.worldBoundsMax);
+        for (int z = minCell.z; z <= maxCell.z; z++)
+            for (int y = minCell.y; y <= maxCell.y; y++)
+                for (int x = minCell.x; x <= maxCell.x; x++)
+                    touchedCells.insert(GridCell{.x = x, .y = y, .z = z});
+
+        if (!inst.cachedIsGroundDetail) {
+            DedupKey dk{.modelId = inst.modelId,
+                        .qx = static_cast<int32_t>(std::round(inst.position.x * 10.0f)),
+                        .qy = static_cast<int32_t>(std::round(inst.position.y * 10.0f)),
+                        .qz = static_cast<int32_t>(std::round(inst.position.z * 10.0f))};
+            auto dit = instanceDedupMap_.find(dk);
+            if (dit != instanceDedupMap_.end() && dit->second == id) instanceDedupMap_.erase(dit);
+        }
+        destroyInstanceBones(inst, /*defer=*/true);
     }
+    if (toRemove.empty()) return;
+
+    for (const GridCell& cell : touchedCells) {
+        auto it = spatialGrid.find(cell);
+        if (it == spatialGrid.end()) continue;
+        auto& ids = it->second;
+        ids.erase(std::remove_if(ids.begin(), ids.end(),
+                                 [&toRemove](uint32_t id) { return toRemove.count(id) != 0; }),
+                  ids.end());
+    }
+
+    // Swap-remove, as removeInstance() does: order carries no meaning, and
+    // only the instances moved into the holes need their index refiled.
+    for (uint32_t id : toRemove) {
+        auto idxIt = instanceIndexById.find(id);
+        if (idxIt == instanceIndexById.end()) continue;
+        const size_t idx = idxIt->second;
+        instanceIndexById.erase(idxIt);
+        if (idx + 1 < instances.size()) {
+            const uint32_t movedId = instances.back().id;
+            instances[idx] = std::move(instances.back());
+            instanceIndexById[movedId] = idx;
+        }
+        instances.pop_back();
+    }
+    rebuildAuxIndices();
 }
 
 void M2Renderer::clear() {
