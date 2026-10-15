@@ -26,6 +26,10 @@ constexpr uint32_t kHandJointCount = 26;
 struct HandPoses {
     bool tracked[2] = {false, false};
     std::array<glm::mat4, kHandJointCount> joint[2]{};
+    /// Driven by a held controller rather than seen: the runtime's hand is a
+    /// stock one, flat and splayed, and the renderer gives it the model's own
+    /// proportions and a resting curl (see HandRenderer::prepare).
+    bool onController[2] = {false, false};
     /// The tracking space in the world. Only its turn is used: it takes the
     /// sun's direction into the tracking space.
     glm::mat4 trackingToWorld{1.0f};
@@ -87,6 +91,8 @@ private:
         std::array<uint32_t, kModelJoints> xrJoint{};
         std::array<glm::mat4, kModelJoints> inverseBind{};
         std::array<glm::mat4, kModelJoints> bindPose{};
+        // Each bone's length in the model, by the OpenXR joint at its end.
+        std::array<float, kHandJointCount> boneLength{};
     };
     bool loadMesh(uint32_t hand, const char* path);
 

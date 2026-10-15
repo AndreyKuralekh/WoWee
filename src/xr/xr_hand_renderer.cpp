@@ -13,6 +13,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <fstream>
@@ -144,6 +145,51 @@ private:
     size_t binLength_ = 0;
 };
 
+// The joint a joint hangs from: the wrist for each metacarpal, the joint
+// before it along the finger otherwise. The palm hangs from nothing.
+uint32_t parentJoint(uint32_t joint) {
+    switch (joint) {
+        case 2: case 6: case 11: case 16: case 21: return 1;
+        default: return joint - 1;
+    }
+}
+
+// The runtime's joints moved to the model's own bone lengths, each bone kept
+// pointing where the runtime has it. A controller's stock hand is not the
+// model's: its thumb, stretched over by the skin, came out half as long
+// again as a real one.
+void fitBones(std::array<glm::mat4, kHandJointCount>& joints, const std::array<float, kHandJointCount>& length) {
+    std::array<glm::vec3, kHandJointCount> was{};
+    for (uint32_t j = 0; j < kHandJointCount; ++j) was[j] = glm::vec3(joints[j][3]);
+    for (uint32_t j = 2; j < kHandJointCount; ++j) {
+        const uint32_t parent = parentJoint(j);
+        const glm::vec3 bone = was[j] - was[parent];
+        if (glm::length(bone) < 1e-5f || length[j] <= 0.0f) continue;
+        joints[j][3] = glm::vec4(glm::vec3(joints[parent][3]) + glm::normalize(bone) * length[j], 1.0f);
+    }
+}
+
+// Draws the four fingers in towards their metacarpals: a controller's stock
+// hand spreads them like a fan, and a hand round a grip holds them together.
+// What is kept of the spread, at the knuckle.
+constexpr float kSpreadKept = 0.3f;
+void gatherFingers(std::array<glm::mat4, kHandJointCount>& joints) {
+    for (const uint32_t metacarpal : {6u, 11u, 16u, 21u}) {
+        const uint32_t knuckle = metacarpal + 1;
+        const uint32_t tip = metacarpal + 4;
+        // The finger's direction in the metacarpal's frame: -Z ahead, +X to
+        // the side. A turn about Y by an angle takes that much of it off.
+        const glm::vec3 along = glm::transpose(glm::mat3(joints[metacarpal])) * -glm::vec3(joints[knuckle][2]);
+        const float spread = std::atan2(along.x, -along.z);
+        const float turnBy = spread * (1.0f - kSpreadKept);
+        const glm::vec3 pivot(joints[knuckle][3]);
+        const glm::mat4 turn = glm::translate(glm::mat4(1.0f), pivot) *
+                               glm::rotate(glm::mat4(1.0f), turnBy, glm::normalize(glm::vec3(joints[metacarpal][1]))) *
+                               glm::translate(glm::mat4(1.0f), -pivot);
+        for (uint32_t m = knuckle; m <= tip; ++m) joints[m] = turn * joints[m];
+    }
+}
+
 glm::mat4 nodeLocal(const nlohmann::json& node) {
     if (node.contains("matrix")) {
         std::vector<float> m = node["matrix"].get<std::vector<float>>();
@@ -247,6 +293,9 @@ bool HandRenderer::loadMesh(uint32_t hand, const char* path) {
         mesh.inverseBind[i] = glm::make_mat4(inverseBind.data() + i * 16);
         mesh.bindPose[i] = global(node);
     }
+    std::array<glm::vec3, kHandJointCount> bound{};
+    for (uint32_t i = 0; i < kModelJoints; ++i) bound[mesh.xrJoint[i]] = glm::vec3(mesh.bindPose[i][3]);
+    for (uint32_t j = 2; j < kHandJointCount; ++j) mesh.boneLength[j] = glm::length(bound[j] - bound[parentJoint(j)]);
 
     const size_t vertexCount = positions.size() / 3;
     if (normals.size() != vertexCount * 3 || joints.size() != vertexCount * 4 || weights.size() != vertexCount * 4) {
@@ -460,16 +509,22 @@ bool HandRenderer::prepare(uint32_t frame, const HandPoses& poses, const glm::ve
         draw_[frame][hand] = poses.tracked[hand] || poses.fake;
         if (!draw_[frame][hand]) continue;
         any = true;
-        // Without a headset, the model's own pose held in front of the eyes,
-        // relaxed as a hand on a controller is.
-        std::array<glm::mat4, kHandJointCount> fake{};
-        if (!poses.tracked[hand]) {
+        // Without a headset, the model's own pose held in front of the eyes.
+        std::array<glm::mat4, kHandJointCount> joints{};
+        if (poses.tracked[hand]) {
+            joints = poses.joint[hand];
+        } else {
             for (uint32_t i = 0; i < kModelJoints; ++i) {
-                fake[mesh.xrJoint[i]] = fakePlacement(hand) * mesh.bindPose[i];
+                joints[mesh.xrJoint[i]] = fakePlacement(hand) * mesh.bindPose[i];
             }
-            relaxHand(fake);
         }
-        const auto& joints = poses.tracked[hand] ? poses.joint[hand] : fake;
+        // A hand round a controller, or the stand-in for one: the model's
+        // proportions, the fingers together and curled as at rest.
+        if (poses.onController[hand] || !poses.tracked[hand]) {
+            fitBones(joints, mesh.boneLength);
+            gatherFingers(joints);
+            relaxHand(joints);
+        }
         for (uint32_t i = 0; i < kModelJoints; ++i) {
             // Where the joint is now, from where it was when the mesh was bound to it.
             uniforms->skin[hand * kModelJoints + i] = joints[mesh.xrJoint[i]] * mesh.inverseBind[i];

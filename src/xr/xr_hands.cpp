@@ -171,7 +171,7 @@ void XrSystem::placeHands(const glm::mat4& trackingToWorld) {
             local[3] = glm::vec4(pose.position.x, pose.position.y, pose.position.z, 1.0f);
             handsInWorld_.joint[hand][j] = local;
         }
-        if (hands_->fromController[hand]) relaxHand(handsInWorld_.joint[hand]);
+        handsInWorld_.onController[hand] = hands_->fromController[hand];
     }
 }
 
