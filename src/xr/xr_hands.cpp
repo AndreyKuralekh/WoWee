@@ -185,11 +185,11 @@ void relaxHand(std::array<glm::mat4, kHandJointCount>& joints) {
         float leastBend[3];
     };
     static constexpr Finger kFingers[] = {
-        {2, 4, {10.0f, 15.0f, 0.0f}},     // thumb: proximal, distal
-        {6, 5, {24.0f, 30.0f, 12.0f}},    // index
-        {11, 5, {30.0f, 36.0f, 14.0f}},   // middle
-        {16, 5, {35.0f, 40.0f, 15.0f}},   // ring
-        {21, 5, {40.0f, 42.0f, 15.0f}},   // little
+        {2, 4, {13.0f, 20.0f, 0.0f}},     // thumb: proximal, distal
+        {6, 5, {32.0f, 40.0f, 16.0f}},    // index
+        {11, 5, {39.0f, 47.0f, 18.0f}},   // middle
+        {16, 5, {45.0f, 52.0f, 20.0f}},   // ring
+        {21, 5, {52.0f, 55.0f, 20.0f}},   // little
     };
     for (const Finger& finger : kFingers) {
         const uint32_t tip = finger.first + finger.count - 1;
