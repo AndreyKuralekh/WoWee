@@ -460,12 +460,19 @@ bool HandRenderer::prepare(uint32_t frame, const HandPoses& poses, const glm::ve
         draw_[frame][hand] = poses.tracked[hand] || poses.fake;
         if (!draw_[frame][hand]) continue;
         any = true;
+        // Without a headset, the model's own pose held in front of the eyes,
+        // relaxed as a hand on a controller is.
+        std::array<glm::mat4, kHandJointCount> fake{};
+        if (!poses.tracked[hand]) {
+            for (uint32_t i = 0; i < kModelJoints; ++i) {
+                fake[mesh.xrJoint[i]] = fakePlacement(hand) * mesh.bindPose[i];
+            }
+            relaxHand(fake);
+        }
+        const auto& joints = poses.tracked[hand] ? poses.joint[hand] : fake;
         for (uint32_t i = 0; i < kModelJoints; ++i) {
-            // Where the joint is now, from where it was when the mesh was bound
-            // to it; held still without a headset.
-            const glm::mat4 joint = poses.tracked[hand] ? poses.joint[hand][mesh.xrJoint[i]]
-                                                        : fakePlacement(hand) * mesh.bindPose[i];
-            uniforms->skin[hand * kModelJoints + i] = joint * mesh.inverseBind[i];
+            // Where the joint is now, from where it was when the mesh was bound to it.
+            uniforms->skin[hand * kModelJoints + i] = joints[mesh.xrJoint[i]] * mesh.inverseBind[i];
         }
     }
     if (!any) return false;

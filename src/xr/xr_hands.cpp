@@ -14,6 +14,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <cmath>
+
 namespace wowee::xr {
 
 struct XrSystem::HandData {
@@ -24,6 +26,7 @@ struct XrSystem::HandData {
     std::array<XrHandJointLocationEXT, kHandJointCount> joints[2]{};
     bool located[2] = {false, false};
     bool loggedSource[2] = {false, false};
+    bool fromController[2] = {false, false};
 };
 
 namespace {
@@ -144,6 +147,8 @@ void XrSystem::locateHands(XrTime time) {
             }
         }
         hands_->located[hand] = complete;
+        hands_->fromController[hand] = dataSourceWanted && sourceState.isActive &&
+                                       sourceState.dataSource == XR_HAND_TRACKING_DATA_SOURCE_CONTROLLER_EXT;
         if (debug_ && complete && dataSourceWanted && !hands_->loggedSource[hand] && sourceState.isActive) {
             LOG_WARNING("VR: ", hand == 0 ? "left" : "right", " hand tracked from ",
                         sourceState.dataSource == XR_HAND_TRACKING_DATA_SOURCE_CONTROLLER_EXT ? "the controller"
@@ -165,6 +170,46 @@ void XrSystem::placeHands(const glm::mat4& trackingToWorld) {
                 glm::quat(pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z));
             local[3] = glm::vec4(pose.position.x, pose.position.y, pose.position.z, 1.0f);
             handsInWorld_.joint[hand][j] = local;
+        }
+        if (hands_->fromController[hand]) relaxHand(handsInWorld_.joint[hand]);
+    }
+}
+
+void relaxHand(std::array<glm::mat4, kHandJointCount>& joints) {
+    // Each finger from its metacarpal to its tip, and the least bend of each
+    // joint that bends, in degrees, from the knuckle out. The outer fingers
+    // curl more than the index, as a hand at rest does.
+    struct Finger {
+        uint32_t first;
+        uint32_t count;
+        float leastBend[3];
+    };
+    static constexpr Finger kFingers[] = {
+        {2, 4, {10.0f, 15.0f, 0.0f}},     // thumb: proximal, distal
+        {6, 5, {24.0f, 30.0f, 12.0f}},    // index
+        {11, 5, {30.0f, 36.0f, 14.0f}},   // middle
+        {16, 5, {35.0f, 40.0f, 15.0f}},   // ring
+        {21, 5, {40.0f, 42.0f, 15.0f}},   // little
+    };
+    for (const Finger& finger : kFingers) {
+        const uint32_t tip = finger.first + finger.count - 1;
+        for (uint32_t k = 1; k + 1 < finger.count; ++k) {
+            const uint32_t parent = finger.first + k - 1;
+            const uint32_t joint = finger.first + k;
+            // How far this bone already turns towards the palm from the one
+            // before it: its direction in the parent's frame, -Z ahead, -Y
+            // the palm side.
+            const glm::vec3 along = glm::transpose(glm::mat3(joints[parent])) * -glm::vec3(joints[joint][2]);
+            const float bend = std::atan2(-along.y, -along.z);
+            const float more = glm::radians(finger.leastBend[k - 1]) - bend;
+            if (more <= 0.0f) continue;
+            // Turned about the joint's own X, at the joint, with everything
+            // beyond it. A negative turn about X takes -Z towards -Y.
+            const glm::vec3 pivot(joints[joint][3]);
+            const glm::mat4 turn = glm::translate(glm::mat4(1.0f), pivot) *
+                                   glm::rotate(glm::mat4(1.0f), -more, glm::normalize(glm::vec3(joints[joint][0]))) *
+                                   glm::translate(glm::mat4(1.0f), -pivot);
+            for (uint32_t m = joint; m <= tip; ++m) joints[m] = turn * joints[m];
         }
     }
 }

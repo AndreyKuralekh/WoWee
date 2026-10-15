@@ -34,6 +34,13 @@ struct HandPoses {
     bool fake = false;
 };
 
+/// Bends each finger joint to at least the curl of a hand at rest. A hand
+/// round a controller is never flat, but runtimes report the fingers of an
+/// idle controller straight out; where the runtime bends one further - the
+/// grip squeezed - its pose is kept. Joints as OpenXR orders them, -Z along
+/// the bone and +Y the back of the hand.
+void relaxHand(std::array<glm::mat4, kHandJointCount>& joints);
+
 /// The player's hands, drawn into each eye after the world and against its
 /// depth, so that a wall in front of a hand hides it.
 ///
