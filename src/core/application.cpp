@@ -4199,6 +4199,62 @@ void Application::render() {
                     }
                 }
 
+#ifdef WOWEE_VR
+                // The headset shows the action bar and the target frame again
+                // on the wrist, cut out of the interface's own picture: it is
+                // told where they are. The bar is every visible button of the
+                // bars along the bottom, so it is as wide as what is shown.
+                if (xr::system().stereoFrame()) {
+                    struct Named {
+                        std::string name;
+                        uint32_t id = 0;
+                        uint32_t missedAt = 0;  // frame of the last failed search
+                    };
+                    static std::vector<Named> barButtons;
+                    static std::vector<Named> targetFrames;
+                    static uint32_t frameCount = 0;
+                    ++frameCount;
+                    if (barButtons.empty()) {
+                        for (const char* prefix : {"ActionButton", "MultiBarBottomLeftButton",
+                                                   "MultiBarBottomRightButton"}) {
+                            for (int i = 1; i <= 12; ++i) barButtons.push_back({prefix + std::to_string(i)});
+                        }
+                        targetFrames = {{"TargetFrame"}, {"TargetFrameToT"}};
+                    }
+                    // A name that is not there is looked for again now and
+                    // then, not every frame: the search walks every widget.
+                    const auto find = [&](Named& n) -> ui::Widget* {
+                        ui::Widget* w = n.id ? widgets.get(n.id) : nullptr;
+                        if (w && w->name == n.name) return w;
+                        if (n.missedAt != 0 && frameCount - n.missedAt < 120) return nullptr;
+                        w = widgets.findByName(n.name);
+                        n.id = w ? w->id : 0;
+                        n.missedAt = w ? 0 : frameCount;
+                        return w;
+                    };
+                    const float sc = widgets.uiScale();
+                    const auto unionOf = [&](std::vector<Named>& names) {
+                        float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+                        for (Named& n : names) {
+                            const ui::Widget* w = find(n);
+                            if (!w || !w->visible || w->rectW <= 0.0f || w->rectH <= 0.0f) continue;
+                            const float top = io.DisplaySize.y - (w->bottom + w->rectH) * sc;
+                            x0 = std::min(x0, w->left * sc);
+                            y0 = std::min(y0, top);
+                            x1 = std::max(x1, (w->left + w->rectW) * sc);
+                            y1 = std::max(y1, top + w->rectH * sc);
+                        }
+                        // A few pixels of margin, so a button's edge is not cut.
+                        constexpr float kMargin = 3.0f;
+                        return x1 > x0 ? glm::vec4(x0 - kMargin, y0 - kMargin, x1 - x0 + 2.0f * kMargin,
+                                                   y1 - y0 + 2.0f * kMargin)
+                                       : glm::vec4(0.0f);
+                    };
+                    xr::system().setHandPanelRects(unionOf(barButtons), unionOf(targetFrames), io.DisplaySize.x,
+                                                   io.DisplaySize.y);
+                }
+#endif
+
                 if (auto* map = renderer->getMinimap()) {
                     ui::Widget* mm = minimapWidgetId_
                         ? widgets.get(minimapWidgetId_) : nullptr;

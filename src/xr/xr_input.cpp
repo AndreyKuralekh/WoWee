@@ -437,6 +437,11 @@ bool XrSystem::aimRay(XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& d
     return true;
 }
 
+XrSpace XrSystem::offHandSpace() const {
+    if (!input_) return XR_NULL_HANDLE;
+    return leftHanded_ ? input_->aimSpace : input_->aimLeftSpace;
+}
+
 // Which way the hand that does not point - the left, unless the player is
 // left-handed - points round the vertical, as headYaw_ is measured. False
 // while it is not tracked or points nearly straight up or down, which says
@@ -501,25 +506,51 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
     glm::vec3 origin;
     glm::vec3 direction;
     const bool focused = window && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
-    if (focused && panelQuad(space, quad, size) && aimRay(space, frameTime(), origin, direction)) {
-        const glm::quat turn(quad.orientation.w, quad.orientation.x, quad.orientation.y, quad.orientation.z);
-        const glm::vec3 centre(quad.position.x, quad.position.y, quad.position.z);
+    int windowWidth = 0;
+    int windowHeight = 0;
+    if (window) SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+    // Where the ray meets a sheet, from its front: how far along the ray, and
+    // where on the sheet from its top left, 0 to 1 across each side.
+    const auto meet = [&](const XrPosef& sheet, const XrExtent2Df& extent, float& distance, glm::vec2& uv) {
+        const glm::quat turn(sheet.orientation.w, sheet.orientation.x, sheet.orientation.y, sheet.orientation.z);
+        const glm::vec3 centre(sheet.position.x, sheet.position.y, sheet.position.z);
         const glm::vec3 normal = turn * glm::vec3(0.0f, 0.0f, 1.0f);
         // From the front only, and not along the sheet.
         const float closing = glm::dot(direction, normal);
-        const float distance = closing < -0.05f ? glm::dot(centre - origin, normal) / closing : 0.0f;
-        if (distance > 0.0f) {
-            const glm::vec3 hit = origin + direction * distance - centre;
-            const float u = glm::dot(hit, turn * glm::vec3(1.0f, 0.0f, 0.0f)) / size.width + 0.5f;
-            const float v = 0.5f - glm::dot(hit, turn * glm::vec3(0.0f, 1.0f, 0.0f)) / size.height;
-            int w = 0;
-            int h = 0;
-            SDL_GetWindowSize(window, &w, &h);
-            if (u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f && w > 0 && h > 0) {
-                onPanel = true;
-                if (overUi || !inWorld) in.beamLength = distance;
-                at = glm::vec2(u * static_cast<float>(w - 1), v * static_cast<float>(h - 1));
+        distance = closing < -0.05f ? glm::dot(centre - origin, normal) / closing : 0.0f;
+        if (distance <= 0.0f) return false;
+        const glm::vec3 hit = origin + direction * distance - centre;
+        uv.x = glm::dot(hit, turn * glm::vec3(1.0f, 0.0f, 0.0f)) / extent.width + 0.5f;
+        uv.y = 0.5f - glm::dot(hit, turn * glm::vec3(0.0f, 1.0f, 0.0f)) / extent.height;
+        return uv.x >= 0.0f && uv.x <= 1.0f && uv.y >= 0.0f && uv.y <= 1.0f;
+    };
+    // The panels on the wrist first: they are nearer, and stand in front of
+    // the big one. A point on one is a point in its part of the window.
+    if (focused && inWorld && windowWidth > 0 && windowHeight > 0) {
+        for (uint32_t which = 0; which < 2 && !onPanel; ++which) {
+            XrRect2Di crop{};
+            float distance = 0.0f;
+            glm::vec2 uv(0.0f);
+            if (!handPanelQuad(which, space, quad, size, crop) || !aimRay(space, frameTime(), origin, direction) ||
+                !meet(quad, size, distance, uv)) {
+                continue;
             }
+            const glm::vec4& rect = handPanelRect_[which];
+            const glm::vec2 window(static_cast<float>(windowWidth), static_cast<float>(windowHeight));
+            const glm::vec2 scale = window / handPanelWindow_;
+            onPanel = true;
+            in.beamLength = distance;
+            at = (glm::vec2(rect.x, rect.y) + uv * glm::vec2(rect.z, rect.w)) * scale;
+            at = glm::clamp(at, glm::vec2(0.0f), window - 1.0f);
+        }
+    }
+    if (!onPanel && focused && panelQuad(space, quad, size) && aimRay(space, frameTime(), origin, direction)) {
+        float distance = 0.0f;
+        glm::vec2 uv(0.0f);
+        if (meet(quad, size, distance, uv) && windowWidth > 0 && windowHeight > 0) {
+            onPanel = true;
+            if (overUi || !inWorld) in.beamLength = distance;
+            at = glm::vec2(uv.x * static_cast<float>(windowWidth - 1), uv.y * static_cast<float>(windowHeight - 1));
         }
     }
 

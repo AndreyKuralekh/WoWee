@@ -303,6 +303,19 @@ public:
     /// runtime blends even the world's layer by it.
     void recordHandsCopy(VkCommandBuffer cmd, uint32_t eye, VkImage image);
 
+    // --- Panels on the hand ---
+
+    /// Where the action bar and the target frame are in the window: x, y from
+    /// its top left, width, height, in the pixels the pointer works in; a
+    /// width of 0 when the frame is not shown. Said every frame from the
+    /// interface's layout. Both are cut out of the panel and shown again on
+    /// the wrist of the hand that does not point, where the ray can reach
+    /// them without looking away from the world.
+    void setHandPanelRects(const glm::vec4& actionBar, const glm::vec4& target, float windowWidth,
+                           float windowHeight);
+    void setHandPanels(bool on) { handPanels_ = on; }
+    void setHandPanelSize(float scale) { handPanelSize_ = scale < 0.5f ? 0.5f : (scale > 2.0f ? 2.0f : scale); }
+
     /// Where the panel stands, from the settings page. A value the environment
     /// set at start is left alone: that is how one is tried without saving it.
     void setPanelPlacement(PanelFollow follow, float distanceMetres, float widthMetres);
@@ -333,6 +346,13 @@ private:
     /// Where the panel stands: the space it is placed in, its pose there and
     /// its size in metres. False before there is a panel.
     [[nodiscard]] bool panelQuad(XrSpace& space, XrPosef& pose, XrExtent2Df& size) const;
+    /// A panel on the hand: 0 the action bar, 1 the target frame. The space is
+    /// the off hand's own, so the compositor keeps it on the hand; `crop` is
+    /// the part of the panel's image it shows. False while it is not shown.
+    [[nodiscard]] bool handPanelQuad(uint32_t which, XrSpace& space, XrPosef& pose, XrExtent2Df& size,
+                                     XrRect2Di& crop) const;
+    /// The hand that does not point, as an action space; null without one.
+    [[nodiscard]] XrSpace offHandSpace() const;
     /// When the frame last begun is to be shown; 0 before the first.
     [[nodiscard]] XrTime frameTime() const;
     void logInteractionProfile();
@@ -366,6 +386,10 @@ private:
     float glow_ = 0.8f;
     bool showHands_ = true;
     float handTone_ = 0.5f;
+    bool handPanels_ = true;
+    float handPanelSize_ = 1.0f;
+    glm::vec4 handPanelRect_[2]{};  // the action bar, the target frame; window pixels
+    glm::vec2 handPanelWindow_{0.0f};
     struct HandData;
     HandData* hands_ = nullptr;  // null without hand tracking
     HandPoses handsInWorld_;
