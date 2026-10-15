@@ -250,6 +250,8 @@ public:
     float pendingVrGlow = 0.8f;             // glow over the eyes, 0 none - see xr::EyeGlow
     bool pendingVrHands = true;             // the player's hands drawn in the world
     float pendingVrHandTone = 0.5f;         // their skin, 0 pale to 1 dark
+    bool pendingVrHandPanels = true;        // the action bar and the target frame on the wrist
+    float pendingVrHandPanelSize = 1.0f;    // how big they are there
     float pendingVrShine = 0.0f;            // sun highlights on buildings, 1 = the flat client's
     int pendingPOMQuality = 1;          // 0=Low(16), 1=Medium(32), 2=High(64)
     bool pendingFSR = false;

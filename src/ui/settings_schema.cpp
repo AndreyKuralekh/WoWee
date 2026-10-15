@@ -1000,6 +1000,13 @@ constexpr SettingDesc kSchema[] = {
      "headset's cameras take over, if hand tracking is on.", "", 1},
     {"vrhandtone", "Hand skin tone", SettingKind::Float, 0.0f, 1.0f, 0.05f, "VR comfort", "Hands",
      "The colour of your hands' skin, from pale (0) to dark (1).", "", 0.5f},
+    {"vrhandpanels", "Action bar on the wrist", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
+     "The action bar, and the target frame when you have a target,\n"
+     "on the wrist of the hand that does not point, like a watch.\n"
+     "Point at a button and pull the trigger. They stay on the big\n"
+     "panel as well.", "", 1},
+    {"vrhandpanelsize", "Wrist panel size", SettingKind::Float, 0.5f, 2.0f, 0.05f, "VR comfort", "Hands",
+     "How big the panels on the wrist are. 1 is a hand's span wide.", "", 1.0f},
 
     // What the controllers' buttons do. Not fields of the settings panel: the
     // VR module keeps the table (xr_controls.cpp) in vr_controls.cfg, and the
