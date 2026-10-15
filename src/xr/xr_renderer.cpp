@@ -427,7 +427,8 @@ void Renderer::vrReplayWorldForEye(uint32_t eye) {
     }
     vrRecordHands(eye, true);
     vkCmdEndRenderPass(currentCmd);
-    vrEyes_->glow.record(currentCmd, eye, vrEyes_->color[eye].image, xr::system().glow());
+    if (vrEyes_->handsThisFrame) xr::system().recordHandsCopy(currentCmd, eye, vrEyes_->color[eye].image);
+    vrEyes_->glow.record(currentCmd, eye, vrEyes_->color[eye].image, xr::system().glow(), vrEyes_->handsThisFrame);
     xr::system().recordEyeCopy(currentCmd, eye, vrEyes_->color[eye].image);
 }
 
@@ -493,7 +494,6 @@ void Renderer::vrRenderEyes() {
         vrEyes_->hands.prepare(frame, xr::system().handsInWorld(), glm::vec3(currentFrameData.lightDir),
                                glm::vec3(currentFrameData.lightColor), glm::vec3(currentFrameData.ambientColor),
                                xr::system().handTone());
-    xr::system().setHandsOverPanel(vrEyes_->handsThisFrame);
 
     for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
         const xr::EyeView& view = vrEyes_->views.eye[eye];
@@ -587,7 +587,9 @@ void Renderer::vrRenderEyes() {
 
         vkCmdEndRenderPass(currentCmd);
         if (threaded) swapSecondaries();
-        vrEyes_->glow.record(currentCmd, eye, vrEyes_->color[eye].image, xr::system().glow());
+        if (vrEyes_->handsThisFrame) xr::system().recordHandsCopy(currentCmd, eye, vrEyes_->color[eye].image);
+        vrEyes_->glow.record(currentCmd, eye, vrEyes_->color[eye].image, xr::system().glow(),
+                             vrEyes_->handsThisFrame);
         xr::system().recordEyeCopy(currentCmd, eye, vrEyes_->color[eye].image);
     }
 

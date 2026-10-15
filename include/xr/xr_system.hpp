@@ -296,9 +296,12 @@ public:
     [[nodiscard]] bool showHands() const { return showHands_; }
     void setHandTone(float tone) { handTone_ = tone < 0.0f ? 0.0f : (tone > 1.0f ? 1.0f : tone); }
     [[nodiscard]] float handTone() const { return handTone_; }
-    /// Set by the renderer for the frame in progress: the eyes carry the
-    /// hands in their alpha, and go to the headset once more over the panel.
-    void setHandsOverPanel(bool on) { handsOverPanel_ = on; }
+    /// Copies a finished eye, whose alpha is 1 where a hand is seen and 0
+    /// elsewhere, into the hands' own swapchain: shown over the panel, it puts
+    /// the hands in front of it. `image` is in PRESENT_SRC and is left there.
+    /// Before the eye's alpha is made opaque again (EyeGlow::record) - the
+    /// runtime blends even the world's layer by it.
+    void recordHandsCopy(VkCommandBuffer cmd, uint32_t eye, VkImage image);
 
     /// Where the panel stands, from the settings page. A value the environment
     /// set at start is left alone: that is how one is tried without saving it.
@@ -363,7 +366,6 @@ private:
     float glow_ = 0.8f;
     bool showHands_ = true;
     float handTone_ = 0.5f;
-    bool handsOverPanel_ = false;
     struct HandData;
     HandData* hands_ = nullptr;  // null without hand tracking
     HandPoses handsInWorld_;

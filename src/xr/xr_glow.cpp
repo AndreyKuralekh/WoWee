@@ -159,11 +159,9 @@ bool EyeGlow::create(rendering::VkContext* ctx, VkExtent2D eyeExtent, VkFormat f
             .build(device, ctx->getPipelineCache());
     };
     toTexturePipeline_ = build(toTexture_, rendering::PipelineBuilder::blendDisabled());
-    // Colour only: the eye's alpha says where the hands are (see HandRenderer),
-    // and glow added into it would show over the interface panel.
-    VkPipelineColorBlendAttachmentState additive = rendering::PipelineBuilder::blendAdditive();
-    additive.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
-    composite_ = build(ontoEye_, additive);
+    // Alpha is added too, from the shader's 1: what comes out is opaque, which
+    // is what puts the eye's alpha back after the hands used it as a mask.
+    composite_ = build(ontoEye_, rendering::PipelineBuilder::blendAdditive());
     vert.destroy();
     frag.destroy();
     if (!toTexturePipeline_ || !composite_) {
@@ -290,13 +288,25 @@ void EyeGlow::pass(VkCommandBuffer cmd, VkRenderPass rp, VkFramebuffer fb, VkExt
     vkCmdEndRenderPass(cmd);
 }
 
-void EyeGlow::record(VkCommandBuffer cmd, uint32_t eye, VkImage eyeImage, float strength) const {
-    if (!ready() || eye >= kEyeCount || strength <= 0.0f) return;
+void EyeGlow::record(VkCommandBuffer cmd, uint32_t eye, VkImage eyeImage, float strength, bool opaqueAlpha) const {
+    if (!ready() || eye >= kEyeCount) return;
+    if (strength <= 0.0f) {
+        if (!opaqueAlpha) return;
+        // No glow, only the alpha: the composite adds nothing to the colour.
+        layoutBarrier(cmd, eyeImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT,
+                      VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+                      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        pass(cmd, ontoEye_, eyeFb_[eye], eyeExtent_, aSet_[eye], glowExtent_, 2, 0.0f, 0.0f, 0.0f);
+        return;
+    }
 
     // The world pass left the eye ready to present; it is read first.
     layoutBarrier(cmd, eyeImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+                  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     // What is bright, at a quarter; then blurred across and down.
     pass(cmd, toTexture_, aFb_[eye], glowExtent_, eyeSet_[eye], eyeExtent_, 0, 0.0f, 0.0f, 0.0f);
     pass(cmd, toTexture_, bFb_[eye], glowExtent_, aSet_[eye], glowExtent_, 1, 1.0f, 0.0f, 0.0f);

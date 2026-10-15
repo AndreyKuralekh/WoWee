@@ -118,6 +118,10 @@ void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageL
 struct XrSystem::FrameData {
     std::array<EyeSwapchain, kEyeCount> eyes;
     VkFormat eyeFormat = VK_FORMAT_UNDEFINED;
+    // The hands alone, over the panel: each eye again with its alpha saying
+    // where a hand is. Of their own, because the eyes' alpha has to be opaque.
+    std::array<EyeSwapchain, kEyeCount> handEyes;
+    uint32_t handsCopied = 0;
 
     // The panel: the window's image, its own size, shown as a flat sheet in
     // front of the player. It is the whole interface - and before the world is
@@ -257,6 +261,18 @@ bool XrSystem::createEyeSwapchains() {
         LOG_WARNING("VR: writing ", dumpFrames_, " frames, one a second, to ", frame_->dumpDir);
     }
 
+    // Nor this: without them the panel covers the hands.
+    for (EyeSwapchain& hands : frame_->handEyes) {
+        if (!createColorSwapchain(session_, frame_->eyeFormat, eyeWidth_, eyeHeight_, hands)) {
+            LOG_WARNING("VR: could not create the hands' swapchains - the panel covers the hands");
+            for (EyeSwapchain& made : frame_->handEyes) {
+                if (made.handle != XR_NULL_HANDLE) xrDestroySwapchain(made.handle);
+                made = {};
+            }
+            break;
+        }
+    }
+
     // Not worth refusing VR over: without it the pointer has no ray, only the
     // cursor on the panel.
     if (!createColorSwapchain(session_, frame_->eyeFormat, 4, 4, frame_->beam)) {
@@ -280,6 +296,9 @@ void XrSystem::destroyEyeSwapchains() {
     if (ctx_) vkDeviceWaitIdle(ctx_->getDevice());
     for (EyeSwapchain& eye : frame_->eyes) {
         if (eye.handle != XR_NULL_HANDLE) xrDestroySwapchain(eye.handle);
+    }
+    for (EyeSwapchain& hands : frame_->handEyes) {
+        if (hands.handle != XR_NULL_HANDLE) xrDestroySwapchain(hands.handle);
     }
     if (frame_->panel.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->panel.handle);
     if (frame_->beam.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->beam.handle);
@@ -435,12 +454,34 @@ void XrSystem::recordEyeCopy(VkCommandBuffer cmd, uint32_t eye, VkImage image) {
     transition(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }
 
+void XrSystem::recordHandsCopy(VkCommandBuffer cmd, uint32_t eye, VkImage image) {
+    if (!stereoFrame() || fake_ || eye >= kEyeCount) return;
+    FrameData& f = *frame_;
+    EyeSwapchain& hands = f.handEyes[eye];
+    if (hands.handle == XR_NULL_HANDLE || !hands.acquired) return;
+    const VkImageSubresourceLayers layers{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
+                                          .baseArrayLayer = 0, .layerCount = 1};
+    VkImageCopy copy{};
+    copy.srcSubresource = layers;
+    copy.dstSubresource = layers;
+    copy.extent = {eyeWidth_, eyeHeight_, 1};
+    const VkImage target = hands.images[hands.imageIndex];
+    transition(cmd, image, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transition(cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    vkCmdCopyImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    transition(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    transition(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    f.handsCopied |= 1u << eye;
+}
+
 void XrSystem::beginFrame() {
     if (fake_) {
         FrameData& f = *frame_;
         f.begun = true;
         f.shouldRender = true;
         f.eyesCopied = 0;
+        f.handsCopied = 0;
         for (uint32_t i = 0; i < kEyeCount; ++i) {
             const float side = i == 0 ? -1.0f : 1.0f;
             f.views[i] = {};
@@ -483,6 +524,7 @@ void XrSystem::beginFrame() {
     f.begun = true;
     f.panelCopied = false;
     f.eyesCopied = 0;
+    f.handsCopied = 0;
     f.cpuStart = std::chrono::steady_clock::now();
     f.displayTime = frameState.predictedDisplayTime;
     f.shouldRender = frameState.shouldRender == XR_TRUE;
@@ -547,6 +589,9 @@ void XrSystem::beginFrame() {
             }
         }
         if (f.panel.handle != XR_NULL_HANDLE && !acquireImage(f.panel)) f.shouldRender = false;
+    }
+    for (EyeSwapchain& hands : f.handEyes) {
+        if (f.shouldRender && hands.handle != XR_NULL_HANDLE) acquireImage(hands);
     }
     if (f.shouldRender && f.beam.handle != XR_NULL_HANDLE && !f.beamFilled) acquireImage(f.beam);
     if (f.shouldRender && f.vignette.handle != XR_NULL_HANDLE && !f.vignetteFilled) acquireImage(f.vignette);
@@ -946,6 +991,7 @@ void XrSystem::endFrame(bool submitted) {
         chain.acquired = false;
     };
     for (EyeSwapchain& eye : f.eyes) release(eye);
+    for (EyeSwapchain& hands : f.handEyes) release(hands);
     release(f.panel);
     release(f.beam);
     if (f.beamFilling && submitted && released) f.beamFilled = true;
@@ -1014,8 +1060,11 @@ void XrSystem::endFrame(bool submitted) {
     // The hands, over the panel: the eyes once more, showing only what their
     // alpha keeps, which is where a hand was drawn and the world did not hide
     // it. A hand is always nearer than the panel, so this is always right.
+    std::array<XrCompositionLayerProjectionView, kEyeCount> handViews = projectionViews;
     XrCompositionLayerProjection hands = layer;
-    if (showWorld && showPanel && handsOverPanel_) {
+    if (showWorld && showPanel && f.handsCopied == (1u << kEyeCount) - 1u) {
+        for (uint32_t i = 0; i < kEyeCount; ++i) handViews[i].subImage.swapchain = f.handEyes[i].handle;
+        hands.views = handViews.data();
         hands.layerFlags =
             XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
         layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&hands);
@@ -1046,7 +1095,6 @@ void XrSystem::endFrame(bool submitted) {
     if (XR_FAILED(result)) LOG_WARNING("VR: xrEndFrame failed: ", resultName(result));
     f.begun = false;
     f.worldShown = showWorld;
-    handsOverPanel_ = false;  // said again by the next frame that draws them
     addTiming(Timing::XrEnd, millisecondsSince(endStart));
 
     const auto now = std::chrono::steady_clock::now();

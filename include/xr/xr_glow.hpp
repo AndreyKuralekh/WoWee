@@ -32,8 +32,10 @@ public:
     void destroy();
     [[nodiscard]] bool ready() const { return composite_ != VK_NULL_HANDLE; }
 
-    /// Strength 0 records nothing.
-    void record(VkCommandBuffer cmd, uint32_t eye, VkImage eyeImage, float strength) const;
+    /// Strength 0 records nothing, unless `opaqueAlpha`. Either way the eye
+    /// leaves with alpha 1 everywhere: the hands' pass used it as their mask,
+    /// and the runtime blends even the world's layer by it.
+    void record(VkCommandBuffer cmd, uint32_t eye, VkImage eyeImage, float strength, bool opaqueAlpha = false) const;
 
 private:
     void pass(VkCommandBuffer cmd, VkRenderPass rp, VkFramebuffer fb, VkExtent2D extent,
