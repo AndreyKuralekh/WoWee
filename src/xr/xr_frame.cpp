@@ -527,6 +527,31 @@ bool XrSystem::handPanelQuad(uint32_t which, XrSpace& space, XrPosef& pose, XrEx
     }
     pose.orientation = {tilt.x, tilt.y, tilt.z, tilt.w};
     pose.position = {centre.x, centre.y, centre.z};
+
+    // With the hand tracked, a watch face instead: flat on the back of the
+    // wrist, the long side along the forearm. The wrist joint has -Z towards
+    // the fingers and +Y out of the back of the hand. Raised across the chest
+    // to be looked at, the forearm runs left to right for the left hand and
+    // right to left for the right, so the text reads along it from the elbow
+    // on the left and from the hand on the right; either way its top faces
+    // away from the player.
+    const uint32_t hand = leftHanded_ ? 1 : 0;
+    if (handsInWorld_.tracked[hand] && localSpace_ != XR_NULL_HANDLE) {
+        const glm::mat4& wrist = handsInWorld_.joint[hand][1];
+        const glm::vec3 at(wrist[3]);
+        const glm::vec3 outOfBack = glm::normalize(glm::vec3(wrist[1]));
+        const glm::vec3 towardElbow = glm::normalize(glm::vec3(wrist[2]));
+        const glm::vec3 across = hand == 0 ? -towardElbow : towardElbow;  // the quad's +X
+        const glm::vec3 top = glm::cross(outOfBack, across);               // the quad's +Y
+        constexpr float kAboveSkin = 0.035f;  // metres off the joint, which is inside the wrist
+        constexpr float kAlongArm = 0.09f;    // from the wrist joint towards the elbow
+        glm::vec3 face = at + outOfBack * kAboveSkin + towardElbow * kAlongArm;
+        if (which == 1 && bar) face += top * (0.5f * barHeight + kGap + 0.5f * size.height);
+        const glm::quat turn = glm::quat_cast(glm::mat3(across, top, outOfBack));
+        space = localSpace_;
+        pose.orientation = {turn.x, turn.y, turn.z, turn.w};
+        pose.position = {face.x, face.y, face.z};
+    }
     return true;
 }
 
