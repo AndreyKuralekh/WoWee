@@ -248,6 +248,8 @@ public:
     float pendingVrWorldScale = 1.0f;       // how big the world looks, 1 = its own size
     float pendingVrEyeHeight = 0.0f;        // metres above the character's own eyes
     float pendingVrGlow = 0.8f;             // glow over the eyes, 0 none - see xr::EyeGlow
+    bool pendingVrHands = true;             // the player's hands drawn in the world
+    float pendingVrHandTone = 0.5f;         // their skin, 0 pale to 1 dark
     float pendingVrShine = 0.0f;            // sun highlights on buildings, 1 = the flat client's
     int pendingPOMQuality = 1;          // 0=Low(16), 1=Medium(32), 2=High(64)
     bool pendingFSR = false;

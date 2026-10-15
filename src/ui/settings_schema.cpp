@@ -993,6 +993,13 @@ constexpr SettingDesc kSchema[] = {
      "The original client's full-screen glow: what is bright bleeds\n"
      "softly into what is round it, and the picture reads warmer and\n"
      "less hard-edged. 0 turns it off.", "", 0.8f},
+    {"vrhands", "Show hands", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
+     "Your own hands in the world, where the controllers are. The\n"
+     "fingers follow how you hold them: the trigger, the grip and\n"
+     "the thumb on the buttons. Put the controllers down and the\n"
+     "headset's cameras take over, if hand tracking is on.", "", 1},
+    {"vrhandtone", "Hand skin tone", SettingKind::Float, 0.0f, 1.0f, 0.05f, "VR comfort", "Hands",
+     "The colour of your hands' skin, from pale (0) to dark (1).", "", 0.5f},
 
     // What the controllers' buttons do. Not fields of the settings panel: the
     // VR module keeps the table (xr_controls.cpp) in vr_controls.cfg, and the
