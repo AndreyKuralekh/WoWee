@@ -55,6 +55,12 @@ struct EyeView {
     glm::mat4 view{1.0f};
     glm::mat4 projection{1.0f};  // Vulkan clip space: Y down, depth 0..1
     glm::vec3 position{0.0f};
+    /// The eye's view of the tracking space itself: a point in metres there
+    /// to this eye's view space, in yards. What is drawn within reach - the
+    /// hands - goes through this rather than through the world, where a
+    /// coordinate in the thousands leaves floats a millimetre to work with
+    /// and a hand a foot away shakes by pixels as the head moves.
+    glm::mat4 fromTracking{1.0f};
 };
 
 /// What a stereo frame is drawn from. `center` sees everything either eye
@@ -290,6 +296,9 @@ public:
     [[nodiscard]] bool showHands() const { return showHands_; }
     void setHandTone(float tone) { handTone_ = tone < 0.0f ? 0.0f : (tone > 1.0f ? 1.0f : tone); }
     [[nodiscard]] float handTone() const { return handTone_; }
+    /// Set by the renderer for the frame in progress: the eyes carry the
+    /// hands in their alpha, and go to the headset once more over the panel.
+    void setHandsOverPanel(bool on) { handsOverPanel_ = on; }
 
     /// Where the panel stands, from the settings page. A value the environment
     /// set at start is left alone: that is how one is tried without saving it.
@@ -354,6 +363,7 @@ private:
     float glow_ = 0.8f;
     bool showHands_ = true;
     float handTone_ = 0.5f;
+    bool handsOverPanel_ = false;
     struct HandData;
     HandData* hands_ = nullptr;  // null without hand tracking
     HandPoses handsInWorld_;

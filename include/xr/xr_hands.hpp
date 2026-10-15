@@ -19,13 +19,15 @@ namespace wowee::xr {
 /// thumb out.
 constexpr uint32_t kHandJointCount = 26;
 
-/// Where the player's hands are this frame, in the world. Index 0 is the left
-/// hand. A joint's matrix carries the world's scale - a metre of the room to
-/// so many yards - so a model in metres placed by it comes out the right size.
+/// Where the player's hands are this frame. Index 0 is the left hand. The
+/// joints are in the tracking space, in metres, and are drawn through each
+/// eye's EyeView::fromTracking - never through world coordinates, which are
+/// too large for a float to hold a fingertip steady in.
 struct HandPoses {
     bool tracked[2] = {false, false};
     std::array<glm::mat4, kHandJointCount> joint[2]{};
-    /// The tracking space in the world: what a pose in metres is placed by.
+    /// The tracking space in the world. Only its turn is used: it takes the
+    /// sun's direction into the tracking space.
     glm::mat4 trackingToWorld{1.0f};
     /// No headset (WOWEE_VR_FAKE): the hands are held still in front of the
     /// eyes, open, in the pose the model was made in.
@@ -54,15 +56,17 @@ public:
     bool prepare(uint32_t frame, const HandPoses& poses, const glm::vec3& lightDir, const glm::vec3& lightColor,
                  const glm::vec3& ambientColor, float tone);
 
-    /// Draws into `cmd`, inside the eye's pass, its viewport set.
-    void record(VkCommandBuffer cmd, uint32_t frame, const glm::mat4& viewProjection,
-                const glm::vec3& eyePosition) const;
+    /// Draws into `cmd`, inside the eye's pass, its viewport set: the eye's
+    /// alpha cleared, then the hands, which leave alpha 1 where they are seen.
+    /// `projection` and `fromTracking` are the eye's (see EyeView).
+    void record(VkCommandBuffer cmd, uint32_t frame, const glm::mat4& projection,
+                const glm::mat4& fromTracking) const;
 
     /// The same into a secondary buffer of its own, for a pass that takes only
     /// secondaries. Null when there is nothing to draw.
     VkCommandBuffer recordSecondary(uint32_t frame, uint32_t eye, VkRenderPass pass, VkFramebuffer framebuffer,
-                                    VkExtent2D extent, const glm::mat4& viewProjection,
-                                    const glm::vec3& eyePosition);
+                                    VkExtent2D extent, const glm::mat4& projection,
+                                    const glm::mat4& fromTracking);
 
 private:
     static constexpr uint32_t kModelJoints = 25;
@@ -85,6 +89,7 @@ private:
     VkDescriptorSetLayout setLayout_ = VK_NULL_HANDLE;
     VkPipelineLayout layout_ = VK_NULL_HANDLE;
     VkPipeline pipeline_ = VK_NULL_HANDLE;
+    VkPipeline maskPipeline_ = VK_NULL_HANDLE;  // clears the eye's alpha
     VkDescriptorPool pool_ = VK_NULL_HANDLE;
     rendering::AllocatedBuffer ubo_[kFrames];
     VkDescriptorSet set_[kFrames] = {};

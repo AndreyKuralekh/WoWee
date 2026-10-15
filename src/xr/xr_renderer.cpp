@@ -437,11 +437,10 @@ void Renderer::vrRecordHands(uint32_t eye, bool secondaryOnly) {
     if (!vrEyes_->handsThisFrame) return;
     const uint32_t frame = vkCtx->getCurrentFrame();
     const xr::EyeView& view = vrEyes_->views.eye[eye];
-    const glm::mat4 viewProjection = view.projection * view.view;
     if (secondaryOnly) {
         const VkCommandBuffer hands =
             vrEyes_->hands.recordSecondary(frame, eye, vkCtx->getImGuiRenderPass(), vrEyes_->framebuffer[eye],
-                                           vrEyes_->extent, viewProjection, view.position);
+                                           vrEyes_->extent, view.projection, view.fromTracking);
         if (hands != VK_NULL_HANDLE) vkCmdExecuteCommands(currentCmd, 1, &hands);
         return;
     }
@@ -453,7 +452,7 @@ void Renderer::vrRecordHands(uint32_t eye, bool secondaryOnly) {
     VkRect2D scissor{};
     scissor.extent = vrEyes_->extent;
     vkCmdSetScissor(currentCmd, 0, 1, &scissor);
-    vrEyes_->hands.record(currentCmd, frame, viewProjection, view.position);
+    vrEyes_->hands.record(currentCmd, frame, view.projection, view.fromTracking);
 }
 
 // The world, once per eye, before the window's own pass opens.
@@ -494,6 +493,7 @@ void Renderer::vrRenderEyes() {
         vrEyes_->hands.prepare(frame, xr::system().handsInWorld(), glm::vec3(currentFrameData.lightDir),
                                glm::vec3(currentFrameData.lightColor), glm::vec3(currentFrameData.ambientColor),
                                xr::system().handTone());
+    xr::system().setHandsOverPanel(vrEyes_->handsThisFrame);
 
     for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
         const xr::EyeView& view = vrEyes_->views.eye[eye];

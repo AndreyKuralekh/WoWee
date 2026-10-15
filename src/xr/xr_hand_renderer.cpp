@@ -35,7 +35,7 @@ struct HandVertex {
 // Set 0, binding 0: what both eyes of a frame draw.
 struct HandUniforms {
     glm::mat4 skin[2 * 25];  // each hand's joints, the left hand's first
-    glm::vec4 lightDir;      // towards the ground, as the world's is
+    glm::vec4 lightDir;      // towards the ground, in the tracking space
     glm::vec4 lightColor;
     glm::vec4 ambientColor;
     glm::vec4 skinColor;
@@ -43,7 +43,7 @@ struct HandUniforms {
 
 struct HandPush {
     glm::mat4 viewProjection;
-    glm::vec4 eye;  // xyz the eye, w the first skin matrix of the hand drawn
+    glm::vec4 eye;  // xyz the eye in the tracking space, w the first skin matrix of the hand drawn
 };
 
 // The model's joints are named as WebXR names them; OpenXR numbers the same
@@ -336,9 +336,32 @@ bool HandRenderer::create(rendering::VkContext* ctx, VkRenderPass pass) {
                     .setRenderPass(pass)
                     .setDynamicStates(rendering::viewportAndScissorDynamic())
                     .build(device, ctx->getPipelineCache());
+    // The alpha clear: one triangle over the whole eye, alpha alone written.
+    rendering::VkShaderModule fullscreen;
+    rendering::VkShaderModule mask;
+    if (fullscreen.loadFromFile(device, "assets/shaders/postprocess.vert.spv") &&
+        mask.loadFromFile(device, "assets/shaders/vr_hand_mask.frag.spv")) {
+        VkPipelineColorBlendAttachmentState alphaOnly = rendering::PipelineBuilder::blendDisabled();
+        alphaOnly.colorWriteMask = VK_COLOR_COMPONENT_A_BIT;
+        maskPipeline_ = rendering::PipelineBuilder()
+                            .setShaders(fullscreen.stageInfo(VK_SHADER_STAGE_VERTEX_BIT),
+                                        mask.stageInfo(VK_SHADER_STAGE_FRAGMENT_BIT))
+                            .setVertexInput({}, {})
+                            .setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+                            .setRasterization(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE)
+                            .setNoDepthTest()
+                            .setColorBlendAttachment(alphaOnly)
+                            .setMultisample(VK_SAMPLE_COUNT_1_BIT)
+                            .setLayout(layout_)
+                            .setRenderPass(pass)
+                            .setDynamicStates(rendering::viewportAndScissorDynamic())
+                            .build(device, ctx->getPipelineCache());
+    }
+    fullscreen.destroy();
+    mask.destroy();
     vert.destroy();
     frag.destroy();
-    if (!pipeline_) {
+    if (!pipeline_ || !maskPipeline_) {
         LOG_WARNING("VR hands: pipeline not created - no hands");
         destroy();
         return false;
@@ -417,6 +440,8 @@ void HandRenderer::destroy() {
         mesh = {};
     }
     if (pipeline_) vkDestroyPipeline(device, pipeline_, nullptr);
+    if (maskPipeline_) vkDestroyPipeline(device, maskPipeline_, nullptr);
+    maskPipeline_ = VK_NULL_HANDLE;
     if (layout_) vkDestroyPipelineLayout(device, layout_, nullptr);
     if (setLayout_) vkDestroyDescriptorSetLayout(device, setLayout_, nullptr);
     pipeline_ = VK_NULL_HANDLE;
@@ -438,23 +463,33 @@ bool HandRenderer::prepare(uint32_t frame, const HandPoses& poses, const glm::ve
         for (uint32_t i = 0; i < kModelJoints; ++i) {
             // Where the joint is now, from where it was when the mesh was bound
             // to it; held still without a headset.
-            const glm::mat4 joint = poses.tracked[hand]
-                                        ? poses.joint[hand][mesh.xrJoint[i]]
-                                        : poses.trackingToWorld * fakePlacement(hand) * mesh.bindPose[i];
+            const glm::mat4 joint = poses.tracked[hand] ? poses.joint[hand][mesh.xrJoint[i]]
+                                                        : fakePlacement(hand) * mesh.bindPose[i];
             uniforms->skin[hand * kModelJoints + i] = joint * mesh.inverseBind[i];
         }
     }
     if (!any) return false;
-    uniforms->lightDir = glm::vec4(lightDir, 0.0f);
+    // The sun into the tracking space: the turn of the tracking space in the
+    // world, undone. Its scale is uniform and goes in the normalising.
+    const glm::vec3 trackingLight = glm::inverse(glm::mat3(poses.trackingToWorld)) * lightDir;
+    uniforms->lightDir = glm::vec4(glm::length(trackingLight) > 0.0f ? glm::normalize(trackingLight)
+                                                                      : glm::vec3(0.0f, -1.0f, 0.0f),
+                                   0.0f);
     uniforms->lightColor = glm::vec4(lightColor, 0.0f);
     uniforms->ambientColor = glm::vec4(ambientColor, 0.0f);
     uniforms->skinColor = glm::vec4(skinColor(tone), 1.0f);
     return true;
 }
 
-void HandRenderer::record(VkCommandBuffer cmd, uint32_t frame, const glm::mat4& viewProjection,
-                          const glm::vec3& eyePosition) const {
+void HandRenderer::record(VkCommandBuffer cmd, uint32_t frame, const glm::mat4& projection,
+                          const glm::mat4& fromTracking) const {
     if (!ready() || frame >= kFrames) return;
+    const glm::mat4 viewProjection = projection * fromTracking;
+    const glm::vec3 eyePosition(glm::inverse(fromTracking)[3]);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, maskPipeline_);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &set_[frame], 0, nullptr);
     for (uint32_t hand = 0; hand < 2; ++hand) {
@@ -472,7 +507,7 @@ void HandRenderer::record(VkCommandBuffer cmd, uint32_t frame, const glm::mat4& 
 
 VkCommandBuffer HandRenderer::recordSecondary(uint32_t frame, uint32_t eye, VkRenderPass pass,
                                               VkFramebuffer framebuffer, VkExtent2D extent,
-                                              const glm::mat4& viewProjection, const glm::vec3& eyePosition) {
+                                              const glm::mat4& projection, const glm::mat4& fromTracking) {
     if (!ready() || frame >= kFrames || eye >= kEyeCount) return VK_NULL_HANDLE;
     VkCommandBuffer cmd = secondary_[eye][frame];
     VkCommandBufferInheritanceInfo inheritance{};
@@ -490,7 +525,7 @@ VkCommandBuffer HandRenderer::recordSecondary(uint32_t frame, uint32_t eye, VkRe
     const VkRect2D scissor{{0, 0}, extent};
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
-    record(cmd, frame, viewProjection, eyePosition);
+    record(cmd, frame, projection, fromTracking);
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS) return VK_NULL_HANDLE;
     return cmd;
 }

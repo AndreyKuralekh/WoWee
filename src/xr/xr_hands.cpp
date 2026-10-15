@@ -164,7 +164,7 @@ void XrSystem::placeHands(const glm::mat4& trackingToWorld) {
             glm::mat4 local = glm::mat4_cast(
                 glm::quat(pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z));
             local[3] = glm::vec4(pose.position.x, pose.position.y, pose.position.z, 1.0f);
-            handsInWorld_.joint[hand][j] = trackingToWorld * local;
+            handsInWorld_.joint[hand][j] = local;
         }
     }
 }

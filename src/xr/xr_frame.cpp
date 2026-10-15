@@ -365,6 +365,12 @@ bool XrSystem::stereoViews(const glm::vec3& characterEyes, float referenceYawDeg
         glm::mat4 eyeToWorld(basis * glm::mat3_cast(q));
         eyeToWorld[3] = glm::vec4(view.position, 1.0f);
         view.view = glm::inverse(eyeToWorld);
+        // The same without the world in between: recentred, scaled, and seen
+        // from the eye - every number in it small.
+        view.fromTracking = glm::mat4(glm::transpose(glm::mat3_cast(q))) *
+                            glm::scale(glm::mat4(1.0f), glm::vec3(kYardsPerMetre)) *
+                            glm::translate(glm::mat4(1.0f), -p) * glm::mat4_cast(recentre) *
+                            glm::translate(glm::mat4(1.0f), -headOrigin_);
     };
     // Depth 0..1, and Y turned over for Vulkan, as Camera does for its own.
     const auto project = [&](const XrFovf& fov) {
@@ -953,7 +959,7 @@ void XrSystem::endFrame(bool submitted) {
     const bool showWorld = usable && f.eyesCopied == (1u << kEyeCount) - 1u;
     const bool showPanel = usable && f.panelCopied;
     const bool show = showWorld || showPanel;
-    const XrCompositionLayerBaseHeader* layers[4] = {};
+    const XrCompositionLayerBaseHeader* layers[5] = {};
     uint32_t layerCount = 0;
 
     std::array<XrCompositionLayerProjectionView, kEyeCount> projectionViews{};
@@ -1005,6 +1011,16 @@ void XrSystem::endFrame(bool submitted) {
         }
     }
 
+    // The hands, over the panel: the eyes once more, showing only what their
+    // alpha keeps, which is where a hand was drawn and the world did not hide
+    // it. A hand is always nearer than the panel, so this is always right.
+    XrCompositionLayerProjection hands = layer;
+    if (showWorld && showPanel && handsOverPanel_) {
+        hands.layerFlags =
+            XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&hands);
+    }
+
     // The controller's ray, over everything: there is no depth to hide it by.
     XrCompositionLayerQuad beam{};
     beam.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
@@ -1030,6 +1046,7 @@ void XrSystem::endFrame(bool submitted) {
     if (XR_FAILED(result)) LOG_WARNING("VR: xrEndFrame failed: ", resultName(result));
     f.begun = false;
     f.worldShown = showWorld;
+    handsOverPanel_ = false;  // said again by the next frame that draws them
     addTiming(Timing::XrEnd, millisecondsSince(endStart));
 
     const auto now = std::chrono::steady_clock::now();

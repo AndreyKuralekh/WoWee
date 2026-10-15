@@ -159,7 +159,11 @@ bool EyeGlow::create(rendering::VkContext* ctx, VkExtent2D eyeExtent, VkFormat f
             .build(device, ctx->getPipelineCache());
     };
     toTexturePipeline_ = build(toTexture_, rendering::PipelineBuilder::blendDisabled());
-    composite_ = build(ontoEye_, rendering::PipelineBuilder::blendAdditive());
+    // Colour only: the eye's alpha says where the hands are (see HandRenderer),
+    // and glow added into it would show over the interface panel.
+    VkPipelineColorBlendAttachmentState additive = rendering::PipelineBuilder::blendAdditive();
+    additive.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
+    composite_ = build(ontoEye_, additive);
     vert.destroy();
     frag.destroy();
     if (!toTexturePipeline_ || !composite_) {
