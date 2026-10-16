@@ -1279,6 +1279,7 @@ if(WOWEE_VR)
         src/xr/xr_hand_renderer.cpp
         src/xr/xr_controls.cpp
         src/xr/xr_input.cpp
+        src/xr/xr_windows.cpp
         src/xr/xr_platform.cpp
         src/xr/xr_renderer.cpp
         src/xr/xr_session.cpp

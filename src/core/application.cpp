@@ -4204,6 +4204,7 @@ void Application::render() {
                 // on the wrist, cut out of the interface's own picture: it is
                 // told where they are. The bar is every visible button of the
                 // bars along the bottom, so it is as wide as what is shown.
+                // The spell book and the bags stand on their own, nearer.
                 if (xr::system().stereoFrame()) {
                     struct Named {
                         std::string name;
@@ -4212,6 +4213,8 @@ void Application::render() {
                     };
                     static std::vector<Named> barButtons;
                     static std::vector<Named> targetFrames;
+                    static std::vector<Named> spellBook;
+                    static std::vector<Named> bags;
                     static uint32_t frameCount = 0;
                     ++frameCount;
                     if (barButtons.empty()) {
@@ -4220,6 +4223,11 @@ void Application::render() {
                             for (int i = 1; i <= 12; ++i) barButtons.push_back({prefix + std::to_string(i)});
                         }
                         targetFrames = {{"TargetFrame"}, {"TargetFrameToT"}};
+                        // The book with the tabs along its right edge; every
+                        // open bag, whichever frame each was given.
+                        spellBook = {{"SpellBookFrame"}};
+                        for (int i = 1; i <= 8; ++i) spellBook.push_back({"SpellBookSkillLineTab" + std::to_string(i)});
+                        for (int i = 1; i <= 13; ++i) bags.push_back({"ContainerFrame" + std::to_string(i)});
                     }
                     // A name that is not there is looked for again now and
                     // then, not every frame: the search walks every widget.
@@ -4252,6 +4260,10 @@ void Application::render() {
                     };
                     xr::system().setHandPanelRects(unionOf(barButtons), unionOf(targetFrames), io.DisplaySize.x,
                                                    io.DisplaySize.y);
+                    // The tabs only with the book itself open.
+                    const ui::Widget* bookFrame = find(spellBook[0]);
+                    const glm::vec4 book = bookFrame && bookFrame->visible ? unionOf(spellBook) : glm::vec4(0.0f);
+                    xr::system().setWindowRects(book, unionOf(bags), io.DisplaySize.x, io.DisplaySize.y);
                 }
 #endif
 

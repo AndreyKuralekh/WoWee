@@ -524,27 +524,67 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
         uv.y = 0.5f - glm::dot(hit, turn * glm::vec3(0.0f, 1.0f, 0.0f)) / extent.height;
         return uv.x >= 0.0f && uv.x <= 1.0f && uv.y >= 0.0f && uv.y <= 1.0f;
     };
-    // The panels on the wrist first: they are nearer, and stand in front of
-    // the big one. A point on one is a point in its part of the window.
+    // The panels on the wrist and the windows on their own first: they are
+    // nearer, and stand in front of the big one. The nearest the ray meets
+    // takes it. A point on one is a point in its part of the window; a point
+    // on a window's bar is for moving the window, not for the mouse.
+    int barHit = -1;
+    float barDistance = 0.0f;
     if (focused && inWorld && windowWidth > 0 && windowHeight > 0) {
-        for (uint32_t which = 0; which < 2 && !onPanel; ++which) {
+        const glm::vec2 window(static_cast<float>(windowWidth), static_cast<float>(windowHeight));
+        float nearest = FLT_MAX;
+        const auto take = [&](float distance, const glm::vec4& rect, const glm::vec2& pixels, const glm::vec2& uv) {
+            nearest = distance;
+            onPanel = true;
+            barHit = -1;
+            in.beamLength = distance;
+            at = (glm::vec2(rect.x, rect.y) + uv * glm::vec2(rect.z, rect.w)) * (window / pixels);
+            at = glm::clamp(at, glm::vec2(0.0f), window - 1.0f);
+        };
+        for (uint32_t which = 0; which < 2; ++which) {
             XrRect2Di crop{};
             float distance = 0.0f;
             glm::vec2 uv(0.0f);
-            if (!handPanelQuad(which, space, quad, size, crop) || !aimRay(space, frameTime(), origin, direction) ||
-                !meet(quad, size, distance, uv)) {
-                continue;
+            if (handPanelQuad(which, space, quad, size, crop) && aimRay(space, frameTime(), origin, direction) &&
+                meet(quad, size, distance, uv) && distance < nearest) {
+                take(distance, handPanelRect_[which], handPanelWindow_, uv);
             }
-            const glm::vec4& rect = handPanelRect_[which];
-            const glm::vec2 window(static_cast<float>(windowWidth), static_cast<float>(windowHeight));
-            const glm::vec2 scale = window / handPanelWindow_;
-            onPanel = true;
-            in.beamLength = distance;
-            at = (glm::vec2(rect.x, rect.y) + uv * glm::vec2(rect.z, rect.w)) * scale;
-            at = glm::clamp(at, glm::vec2(0.0f), window - 1.0f);
+        }
+        if (aimRay(localSpace_, frameTime(), origin, direction)) {
+            for (uint32_t which = 0; which < 2; ++which) {
+                XrRect2Di crop{};
+                float distance = 0.0f;
+                glm::vec2 uv(0.0f);
+                if (windowQuad(which, quad, size, crop) && meet(quad, size, distance, uv) && distance < nearest) {
+                    take(distance, windowRect_[which], windowPixels_, uv);
+                }
+                if (windowBarQuad(which, quad, size) && meet(quad, size, distance, uv) && distance < nearest) {
+                    nearest = distance;
+                    onPanel = false;
+                    barHit = static_cast<int>(which);
+                    barDistance = distance;
+                    in.beamLength = distance;
+                }
+            }
         }
     }
-    if (!onPanel && focused && panelQuad(space, quad, size) && aimRay(space, frameTime(), origin, direction)) {
+
+    // A window being moved has the ray, and the trigger with it.
+    const auto leftTrigger = in.buttons[static_cast<size_t>(ControlButton::LeftTrigger)];
+    const bool trigger = button(session_, leftHanded_ ? leftTrigger : in.click);
+    bool moving = false;
+    {
+        glm::vec3 from;
+        glm::vec3 along;
+        const bool ray = focused && inWorld && aimRay(localSpace_, frameTime(), from, along);
+        moving = dragWindow(from, along, ray && trigger && !in.mouseHeld[0], ray ? barHit : -1, barDistance);
+        if (moving) {
+            onPanel = false;
+            in.beamLength = dragDistance_;
+        }
+    }
+    if (!onPanel && barHit < 0 && !moving && focused && panelQuad(space, quad, size) &&
+        aimRay(space, frameTime(), origin, direction)) {
         float distance = 0.0f;
         glm::vec2 uv(0.0f);
         if (meet(quad, size, distance, uv) && windowWidth > 0 && windowHeight > 0) {
@@ -573,10 +613,10 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
     // that is what a drag is.
     // Beside the panel only with a ray to click along.
     const bool tracked = focused && inWorld && aimRay(localSpace_, frameTime(), origin, direction);
-    // The trigger and the grip of the hand that points.
-    const auto leftTrigger = in.buttons[static_cast<size_t>(ControlButton::LeftTrigger)];
+    // The trigger and the grip of the hand that points; not the trigger while
+    // it holds a window by its bar.
     const auto leftGrip = in.buttons[static_cast<size_t>(ControlButton::LeftGrip)];
-    const bool wanted[2] = {button(session_, leftHanded_ ? leftTrigger : in.click),
+    const bool wanted[2] = {trigger && !moving && (barHit < 0 || in.mouseHeld[0]),
                             button(session_, leftHanded_ ? leftGrip : in.grab)};
     for (size_t i = 0; i < std::size(kMouseButtons); ++i) {
         const bool down = wanted[i] && (in.mouseHeld[i] || onPanel || tracked);

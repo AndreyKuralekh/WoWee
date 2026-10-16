@@ -36,6 +36,7 @@
 #include <openxr/openxr.h>
 #include <vulkan/vulkan.h>
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -316,6 +317,18 @@ public:
     void setHandPanels(bool on) { handPanels_ = on; }
     void setHandPanelSize(float scale) { handPanelSize_ = scale < 0.5f ? 0.5f : (scale > 2.0f ? 2.0f : scale); }
 
+    // --- Windows on their own ---
+
+    /// Where the spell book and the bags are in the window, as for
+    /// setHandPanelRects; a width of 0 while one is closed. Each open one is
+    /// cut out of the panel and stood nearer, to one side in front of the
+    /// player, where a bar under it moves it (xr_windows.cpp).
+    void setWindowRects(const glm::vec4& spellBook, const glm::vec4& bags, float windowWidth, float windowHeight);
+    void setWindows(bool on) { windows_ = on; }
+    void setWindowSize(float scale) { windowSize_ = scale < 0.5f ? 0.5f : (scale > 2.0f ? 2.0f : scale); }
+    /// Back to where they stand at first, and the saved places forgotten.
+    void resetWindowPlaces();
+
     /// Where the panel stands, from the settings page. A value the environment
     /// set at start is left alone: that is how one is tried without saving it.
     void setPanelPlacement(PanelFollow follow, float distanceMetres, float widthMetres);
@@ -351,6 +364,19 @@ private:
     /// the part of the panel's image it shows. False while it is not shown.
     [[nodiscard]] bool handPanelQuad(uint32_t which, XrSpace& space, XrPosef& pose, XrExtent2Df& size,
                                      XrRect2Di& crop) const;
+    /// A rectangle of the window as the part of the panel's image showing it.
+    [[nodiscard]] bool panelCrop(const glm::vec4& rect, const glm::vec2& window, XrRect2Di& crop) const;
+    /// A window on its own: 0 the spell book, 1 the bags; in the local space.
+    /// False while it is closed. The bar under it, which moves it, likewise.
+    [[nodiscard]] bool windowQuad(uint32_t which, XrPosef& pose, XrExtent2Df& size, XrRect2Di& crop) const;
+    [[nodiscard]] bool windowBarQuad(uint32_t which, XrPosef& pose, XrExtent2Df& size) const;
+    /// Opens, closes and follows the windows; once a frame, with the head known.
+    void placeWindows(const glm::vec3& head, float headYaw);
+    /// Moves a window by its bar while the trigger is held there. True while
+    /// it does, and the trigger is then not a click.
+    bool dragWindow(const glm::vec3& origin, const glm::vec3& direction, bool trigger, int barHit, float barDistance);
+    void loadWindowPlaces();
+    void saveWindowPlaces() const;
     /// The hand that does not point, as an action space; null without one.
     [[nodiscard]] XrSpace offHandSpace() const;
     /// When the frame last begun is to be shown; 0 before the first.
@@ -390,6 +416,30 @@ private:
     float handPanelSize_ = 1.0f;
     glm::vec4 handPanelRect_[2]{};  // the action bar, the target frame; window pixels
     glm::vec2 handPanelWindow_{0.0f};
+    // The windows on their own. Each stands at `offset` from the head it was
+    // opened for, turned by that head's yaw: x to the right, y up, -z ahead.
+    // The offsets are the player's, kept in vr_windows.cfg; the anchor follows
+    // the head once it has turned or walked well away.
+    struct WindowPlace {
+        bool open = false;
+        float yaw = 0.0f;
+        float targetYaw = 0.0f;
+        glm::vec3 anchor{0.0f};
+        glm::vec3 targetAnchor{0.0f};
+        glm::vec3 offset{0.0f};
+    };
+    bool windows_ = true;
+    float windowSize_ = 1.0f;
+    glm::vec4 windowRect_[2]{};  // the spell book, the bags; window pixels
+    glm::vec2 windowPixels_{0.0f};
+    WindowPlace windowPlace_[2];
+    bool windowPlacesLoaded_ = false;
+    int draggedWindow_ = -1;
+    float dragDistance_ = 0.0f;
+    glm::vec3 dragFromHit_{0.0f};  // the window's centre from where the ray took its bar
+    bool dragTriggerWas_ = false;
+    glm::vec3 windowHead_{0.0f};
+    std::chrono::steady_clock::time_point windowsMoved_{};
     struct HandData;
     HandData* hands_ = nullptr;  // null without hand tracking
     HandPoses handsInWorld_;

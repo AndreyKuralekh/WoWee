@@ -471,6 +471,23 @@ void XrSystem::setHandPanelRects(const glm::vec4& actionBar, const glm::vec4& ta
     }
 }
 
+// A frame's rectangle in the panel image, which is the window's own pixels and
+// need not be the size the interface laid itself out in.
+bool XrSystem::panelCrop(const glm::vec4& r, const glm::vec2& window, XrRect2Di& crop) const {
+    if (!frame_ || r.z <= 1.0f || r.w <= 1.0f || window.x <= 0.0f || window.y <= 0.0f) return false;
+    const VkExtent2D& extent = frame_->panelExtent;
+    if (extent.width == 0 || extent.height == 0) return false;
+    const float sx = static_cast<float>(extent.width) / window.x;
+    const float sy = static_cast<float>(extent.height) / window.y;
+    const int x0 = std::clamp(static_cast<int>(std::floor(r.x * sx)), 0, static_cast<int>(extent.width) - 1);
+    const int y0 = std::clamp(static_cast<int>(std::floor(r.y * sy)), 0, static_cast<int>(extent.height) - 1);
+    const int x1 = std::clamp(static_cast<int>(std::ceil((r.x + r.z) * sx)), x0 + 1, static_cast<int>(extent.width));
+    const int y1 = std::clamp(static_cast<int>(std::ceil((r.y + r.w) * sy)), y0 + 1, static_cast<int>(extent.height));
+    crop.offset = {x0, y0};
+    crop.extent = {x1 - x0, y1 - y0};
+    return true;
+}
+
 // On the wrist of the hand that does not point, as a watch is: a little above
 // the back of the hand and towards the elbow, tilted up to face the eyes
 // when the forearm is raised in front of them. The target frame stands over
@@ -482,26 +499,10 @@ bool XrSystem::handPanelQuad(uint32_t which, XrSpace& space, XrPosef& pose, XrEx
     space = offHandSpace();
     if (space == XR_NULL_HANDLE || f.panelExtent.width == 0 || f.panelExtent.height == 0) return false;
 
-    // The frame's rectangle in the panel image, which is the window's own
-    // pixels and need not be the size the interface laid itself out in.
-    const auto cut = [&](const glm::vec4& r, XrRect2Di& out) {
-        if (r.z <= 1.0f || r.w <= 1.0f) return false;
-        const float sx = static_cast<float>(f.panelExtent.width) / handPanelWindow_.x;
-        const float sy = static_cast<float>(f.panelExtent.height) / handPanelWindow_.y;
-        const int x0 = std::clamp(static_cast<int>(std::floor(r.x * sx)), 0, static_cast<int>(f.panelExtent.width) - 1);
-        const int y0 = std::clamp(static_cast<int>(std::floor(r.y * sy)), 0, static_cast<int>(f.panelExtent.height) - 1);
-        const int x1 = std::clamp(static_cast<int>(std::ceil((r.x + r.z) * sx)), x0 + 1,
-                                  static_cast<int>(f.panelExtent.width));
-        const int y1 = std::clamp(static_cast<int>(std::ceil((r.y + r.w) * sy)), y0 + 1,
-                                  static_cast<int>(f.panelExtent.height));
-        out.offset = {x0, y0};
-        out.extent = {x1 - x0, y1 - y0};
-        return true;
-    };
     XrRect2Di barCrop{};
     XrRect2Di targetCrop{};
-    const bool bar = cut(handPanelRect_[0], barCrop);
-    const bool target = cut(handPanelRect_[1], targetCrop);
+    const bool bar = panelCrop(handPanelRect_[0], handPanelWindow_, barCrop);
+    const bool target = panelCrop(handPanelRect_[1], handPanelWindow_, targetCrop);
     if (which == 0 ? !bar : !target) return false;
 
     constexpr float kBarWidth = 0.30f;     // metres, at size 1
@@ -763,6 +764,8 @@ void XrSystem::placePanel() {
     const float k = 1.0f - std::exp(-dt * 6.0f);
     f.panelYaw += angleBetween(f.panelYaw, f.panelTargetYaw) * k;
     f.panelAnchor += (f.panelTargetAnchor - f.panelAnchor) * k;
+
+    placeWindows(head, headYaw);
 }
 
 // In the fake headset the two eyes go next to each other in the window, under
@@ -1114,7 +1117,7 @@ void XrSystem::endFrame(bool submitted) {
     const bool showWorld = usable && f.eyesCopied == (1u << kEyeCount) - 1u;
     const bool showPanel = usable && f.panelCopied;
     const bool show = showWorld || showPanel;
-    const XrCompositionLayerBaseHeader* layers[7] = {};
+    const XrCompositionLayerBaseHeader* layers[11] = {};
     uint32_t layerCount = 0;
 
     std::array<XrCompositionLayerProjectionView, kEyeCount> projectionViews{};
@@ -1164,6 +1167,30 @@ void XrSystem::endFrame(bool submitted) {
         if (panelQuad(panel.space, panel.pose, panel.size)) {
             layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&panel);
         }
+    }
+
+    // The spell book and the bags, nearer than the panel and parts of its
+    // image like the wrist's; each with the bar that moves it, in the ray's
+    // colour. Under the hands: a hand reaching for one is in front of it.
+    XrCompositionLayerQuad windows[2]{};
+    XrCompositionLayerQuad windowBars[2]{};
+    for (uint32_t i = 0; i < 2; ++i) {
+        XrCompositionLayerQuad& quad = windows[i];
+        quad.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+        if (!showWorld || !showPanel || !windowQuad(i, quad.pose, quad.size, quad.subImage.imageRect)) continue;
+        quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        quad.space = localSpace_;
+        quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        quad.subImage.swapchain = f.panel.handle;
+        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quad);
+        XrCompositionLayerQuad& bar = windowBars[i];
+        bar.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+        if (!f.beamFilled || !windowBarQuad(i, bar.pose, bar.size)) continue;
+        bar.space = localSpace_;
+        bar.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        bar.subImage.swapchain = f.beam.handle;
+        bar.subImage.imageRect.extent = {4, 4};
+        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&bar);
     }
 
     // The hands, over the panel: the eyes once more, showing only what their
