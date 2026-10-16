@@ -547,6 +547,14 @@ bool XrSystem::handPanelQuad(uint32_t which, XrSpace& space, XrPosef& pose, XrEx
         constexpr float kAlongArm = 0.09f;    // from the wrist joint towards the elbow
         glm::vec3 face = at + outOfBack * kAboveSkin + towardElbow * kAlongArm;
         if (which == 1 && bar) face += top * (0.5f * barHeight + kGap + 0.5f * size.height);
+        // Only while the back of the wrist faces the eyes: turned away, the
+        // panel would be behind the hand and is drawn over it all the same.
+        const glm::vec3 head = 0.5f * (glm::vec3(f.views[0].pose.position.x, f.views[0].pose.position.y,
+                                                 f.views[0].pose.position.z) +
+                                       glm::vec3(f.views[1].pose.position.x, f.views[1].pose.position.y,
+                                                 f.views[1].pose.position.z));
+        constexpr float kMinFacing = 0.15f;  // cosine: hidden when seen within ~9 degrees of edge-on or from below
+        if (glm::dot(outOfBack, glm::normalize(head - face)) < kMinFacing) return false;
         const glm::quat turn = glm::quat_cast(glm::mat3(across, top, outOfBack));
         space = localSpace_;
         pose.orientation = {turn.x, turn.y, turn.z, turn.w};
@@ -1158,8 +1166,23 @@ void XrSystem::endFrame(bool submitted) {
         }
     }
 
+    // The hands, over the panel: the eyes once more, showing only what their
+    // alpha keeps, which is where a hand was drawn and the world did not hide
+    // it. A hand is always nearer than the big panel, so this is always right.
+    std::array<XrCompositionLayerProjectionView, kEyeCount> handViews = projectionViews;
+    XrCompositionLayerProjection hands = layer;
+    if (showWorld && showPanel && f.handsCopied == (1u << kEyeCount) - 1u) {
+        for (uint32_t i = 0; i < kEyeCount; ++i) handViews[i].subImage.swapchain = f.handEyes[i].handle;
+        hands.views = handViews.data();
+        hands.layerFlags =
+            XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&hands);
+    }
+
     // The action bar and the target frame again, on the wrist: parts of the
-    // panel's own image, so nothing is copied for them.
+    // panel's own image, so nothing is copied for them. Over the hands, since
+    // they lie on the back of the wrist and are only shown while it faces the
+    // eyes; the other hand passes under them.
     XrCompositionLayerQuad handPanels[2]{};
     for (uint32_t i = 0; i < 2; ++i) {
         XrCompositionLayerQuad& quad = handPanels[i];
@@ -1171,19 +1194,6 @@ void XrSystem::endFrame(bool submitted) {
         quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
         quad.subImage.swapchain = f.panel.handle;
         layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quad);
-    }
-
-    // The hands, over the panel: the eyes once more, showing only what their
-    // alpha keeps, which is where a hand was drawn and the world did not hide
-    // it. A hand is always nearer than the panel, so this is always right.
-    std::array<XrCompositionLayerProjectionView, kEyeCount> handViews = projectionViews;
-    XrCompositionLayerProjection hands = layer;
-    if (showWorld && showPanel && f.handsCopied == (1u << kEyeCount) - 1u) {
-        for (uint32_t i = 0; i < kEyeCount; ++i) handViews[i].subImage.swapchain = f.handEyes[i].handle;
-        hands.views = handViews.data();
-        hands.layerFlags =
-            XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
-        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&hands);
     }
 
     // The controller's ray, over everything: there is no depth to hide it by.
