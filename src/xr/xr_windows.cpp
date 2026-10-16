@@ -7,7 +7,8 @@
 // under each moves it: the ray on the bar and the trigger held, and it goes
 // where the ray goes. The grips cannot be used for that - the pointing one is
 // the right mouse button, which uses an item in a bag, and the other one is
-// the modifier. Where each was put is kept in vr_windows.cfg.
+// the modifier. The bar shows only while the ray is on its window. Where each
+// was put is kept in vr_windows.cfg.
 
 #include "xr/xr_system.hpp"
 
@@ -131,6 +132,9 @@ bool XrSystem::windowQuad(uint32_t which, XrPosef& pose, XrExtent2Df& size, XrRe
 }
 
 bool XrSystem::windowBarQuad(uint32_t which, XrPosef& pose, XrExtent2Df& size) const {
+    // Only while the ray is on the window or its bar, or moving it: a bar
+    // under every open window all the time is a stripe across the view.
+    if (pointedWindow_ != static_cast<int>(which) && draggedWindow_ != static_cast<int>(which)) return false;
     XrRect2Di crop{};
     XrExtent2Df window{};
     if (!windowQuad(which, pose, window, crop)) return false;

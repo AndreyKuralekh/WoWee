@@ -530,6 +530,7 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
     // on a window's bar is for moving the window, not for the mouse.
     int barHit = -1;
     float barDistance = 0.0f;
+    int windowHit = -1;
     if (focused && inWorld && windowWidth > 0 && windowHeight > 0) {
         const glm::vec2 window(static_cast<float>(windowWidth), static_cast<float>(windowHeight));
         float nearest = FLT_MAX;
@@ -537,6 +538,7 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
             nearest = distance;
             onPanel = true;
             barHit = -1;
+            windowHit = -1;
             in.beamLength = distance;
             at = (glm::vec2(rect.x, rect.y) + uv * glm::vec2(rect.z, rect.w)) * (window / pixels);
             at = glm::clamp(at, glm::vec2(0.0f), window - 1.0f);
@@ -557,16 +559,27 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
                 glm::vec2 uv(0.0f);
                 if (windowQuad(which, quad, size, crop) && meet(quad, size, distance, uv) && distance < nearest) {
                     take(distance, windowRect_[which], windowPixels_, uv);
+                    windowHit = static_cast<int>(which);
                 }
                 if (windowBarQuad(which, quad, size) && meet(quad, size, distance, uv) && distance < nearest) {
                     nearest = distance;
                     onPanel = false;
                     barHit = static_cast<int>(which);
+                    windowHit = barHit;
                     barDistance = distance;
                     in.beamLength = distance;
                 }
             }
         }
+    }
+    // A window's bar comes with the ray on the window, and stays a moment
+    // after it leaves: long enough to cross the gap down to the bar.
+    const auto now = std::chrono::steady_clock::now();
+    if (windowHit >= 0) {
+        pointedWindow_ = windowHit;
+        windowPointedAt_ = now;
+    } else if (now - windowPointedAt_ > std::chrono::milliseconds(600)) {
+        pointedWindow_ = -1;
     }
 
     // A window being moved has the ray, and the trigger with it.

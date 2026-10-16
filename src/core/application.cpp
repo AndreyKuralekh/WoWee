@@ -4210,10 +4210,14 @@ void Application::render() {
                         std::string name;
                         uint32_t id = 0;
                         uint32_t missedAt = 0;  // frame of the last failed search
+                        // What of the frame is empty, as its HitRectInsets in
+                        // the stock XML: left, right, top, bottom.
+                        glm::vec4 inset{0.0f};
                     };
                     static std::vector<Named> barButtons;
                     static std::vector<Named> targetFrames;
                     static std::vector<Named> spellBook;
+                    static std::vector<Named> bookTabs;
                     static std::vector<Named> bags;
                     static uint32_t frameCount = 0;
                     ++frameCount;
@@ -4223,10 +4227,16 @@ void Application::render() {
                             for (int i = 1; i <= 12; ++i) barButtons.push_back({prefix + std::to_string(i)});
                         }
                         targetFrames = {{"TargetFrame"}, {"TargetFrameToT"}};
-                        // The book with the tabs along its right edge; every
-                        // open bag, whichever frame each was given.
-                        spellBook = {{"SpellBookFrame"}};
+                        // The book with the tabs along its right edge, without
+                        // the empty strip along its bottom; the tabs under it
+                        // (spells, pet) apart. Every open bag, whichever frame
+                        // each was given.
+                        spellBook = {{"SpellBookFrame", 0, 0, glm::vec4(0.0f, 0.0f, 0.0f, 70.0f)}};
                         for (int i = 1; i <= 8; ++i) spellBook.push_back({"SpellBookSkillLineTab" + std::to_string(i)});
+                        for (int i = 1; i <= 3; ++i) {
+                            bookTabs.push_back({"SpellBookFrameTabButton" + std::to_string(i), 0, 0,
+                                                glm::vec4(15.0f, 14.0f, 13.0f, 15.0f)});
+                        }
                         for (int i = 1; i <= 13; ++i) bags.push_back({"ContainerFrame" + std::to_string(i)});
                     }
                     // A name that is not there is looked for again now and
@@ -4246,11 +4256,15 @@ void Application::render() {
                         for (Named& n : names) {
                             const ui::Widget* w = find(n);
                             if (!w || !w->visible || w->rectW <= 0.0f || w->rectH <= 0.0f) continue;
-                            const float top = io.DisplaySize.y - (w->bottom + w->rectH) * sc;
-                            x0 = std::min(x0, w->left * sc);
+                            const float left = w->left + n.inset.x;
+                            const float right = w->left + w->rectW - n.inset.y;
+                            const float top = io.DisplaySize.y - (w->bottom + w->rectH - n.inset.z) * sc;
+                            const float bottom = io.DisplaySize.y - (w->bottom + n.inset.w) * sc;
+                            if (right <= left || bottom <= top) continue;
+                            x0 = std::min(x0, left * sc);
                             y0 = std::min(y0, top);
-                            x1 = std::max(x1, (w->left + w->rectW) * sc);
-                            y1 = std::max(y1, top + w->rectH * sc);
+                            x1 = std::max(x1, right * sc);
+                            y1 = std::max(y1, bottom);
                         }
                         // A few pixels of margin, so a button's edge is not cut.
                         constexpr float kMargin = 3.0f;
@@ -4260,9 +4274,21 @@ void Application::render() {
                     };
                     xr::system().setHandPanelRects(unionOf(barButtons), unionOf(targetFrames), io.DisplaySize.x,
                                                    io.DisplaySize.y);
-                    // The tabs only with the book itself open.
+                    // The tabs only with the book itself open, and those under
+                    // it only when there is a second one to choose: alone, the
+                    // first would bring the chat behind it into the window.
                     const ui::Widget* bookFrame = find(spellBook[0]);
-                    const glm::vec4 book = bookFrame && bookFrame->visible ? unionOf(spellBook) : glm::vec4(0.0f);
+                    glm::vec4 book = bookFrame && bookFrame->visible ? unionOf(spellBook) : glm::vec4(0.0f);
+                    const ui::Widget* petTab = find(bookTabs[1]);
+                    if (book.z > 0.0f && petTab && petTab->visible) {
+                        const glm::vec4 tabs = unionOf(bookTabs);
+                        if (tabs.z > 0.0f) {
+                            const glm::vec2 lo = glm::min(glm::vec2(book), glm::vec2(tabs));
+                            const glm::vec2 hi = glm::max(glm::vec2(book.x + book.z, book.y + book.w),
+                                                          glm::vec2(tabs.x + tabs.z, tabs.y + tabs.w));
+                            book = glm::vec4(lo, hi - lo);
+                        }
+                    }
                     xr::system().setWindowRects(book, unionOf(bags), io.DisplaySize.x, io.DisplaySize.y);
                 }
 #endif

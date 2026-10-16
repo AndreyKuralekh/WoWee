@@ -435,6 +435,8 @@ private:
     WindowPlace windowPlace_[2];
     bool windowPlacesLoaded_ = false;
     int draggedWindow_ = -1;
+    int pointedWindow_ = -1;  // the window or bar the ray met last; only its bar is shown
+    std::chrono::steady_clock::time_point windowPointedAt_{};
     float dragDistance_ = 0.0f;
     glm::vec3 dragFromHit_{0.0f};  // the window's centre from where the ray took its bar
     bool dragTriggerWas_ = false;
