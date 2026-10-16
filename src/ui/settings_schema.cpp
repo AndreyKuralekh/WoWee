@@ -1007,6 +1007,14 @@ constexpr SettingDesc kSchema[] = {
      "panel as well.", "", 1},
     {"vrhandpanelsize", "Wrist panel size", SettingKind::Float, 0.5f, 2.0f, 0.05f, "VR comfort", "Hands",
      "How big the panels on the wrist are. 1 is a hand's span wide.", "", 1.0f},
+    {"vrwindows", "Spell book and bags as windows", SettingKind::Bool, 0, 0, 0, "VR comfort", "Windows",
+     "The spell book and the bags stand on their own when opened,\n"
+     "nearer and larger than on the big panel: the book to the left,\n"
+     "the bags to the right. Point at the blue bar under one and hold\n"
+     "the trigger to move it; it is opened there from then on.", "", 1},
+    {"vrwindowsize", "Window size", SettingKind::Float, 0.5f, 2.0f, 0.05f, "VR comfort", "Windows",
+     "How big the spell book and the bags are when they stand on\n"
+     "their own.", "", 1.0f},
 
     // What the controllers' buttons do. Not fields of the settings panel: the
     // VR module keeps the table (xr_controls.cpp) in vr_controls.cfg, and the

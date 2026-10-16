@@ -252,6 +252,8 @@ public:
     float pendingVrHandTone = 0.5f;         // their skin, 0 pale to 1 dark
     bool pendingVrHandPanels = true;        // the action bar and the target frame on the wrist
     float pendingVrHandPanelSize = 1.0f;    // how big they are there
+    bool pendingVrWindows = true;           // the spell book and the bags on their own
+    float pendingVrWindowSize = 1.0f;       // how big they are then
     float pendingVrShine = 0.0f;            // sun highlights on buildings, 1 = the flat client's
     int pendingPOMQuality = 1;          // 0=Low(16), 1=Medium(32), 2=High(64)
     bool pendingFSR = false;

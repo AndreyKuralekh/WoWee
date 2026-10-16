@@ -881,7 +881,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "daylight", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrhands", "vrhandtone", "vrhandpanels", "vrhandpanelsize",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrhands", "vrhandtone", "vrhandpanels", "vrhandpanelsize", "vrwindows", "vrwindowsize",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1092,6 +1092,8 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrhandtone",        .asFloat = &SettingsPanel::pendingVrHandTone},
     {.key = "vrhandpanels",      .asBool  = &SettingsPanel::pendingVrHandPanels},
     {.key = "vrhandpanelsize",   .asFloat = &SettingsPanel::pendingVrHandPanelSize},
+    {.key = "vrwindows",         .asBool  = &SettingsPanel::pendingVrWindows},
+    {.key = "vrwindowsize",      .asFloat = &SettingsPanel::pendingVrWindowSize},
 #endif
     {.key = "parallaxquality",   .asInt   = &SettingsPanel::pendingPOMQuality},
 
@@ -1330,6 +1332,14 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     }
     if (key == "vrhandpanelsize") {
         xr::system().setHandPanelSize(pendingVrHandPanelSize);
+        return;
+    }
+    if (key == "vrwindows") {
+        xr::system().setWindows(pendingVrWindows);
+        return;
+    }
+    if (key == "vrwindowsize") {
+        xr::system().setWindowSize(pendingVrWindowSize);
         return;
     }
     if (key == "vrshine") {
