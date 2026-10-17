@@ -1826,6 +1826,7 @@ void GameScreen::saveSettings() {
     out << "vr_panel_follow=" << settingsPanel_.pendingVrPanelFollow << "\n";
     out << "vr_panel_distance=" << settingsPanel_.pendingVrPanelDistance << "\n";
     out << "vr_panel_width=" << settingsPanel_.pendingVrPanelWidth << "\n";
+    out << "vr_interface_resolution=" << settingsPanel_.pendingVrInterfaceResolution << "\n";
     out << "vr_show_fps=" << (settingsPanel_.pendingVrShowFps ? 1 : 0) << "\n";
     out << "vr_first_person=" << (settingsPanel_.pendingVrFirstPerson ? 1 : 0) << "\n";
     out << "vr_body_follows_head=" << (settingsPanel_.pendingVrBodyFollowsHead ? 1 : 0) << "\n";
@@ -2116,6 +2117,7 @@ void GameScreen::loadSettings() {
             else if (key == "vr_panel_follow") settingsPanel_.pendingVrPanelFollow = std::clamp(std::stoi(val), 0, 2);
             else if (key == "vr_panel_distance") settingsPanel_.pendingVrPanelDistance = std::clamp(std::stof(val), 0.5f, 4.0f);
             else if (key == "vr_panel_width") settingsPanel_.pendingVrPanelWidth = std::clamp(std::stof(val), 0.5f, 4.0f);
+            else if (key == "vr_interface_resolution") settingsPanel_.pendingVrInterfaceResolution = std::clamp(std::stof(val), 1.0f, 2.0f);
             else if (key == "vr_show_fps") settingsPanel_.pendingVrShowFps = (val == "1");
             else if (key == "vr_first_person") settingsPanel_.pendingVrFirstPerson = (val == "1");
             else if (key == "vr_body_follows_head") settingsPanel_.pendingVrBodyFollowsHead = (val == "1");

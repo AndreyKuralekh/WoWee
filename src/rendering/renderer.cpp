@@ -1583,14 +1583,25 @@ void Renderer::endFrame() {
 
     const auto& overlayFbs = vkCtx->getOverlayFramebuffers();
     if (vkCtx->getOverlayRenderPass() != VK_NULL_HANDLE && currentImageIndex < overlayFbs.size()) {
+        VkExtent2D ext = vkCtx->getSwapchainExtent();
+        VkFramebuffer overlayFb = overlayFbs[currentImageIndex];
+#ifdef WOWEE_VR
+        // In a headset the interface is drawn larger than the window, into a
+        // picture of its own that the panel is made from.
+        const VkImage windowImage = vkCtx->getSwapchainImages()[currentImageIndex];
+        const VkExtent2D windowExtent = ext;
+        if (const VkExtent2D larger = xr::system().beginInterfacePass(currentCmd, windowImage, windowExtent, overlayFb);
+            larger.width > 0) {
+            ext = larger;
+        }
+#endif
         VkRenderPassBeginInfo overlayRp{};
         overlayRp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         overlayRp.renderPass = vkCtx->getOverlayRenderPass();
-        overlayRp.framebuffer = overlayFbs[currentImageIndex];
-        overlayRp.renderArea.extent = vkCtx->getSwapchainExtent();
+        overlayRp.framebuffer = overlayFb;
+        overlayRp.renderArea.extent = ext;
         vkCmdBeginRenderPass(currentCmd, &overlayRp, VK_SUBPASS_CONTENTS_INLINE);
 
-        VkExtent2D ext = vkCtx->getSwapchainExtent();
         VkViewport vp{};
         vp.width = static_cast<float>(ext.width);
         vp.height = static_cast<float>(ext.height);
@@ -1605,8 +1616,20 @@ void Renderer::endFrame() {
 
         // ImGui's pipelines are built against the overlay pass, so it always
         // records inline here rather than into a scene-pass secondary buffer.
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), currentCmd);
+        ImDrawData* drawData = ImGui::GetDrawData();
+#ifdef WOWEE_VR
+        // The size the frame is drawn at decides, not the one ImGui was told
+        // when the frame began: the two differ on the frame it changes.
+        if (drawData && drawData->DisplaySize.x > 0.0f && drawData->DisplaySize.y > 0.0f) {
+            drawData->FramebufferScale = ImVec2(static_cast<float>(ext.width) / drawData->DisplaySize.x,
+                                                static_cast<float>(ext.height) / drawData->DisplaySize.y);
+        }
+#endif
+        ImGui_ImplVulkan_RenderDrawData(drawData, currentCmd);
         vkCmdEndRenderPass(currentCmd);
+#ifdef WOWEE_VR
+        xr::system().endInterfacePass(currentCmd, windowImage, windowExtent);
+#endif
         if (vkCtx) vkCtx->gpuMark(currentCmd, "interface");
     } else {
         LOG_ERROR("Overlay render pass missing - UI not drawn this frame");

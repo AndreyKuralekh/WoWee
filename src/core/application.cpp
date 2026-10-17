@@ -281,6 +281,7 @@ bool Application::initialize() {
     }
 #ifdef WOWEE_VR
     if (xr::system().available()) xr::system().createSession(*window->getVkContext());
+    else if (xr::system().fakeHeadset()) xr::system().useFakeContext(*window->getVkContext());
 #endif
 
     // Controllers, which are a window's business rather than a renderer's:

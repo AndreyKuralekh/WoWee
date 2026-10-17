@@ -881,7 +881,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "daylight", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrhands", "vrhandtone", "vrhandpanels", "vrhandpanelsize", "vrwindows", "vrwindowsize",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrhands", "vrhandtone", "vrhandpanels", "vrhandpanelsize", "vrwindows", "vrwindowsize",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1077,6 +1077,7 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrpanelfollow",     .asInt   = &SettingsPanel::pendingVrPanelFollow},
     {.key = "vrpaneldistance",   .asFloat = &SettingsPanel::pendingVrPanelDistance},
     {.key = "vrpanelwidth",      .asFloat = &SettingsPanel::pendingVrPanelWidth},
+    {.key = "vrinterfaceres",    .asFloat = &SettingsPanel::pendingVrInterfaceResolution},
     {.key = "vrshowfps",         .asBool  = &SettingsPanel::pendingVrShowFps},
     {.key = "vrfirstperson",     .asBool  = &SettingsPanel::pendingVrFirstPerson},
     {.key = "vrshine",           .asFloat = &SettingsPanel::pendingVrShine},
@@ -1276,6 +1277,10 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     if (key == "vrpanelfollow" || key == "vrpaneldistance" || key == "vrpanelwidth") {
         xr::system().setPanelPlacement(static_cast<xr::XrSystem::PanelFollow>(pendingVrPanelFollow),
                                        pendingVrPanelDistance, pendingVrPanelWidth);
+        return;
+    }
+    if (key == "vrinterfaceres") {
+        xr::system().setInterfaceResolution(pendingVrInterfaceResolution);
         return;
     }
     if (key == "vrshowfps") {

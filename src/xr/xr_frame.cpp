@@ -25,6 +25,7 @@
 #include <filesystem>
 #include <iterator>
 #include <thread>
+#include <utility>
 
 namespace wowee::xr {
 
@@ -113,6 +114,34 @@ void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageL
                          0, nullptr, 0, nullptr, 1, &barrier);
 }
 
+bool sameExtent(const VkExtent2D& a, const VkExtent2D& b) {
+    return a.width == b.width && a.height == b.height;
+}
+
+// One whole image stretched over another, filtered. `from` in TRANSFER_SRC and
+// `to` in TRANSFER_DST, as they are left.
+void blitWhole(VkCommandBuffer cmd, VkImage from, VkExtent2D fromExtent, VkImage to, VkExtent2D toExtent) {
+    const VkImageSubresourceLayers layers{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
+                                          .baseArrayLayer = 0, .layerCount = 1};
+    VkImageBlit blit{};
+    blit.srcSubresource = layers;
+    blit.srcOffsets[1] = {static_cast<int32_t>(fromExtent.width), static_cast<int32_t>(fromExtent.height), 1};
+    blit.dstSubresource = layers;
+    blit.dstOffsets[1] = {static_cast<int32_t>(toExtent.width), static_cast<int32_t>(toExtent.height), 1};
+    vkCmdBlitImage(cmd, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, to, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                   &blit, VK_FILTER_LINEAR);
+}
+
+// The window's picture stretched or shrunk into another whole, overwriting it.
+// Both are in PRESENT_SRC before and after.
+void stretchInto(VkCommandBuffer cmd, VkImage from, VkExtent2D fromExtent, VkImage to, VkExtent2D toExtent) {
+    transition(cmd, from, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transition(cmd, to, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    blitWhole(cmd, from, fromExtent, to, toExtent);
+    transition(cmd, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    transition(cmd, to, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+}
+
 }  // namespace
 
 struct XrSystem::FrameData {
@@ -129,6 +158,17 @@ struct XrSystem::FrameData {
     EyeSwapchain panel;
     VkExtent2D panelExtent{};
     bool panelCopied = false;
+    // The interface drawn larger than the window (setInterfaceResolution): a
+    // picture of its own in the window's format, the overlay pass's
+    // framebuffer on it, and whether this frame's interface went into it. Kept
+    // in PRESENT_SRC between uses, as the window's images are.
+    VkImage interfaceImage = VK_NULL_HANDLE;
+    VmaAllocation interfaceAllocation = VK_NULL_HANDLE;
+    VkImageView interfaceView = VK_NULL_HANDLE;
+    VkFramebuffer interfaceFramebuffer = VK_NULL_HANDLE;
+    VkExtent2D interfaceExtent{};
+    VkFormat interfaceFormat = VK_FORMAT_UNDEFINED;
+    bool interfaceDrawn = false;
     // Whether the last frame had a world under the panel. Before there is one
     // - the login screen, the character list, a loading screen - the panel is
     // the whole picture, and it stands still to be looked at whatever way of
@@ -301,6 +341,7 @@ void XrSystem::destroyEyeSwapchains() {
         if (hands.handle != XR_NULL_HANDLE) xrDestroySwapchain(hands.handle);
     }
     if (frame_->panel.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->panel.handle);
+    destroyInterfaceTarget();
     if (frame_->beam.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->beam.handle);
     if (frame_->vignette.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->vignette.handle);
     if (frame_->vignetteStaging != VK_NULL_HANDLE && ctx_) {
@@ -681,8 +722,16 @@ void XrSystem::beginFrame() {
         }
     }
 
-    // The panel is the window's size, whatever that is this frame.
-    const VkExtent2D window = ctx_ ? ctx_->getSwapchainExtent() : VkExtent2D{};
+    // The panel is the interface's size: the window's, whatever that is this
+    // frame, times the resolution asked for.
+    VkExtent2D window = ctx_ ? ctx_->getSwapchainExtent() : VkExtent2D{};
+    if (window.width > 0 && window.height > 0) {
+        if (interfaceResolutionNow() > 1.0f && ensureInterfaceTarget(interfaceExtentFor(window))) {
+            window = f.interfaceExtent;
+        } else {
+            destroyInterfaceTarget();
+        }
+    }
     if (f.shouldRender && window.width > 0 && window.height > 0) {
         if (f.panel.handle == XR_NULL_HANDLE || f.panelExtent.width != window.width ||
             f.panelExtent.height != window.height) {
@@ -791,6 +840,131 @@ void XrSystem::recordFakePreview(VkCommandBuffer cmd, VkImage windowImage, VkExt
     transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 }
 
+float XrSystem::interfaceResolutionNow() const {
+    return frame_ && (running_ || fake_) ? interfaceResolution_ : 1.0f;
+}
+
+VkExtent2D XrSystem::interfaceExtentFor(VkExtent2D window) const {
+    // Within what any device takes for a framebuffer.
+    constexpr float kLargest = 8192.0f;
+    const float scale = interfaceResolutionNow();
+    return {static_cast<uint32_t>(std::min(kLargest, std::round(static_cast<float>(window.width) * scale))),
+            static_cast<uint32_t>(std::min(kLargest, std::round(static_cast<float>(window.height) * scale)))};
+}
+
+bool XrSystem::ensureInterfaceTarget(VkExtent2D extent) {
+    if (!frame_ || !ctx_ || extent.width == 0 || extent.height == 0) return false;
+    FrameData& f = *frame_;
+    const VkFormat format = ctx_->getSwapchainFormat();
+    if (f.interfaceImage != VK_NULL_HANDLE && sameExtent(f.interfaceExtent, extent) && f.interfaceFormat == format) {
+        return true;
+    }
+    destroyInterfaceTarget();
+    const VkRenderPass pass = ctx_->getOverlayRenderPass();
+    if (pass == VK_NULL_HANDLE) return false;
+    // Stretched into and out of with a filter, which not every format allows.
+    VkFormatProperties properties{};
+    vkGetPhysicalDeviceFormatProperties(ctx_->getPhysicalDevice(), format, &properties);
+    constexpr VkFormatFeatureFlags kNeeded = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
+                                             VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
+                                             VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+    if ((properties.optimalTilingFeatures & kNeeded) != kNeeded) {
+        static bool said = false;
+        if (!said) LOG_WARNING("VR: the window's format cannot be scaled - the interface is drawn at its size");
+        said = true;
+        return false;
+    }
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = format;
+    imageInfo.extent = {extent.width, extent.height, 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                      VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    if (vmaCreateImage(ctx_->getAllocator(), &imageInfo, &allocInfo, &f.interfaceImage, &f.interfaceAllocation,
+                       nullptr) != VK_SUCCESS) {
+        f.interfaceImage = VK_NULL_HANDLE;
+        LOG_WARNING("VR: could not make a ", extent.width, "x", extent.height, " picture for the interface");
+        return false;
+    }
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = f.interfaceImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = format;
+    viewInfo.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1,
+                                 .baseArrayLayer = 0, .layerCount = 1};
+    bool made = vkCreateImageView(ctx_->getDevice(), &viewInfo, nullptr, &f.interfaceView) == VK_SUCCESS;
+    if (made) {
+        VkFramebufferCreateInfo framebufferInfo{};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = pass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = &f.interfaceView;
+        framebufferInfo.width = extent.width;
+        framebufferInfo.height = extent.height;
+        framebufferInfo.layers = 1;
+        made = vkCreateFramebuffer(ctx_->getDevice(), &framebufferInfo, nullptr, &f.interfaceFramebuffer) ==
+               VK_SUCCESS;
+    }
+    if (!made) {
+        LOG_WARNING("VR: could not make the interface's framebuffer");
+        destroyInterfaceTarget();
+        return false;
+    }
+    f.interfaceExtent = extent;
+    f.interfaceFormat = format;
+    LOG_WARNING("VR: interface drawn at ", extent.width, "x", extent.height);
+    return true;
+}
+
+void XrSystem::destroyInterfaceTarget() {
+    if (!frame_ || !ctx_) return;
+    FrameData& f = *frame_;
+    if (f.interfaceImage == VK_NULL_HANDLE && f.interfaceView == VK_NULL_HANDLE &&
+        f.interfaceFramebuffer == VK_NULL_HANDLE) {
+        return;
+    }
+    // Earlier frames may still be drawing into it.
+    vkDeviceWaitIdle(ctx_->getDevice());
+    if (f.interfaceFramebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(ctx_->getDevice(), f.interfaceFramebuffer, nullptr);
+    if (f.interfaceView != VK_NULL_HANDLE) vkDestroyImageView(ctx_->getDevice(), f.interfaceView, nullptr);
+    if (f.interfaceImage != VK_NULL_HANDLE) {
+        vmaDestroyImage(ctx_->getAllocator(), f.interfaceImage, f.interfaceAllocation);
+    }
+    f.interfaceFramebuffer = VK_NULL_HANDLE;
+    f.interfaceView = VK_NULL_HANDLE;
+    f.interfaceImage = VK_NULL_HANDLE;
+    f.interfaceAllocation = VK_NULL_HANDLE;
+    f.interfaceExtent = {};
+    f.interfaceDrawn = false;
+}
+
+VkExtent2D XrSystem::beginInterfacePass(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent,
+                                        VkFramebuffer& framebuffer) {
+    if (!frame_ || interfaceResolutionNow() <= 1.0f) return {};
+    const VkExtent2D extent = interfaceExtentFor(windowExtent);
+    if (!ensureInterfaceTarget(extent)) return {};
+    FrameData& f = *frame_;
+    stretchInto(cmd, windowImage, windowExtent, f.interfaceImage, extent);
+    framebuffer = f.interfaceFramebuffer;
+    f.interfaceDrawn = true;
+    return extent;
+}
+
+void XrSystem::endInterfacePass(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent) {
+    if (!frame_ || !frame_->interfaceDrawn) return;
+    stretchInto(cmd, frame_->interfaceImage, frame_->interfaceExtent, windowImage, windowExtent);
+}
+
 void XrSystem::drawPointer() {
     if (!running_ || !ImGui::GetCurrentContext()) return;
     const ImGuiIO& io = ImGui::GetIO();
@@ -837,6 +1011,7 @@ void XrSystem::drawFrameRate() {
 // blit: the window is in a linear format and already display encoded, and the
 // panel is its sRGB twin of the same size.
 void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent) {
+    const bool drawnLarge = frame_ && std::exchange(frame_->interfaceDrawn, false);
     if (fake_ || !frame_ || !frame_->begun || !frame_->shouldRender) return;
     FrameData& f = *frame_;
     if (f.beam.acquired && !f.beamFilling) {
@@ -894,28 +1069,35 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
             f.vignetteFilling = true;
         }
     }
-    if (!f.panel.acquired || windowExtent.width != f.panelExtent.width ||
-        windowExtent.height != f.panelExtent.height) {
-        return;
+    // Drawn larger, the panel is a copy of that picture instead. A frame whose
+    // interface went to the window all the same - a loading screen draws its
+    // own - is stretched into it first.
+    VkImage source = windowImage;
+    VkExtent2D sourceExtent = windowExtent;
+    if (f.interfaceImage != VK_NULL_HANDLE && sameExtent(f.interfaceExtent, f.panelExtent)) {
+        if (!drawnLarge) stretchInto(cmd, windowImage, windowExtent, f.interfaceImage, f.interfaceExtent);
+        source = f.interfaceImage;
+        sourceExtent = f.interfaceExtent;
     }
+    if (!f.panel.acquired || !sameExtent(sourceExtent, f.panelExtent)) return;
 
     const VkImageSubresourceLayers layers{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
                                           .baseArrayLayer = 0, .layerCount = 1};
     VkImageCopy copy{};
     copy.srcSubresource = layers;
     copy.dstSubresource = layers;
-    copy.extent = {windowExtent.width, windowExtent.height, 1};
+    copy.extent = {sourceExtent.width, sourceExtent.height, 1};
     const VkImage target = f.panel.images[f.panel.imageIndex];
 
-    transition(cmd, windowImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transition(cmd, source, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     // Overwritten whole, so what the image held does not matter. The runtime
     // wants it back in COLOR_ATTACHMENT_OPTIMAL.
     transition(cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    vkCmdCopyImage(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
+    vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
     transition(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    if (f.dumpsLeft > 0) recordDump(cmd, windowImage, windowExtent);
-    transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    if (f.dumpsLeft > 0) recordDump(cmd, source, sourceExtent);
+    transition(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     f.panelCopied = true;
 }
 

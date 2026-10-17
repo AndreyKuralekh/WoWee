@@ -238,6 +238,7 @@ public:
     int pendingVrPanelFollow = 0;           // 0=in front (yaw), 1=lazy, 2=fixed to view
     float pendingVrPanelDistance = 1.5f;    // metres
     float pendingVrPanelWidth = 2.0f;       // metres
+    float pendingVrInterfaceResolution = 1.5f;  // the interface drawn at this times the window's size
     bool pendingVrShowFps = false;          // the frame rate line on the panel
     bool pendingVrFirstPerson = true;       // the world from the character's eyes
     bool pendingVrBodyFollowsHead = true;   // the character faces where the head does

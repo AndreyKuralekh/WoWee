@@ -162,12 +162,41 @@ public:
     /// interface is drawn over it. Same requirements as recordPanel.
     void recordFakePreview(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent);
 
+    /// How many times the window's size the interface is drawn at in the
+    /// headset, 1 to 2. The panel, the windows and the wrist are all cut from
+    /// that picture, so more of its pixels land on each degree of the view and
+    /// text is sharper; the layout is the same, being in the interface's own
+    /// units. The window gets the picture scaled back down.
+    void setInterfaceResolution(float scale) {
+        interfaceResolution_ = scale < 1.0f ? 1.0f : (scale > 2.0f ? 2.0f : scale);
+    }
+    /// The scale this frame's interface is drawn at: the setting while there is
+    /// a headset or the stand-in for one, 1 otherwise. ImGui is told it before
+    /// the frame, so that it rasterizes text for that size.
+    [[nodiscard]] float interfaceResolutionNow() const;
+    /// Moves the interface's pass onto the larger picture: what the window
+    /// holds so far (the minimap, or the world before it is entered) is
+    /// stretched into it, and `framebuffer` becomes its framebuffer for the
+    /// overlay render pass. Returns its size, or 0 x 0 when the interface is
+    /// drawn at the window's size this frame. Outside any render pass, with
+    /// `windowImage` in PRESENT_SRC; both are left in PRESENT_SRC.
+    [[nodiscard]] VkExtent2D beginInterfacePass(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent,
+                                                VkFramebuffer& framebuffer);
+    /// After that pass: the larger picture scaled down into the window, which
+    /// shows it and records it. Same requirements.
+    void endInterfacePass(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent);
+
     /// Hands the frame to the runtime. `submitted` is whether the command
     /// buffer made it to the queue; if not the frame goes out with no layer.
     void endFrame(bool submitted);
 
     /// Whether this is the stand-in for a headset (WOWEE_VR_FAKE).
     [[nodiscard]] bool fakeHeadset() const { return fake_; }
+    /// The stand-in's way to the window's Vulkan context, which a real headset
+    /// is given by createSession: the interface is drawn larger with it too.
+    void useFakeContext(rendering::VkContext& ctx) {
+        if (fake_) ctx_ = &ctx;
+    }
 
     /// Whether this frame wants the world drawn once per eye.
     [[nodiscard]] bool stereoFrame() const;
@@ -366,6 +395,12 @@ private:
                                      XrRect2Di& crop) const;
     /// A rectangle of the window as the part of the panel's image showing it.
     [[nodiscard]] bool panelCrop(const glm::vec4& rect, const glm::vec2& window, XrRect2Di& crop) const;
+    /// The size the interface is drawn at for a window of `window`.
+    [[nodiscard]] VkExtent2D interfaceExtentFor(VkExtent2D window) const;
+    /// The larger picture the interface is drawn into, made for `extent` if it
+    /// is not already that size. False when it cannot be had.
+    bool ensureInterfaceTarget(VkExtent2D extent);
+    void destroyInterfaceTarget();
     /// A window on its own: 0 the spell book, 1 the bags; in the local space.
     /// False while it is closed. The bar under it, which moves it, likewise.
     [[nodiscard]] bool windowQuad(uint32_t which, XrPosef& pose, XrExtent2Df& size, XrRect2Di& crop) const;
@@ -428,6 +463,7 @@ private:
         glm::vec3 targetAnchor{0.0f};
         glm::vec3 offset{0.0f};
     };
+    float interfaceResolution_ = 1.5f;
     bool windows_ = true;
     float windowSize_ = 1.0f;
     glm::vec4 windowRect_[2]{};  // the spell book, the bags; window pixels

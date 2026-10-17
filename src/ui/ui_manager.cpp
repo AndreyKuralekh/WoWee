@@ -16,6 +16,9 @@
 #include "auth/auth_handler.hpp"
 #include "game/game_handler.hpp"
 #include "rendering/vk_context.hpp"
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
@@ -366,6 +369,15 @@ void UIManager::update([[maybe_unused]] float deltaTime) {
     // Start ImGui frame
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplSDL3_NewFrame();
+#ifdef WOWEE_VR
+    // In a headset the interface is drawn larger than the window, and text is
+    // rasterized for the size it is drawn at.
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        const float scale = xr::system().interfaceResolutionNow();
+        io.DisplayFramebufferScale = ImVec2(io.DisplayFramebufferScale.x * scale, io.DisplayFramebufferScale.y * scale);
+    }
+#endif
     ImGui::NewFrame();
 }
 

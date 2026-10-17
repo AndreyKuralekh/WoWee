@@ -942,6 +942,10 @@ constexpr SettingDesc kSchema[] = {
     {"vrpanelwidth", "Panel width", SettingKind::Float, 0.5f, 4.0f, 0.1f, "VR", "Interface panel",
      "How wide the panel is, in metres. Its height follows the shape of\n"
      "the game window.", "", 2.0f},
+    {"vrinterfaceres", "Interface resolution", SettingKind::Float, 1.0f, 2.0f, 0.25f, "VR", "Interface panel",
+     "How many times the game window's size the interface is drawn at\n"
+     "in the headset. More is sharper text on the panel, the wrist and\n"
+     "the windows; the layout does not change. 1 is the window itself.", "", 1.5f},
     {"vrshowfps", "Show frame rate", SettingKind::Bool, 0, 0, 0, "VR", "Picture",
      "A line at the top of the panel: pictures drawn each second, the\n"
      "time one takes, and how many the headset had to show twice\n"
