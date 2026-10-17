@@ -47,19 +47,21 @@ struct EyeSwapchain {
 };
 
 // A colour swapchain and its images. False leaves `out` without a handle.
+// More than one mip level is filled by blits from the first, which reads it.
 bool createColorSwapchain(XrSession session, VkFormat format, uint32_t width, uint32_t height,
-                          EyeSwapchain& out) {
+                          EyeSwapchain& out, uint32_t mipCount = 1) {
     XrSwapchainCreateInfo createInfo{};
     createInfo.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
     createInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT |
                             XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+    if (mipCount > 1) createInfo.usageFlags |= XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT;
     createInfo.format = format;
     createInfo.sampleCount = 1;
     createInfo.width = width;
     createInfo.height = height;
     createInfo.faceCount = 1;
     createInfo.arraySize = 1;
-    createInfo.mipCount = 1;
+    createInfo.mipCount = mipCount;
     out = {};
     if (XR_FAILED(xrCreateSwapchain(session, &createInfo, &out.handle))) {
         out.handle = XR_NULL_HANDLE;
@@ -98,7 +100,8 @@ float angleBetween(float from, float to) {
     return d;
 }
 
-void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageLayout to) {
+void transitionLevels(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageLayout to, uint32_t firstLevel,
+                      uint32_t levels) {
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
@@ -108,10 +111,46 @@ void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageL
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = image;
-    barrier.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0,
-                                .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1};
+    barrier.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = firstLevel,
+                                .levelCount = levels, .baseArrayLayer = 0, .layerCount = 1};
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
                          0, nullptr, 0, nullptr, 1, &barrier);
+}
+
+void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageLayout to) {
+    transitionLevels(cmd, image, from, to, 0, 1);
+}
+
+// Each mip level below the first a filtered half of the one above, down to
+// `levels`. The first is in TRANSFER_DST and all of them are left in
+// COLOR_ATTACHMENT_OPTIMAL, as the runtime wants a swapchain image back.
+void fillMipLevels(VkCommandBuffer cmd, VkImage image, VkExtent2D extent, uint32_t levels) {
+    int32_t width = static_cast<int32_t>(extent.width);
+    int32_t height = static_cast<int32_t>(extent.height);
+    for (uint32_t level = 1; level < levels; ++level) {
+        transitionLevels(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                         level - 1, 1);
+        transitionLevels(cmd, image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, level, 1);
+        const int32_t halfWidth = std::max(1, width / 2);
+        const int32_t halfHeight = std::max(1, height / 2);
+        VkImageBlit blit{};
+        blit.srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = level - 1, .baseArrayLayer = 0,
+                               .layerCount = 1};
+        blit.srcOffsets[1] = {width, height, 1};
+        blit.dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = level, .baseArrayLayer = 0,
+                               .layerCount = 1};
+        blit.dstOffsets[1] = {halfWidth, halfHeight, 1};
+        vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       1, &blit, VK_FILTER_LINEAR);
+        width = halfWidth;
+        height = halfHeight;
+    }
+    if (levels > 1) {
+        transitionLevels(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0,
+                         levels - 1);
+    }
+    transitionLevels(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     levels - 1, 1);
 }
 
 bool sameExtent(const VkExtent2D& a, const VkExtent2D& b) {
@@ -157,6 +196,9 @@ struct XrSystem::FrameData {
     // entered, the whole picture.
     EyeSwapchain panel;
     VkExtent2D panelExtent{};
+    // Smaller copies of it under the first, for where the sheet is seen
+    // smaller than its pixels: without them its fine text shimmers.
+    uint32_t panelMips = 1;
     bool panelCopied = false;
     // The interface drawn larger than the window (setInterfaceResolution): a
     // picture of its own in the window's format, the overlay pass's
@@ -740,9 +782,24 @@ void XrSystem::beginFrame() {
                 xrDestroySwapchain(f.panel.handle);
                 f.panel = {};
             }
-            if (createColorSwapchain(session_, f.eyeFormat, window.width, window.height, f.panel)) {
+            // Down to an eighth, as far as the sheet is ever shrunk; only where
+            // the format can be blitted with a filter. A runtime that refuses
+            // levels gets a panel without them.
+            uint32_t mips = 4;
+            VkFormatProperties properties{};
+            vkGetPhysicalDeviceFormatProperties(ctx_->getPhysicalDevice(), f.eyeFormat, &properties);
+            constexpr VkFormatFeatureFlags kBlit = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
+                                                   VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+            if ((properties.optimalTilingFeatures & kBlit) != kBlit) mips = 1;
+            bool made = createColorSwapchain(session_, f.eyeFormat, window.width, window.height, f.panel, mips);
+            if (!made && mips > 1) {
+                mips = 1;
+                made = createColorSwapchain(session_, f.eyeFormat, window.width, window.height, f.panel);
+            }
+            if (made) {
                 f.panelExtent = window;
-                if (debug_) LOG_WARNING("VR: panel ", window.width, "x", window.height);
+                f.panelMips = mips;
+                if (debug_) LOG_WARNING("VR: panel ", window.width, "x", window.height, ", ", mips, " mip levels");
             } else {
                 LOG_WARNING("VR: could not create the panel swapchain");
             }
@@ -1095,7 +1152,7 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
     transition(cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-    transition(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    fillMipLevels(cmd, target, f.panelExtent, f.panelMips);
     if (f.dumpsLeft > 0) recordDump(cmd, source, sourceExtent);
     transition(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     f.panelCopied = true;
