@@ -600,10 +600,12 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
         aimRay(space, frameTime(), origin, direction)) {
         float distance = 0.0f;
         glm::vec2 uv(0.0f);
-        if (meet(quad, size, distance, uv) && windowWidth > 0 && windowHeight > 0) {
+        const glm::vec2 pixels(static_cast<float>(windowWidth), static_cast<float>(windowHeight));
+        if (meet(quad, size, distance, uv) && windowWidth > 0 && windowHeight > 0 &&
+            !liftedWindowAt(uv * (pixels - 1.0f), pixels)) {
             onPanel = true;
             if (overUi || !inWorld) in.beamLength = distance;
-            at = glm::vec2(uv.x * static_cast<float>(windowWidth - 1), uv.y * static_cast<float>(windowHeight - 1));
+            at = uv * (pixels - 1.0f);
         }
     }
 

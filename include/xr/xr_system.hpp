@@ -405,6 +405,10 @@ private:
     /// False while it is closed. The bar under it, which moves it, likewise.
     [[nodiscard]] bool windowQuad(uint32_t which, XrPosef& pose, XrExtent2Df& size, XrRect2Di& crop) const;
     [[nodiscard]] bool windowBarQuad(uint32_t which, XrPosef& pose, XrExtent2Df& size) const;
+    /// Whether a point of the big panel, in the pixels of a window `window`
+    /// in size, is where a window standing on its own was lifted off it: a
+    /// hole there, and nothing for the ray to press.
+    [[nodiscard]] bool liftedWindowAt(const glm::vec2& at, const glm::vec2& window) const;
     /// Opens, closes and follows the windows; once a frame, with the head known.
     void placeWindows(const glm::vec3& head, float headYaw);
     /// Moves a window by its bar while the trigger is held there. True while

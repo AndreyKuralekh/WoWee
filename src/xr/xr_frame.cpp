@@ -121,6 +121,48 @@ void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageL
     transitionLevels(cmd, image, from, to, 0, 1);
 }
 
+// What of `whole` lies outside every one of `holes`, as rectangles that do not
+// overlap.
+std::vector<XrRect2Di> outside(const XrRect2Di& whole, const std::vector<XrRect2Di>& holes) {
+    std::vector<XrRect2Di> pieces{whole};
+    for (const XrRect2Di& hole : holes) {
+        std::vector<XrRect2Di> left;
+        for (const XrRect2Di& p : pieces) {
+            const int32_t x0 = std::max(p.offset.x, hole.offset.x);
+            const int32_t y0 = std::max(p.offset.y, hole.offset.y);
+            const int32_t x1 = std::min(p.offset.x + p.extent.width, hole.offset.x + hole.extent.width);
+            const int32_t y1 = std::min(p.offset.y + p.extent.height, hole.offset.y + hole.extent.height);
+            if (x0 >= x1 || y0 >= y1) {
+                left.push_back(p);
+                continue;
+            }
+            // Above, below, then either side of the hole between them.
+            if (y0 > p.offset.y) left.push_back({p.offset, {p.extent.width, y0 - p.offset.y}});
+            if (y1 < p.offset.y + p.extent.height) {
+                left.push_back({{p.offset.x, y1}, {p.extent.width, p.offset.y + p.extent.height - y1}});
+            }
+            if (x0 > p.offset.x) left.push_back({{p.offset.x, y0}, {x0 - p.offset.x, y1 - y0}});
+            if (x1 < p.offset.x + p.extent.width) {
+                left.push_back({{x1, y0}, {p.offset.x + p.extent.width - x1, y1 - y0}});
+            }
+        }
+        pieces = std::move(left);
+    }
+    return pieces;
+}
+
+VkImageCopy copyOf(const XrRect2Di& r) {
+    const VkImageSubresourceLayers layers{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
+                                          .baseArrayLayer = 0, .layerCount = 1};
+    VkImageCopy copy{};
+    copy.srcSubresource = layers;
+    copy.dstSubresource = layers;
+    copy.srcOffset = {r.offset.x, r.offset.y, 0};
+    copy.dstOffset = copy.srcOffset;
+    copy.extent = {static_cast<uint32_t>(r.extent.width), static_cast<uint32_t>(r.extent.height), 1};
+    return copy;
+}
+
 // Each mip level below the first a filtered half of the one above, down to
 // `levels`. The first is in TRANSFER_DST and all of them are left in
 // COLOR_ATTACHMENT_OPTIMAL, as the runtime wants a swapchain image back.
@@ -200,6 +242,11 @@ struct XrSystem::FrameData {
     // smaller than its pixels: without them its fine text shimmers.
     uint32_t panelMips = 1;
     bool panelCopied = false;
+    // The spell book and the bags, lifted off the panel: copied here, the
+    // panel's size, with a hole left where they were, so that each is seen
+    // once, standing on its own. Bit i: window i went here this frame.
+    EyeSwapchain windowSheet;
+    uint32_t windowsLifted = 0;
     // The interface drawn larger than the window (setInterfaceResolution): a
     // picture of its own in the window's format, the overlay pass's
     // framebuffer on it, and whether this frame's interface went into it. Kept
@@ -383,6 +430,7 @@ void XrSystem::destroyEyeSwapchains() {
         if (hands.handle != XR_NULL_HANDLE) xrDestroySwapchain(hands.handle);
     }
     if (frame_->panel.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->panel.handle);
+    if (frame_->windowSheet.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->windowSheet.handle);
     destroyInterfaceTarget();
     if (frame_->beam.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->beam.handle);
     if (frame_->vignette.handle != XR_NULL_HANDLE) xrDestroySwapchain(frame_->vignette.handle);
@@ -782,6 +830,10 @@ void XrSystem::beginFrame() {
                 xrDestroySwapchain(f.panel.handle);
                 f.panel = {};
             }
+            if (f.windowSheet.handle != XR_NULL_HANDLE) {
+                xrDestroySwapchain(f.windowSheet.handle);
+                f.windowSheet = {};
+            }
             // Down to an eighth, as far as the sheet is ever shrunk; only where
             // the format can be blitted with a filter. A runtime that refuses
             // levels gets a panel without them.
@@ -799,12 +851,17 @@ void XrSystem::beginFrame() {
             if (made) {
                 f.panelExtent = window;
                 f.panelMips = mips;
+                // Without it the windows stay on the panel as well.
+                if (!createColorSwapchain(session_, f.eyeFormat, window.width, window.height, f.windowSheet)) {
+                    LOG_WARNING("VR: could not create the windows' swapchain - they stay on the panel too");
+                }
                 if (debug_) LOG_WARNING("VR: panel ", window.width, "x", window.height, ", ", mips, " mip levels");
             } else {
                 LOG_WARNING("VR: could not create the panel swapchain");
             }
         }
         if (f.panel.handle != XR_NULL_HANDLE && !acquireImage(f.panel)) f.shouldRender = false;
+        if (f.shouldRender && f.windowSheet.handle != XR_NULL_HANDLE) acquireImage(f.windowSheet);
     }
     for (EyeSwapchain& hands : f.handEyes) {
         if (f.shouldRender && hands.handle != XR_NULL_HANDLE) acquireImage(hands);
@@ -895,6 +952,19 @@ void XrSystem::recordFakePreview(VkCommandBuffer cmd, VkImage windowImage, VkExt
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
     }
     transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+}
+
+bool XrSystem::liftedWindowAt(const glm::vec2& at, const glm::vec2& window) const {
+    if (!frame_ || window.x <= 0.0f || window.y <= 0.0f) return false;
+    const glm::vec2 p = at * (windowPixels_ / window);
+    for (uint32_t i = 0; i < 2; ++i) {
+        const glm::vec4& r = windowRect_[i];
+        if ((frame_->windowsLifted >> i & 1u) != 0 && p.x >= r.x && p.y >= r.y && p.x < r.x + r.z &&
+            p.y < r.y + r.w) {
+            return true;
+        }
+    }
+    return false;
 }
 
 float XrSystem::interfaceResolutionNow() const {
@@ -1138,20 +1208,51 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
     }
     if (!f.panel.acquired || !sameExtent(sourceExtent, f.panelExtent)) return;
 
-    const VkImageSubresourceLayers layers{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0,
-                                          .baseArrayLayer = 0, .layerCount = 1};
-    VkImageCopy copy{};
-    copy.srcSubresource = layers;
-    copy.dstSubresource = layers;
-    copy.extent = {sourceExtent.width, sourceExtent.height, 1};
-    const VkImage target = f.panel.images[f.panel.imageIndex];
+    // The windows standing on their own this frame, lifted off the panel.
+    std::vector<XrRect2Di> lifted;
+    f.windowsLifted = 0;
+    if (f.windowSheet.acquired && f.worldShown) {
+        for (uint32_t i = 0; i < 2; ++i) {
+            XrRect2Di crop{};
+            if (windows_ && windowPlace_[i].open && panelCrop(windowRect_[i], windowPixels_, crop)) {
+                lifted.push_back(crop);
+                f.windowsLifted |= 1u << i;
+            }
+        }
+    }
 
+    const VkImage target = f.panel.images[f.panel.imageIndex];
     transition(cmd, source, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     // Overwritten whole, so what the image held does not matter. The runtime
     // wants it back in COLOR_ATTACHMENT_OPTIMAL.
     transition(cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    const XrRect2Di whole{{0, 0}, {static_cast<int32_t>(sourceExtent.width), static_cast<int32_t>(sourceExtent.height)}};
+    if (lifted.empty()) {
+        const VkImageCopy copy = copyOf(whole);
+        vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    } else {
+        // Clear where the windows were, the rest copied round them.
+        const VkClearColorValue clear{{0.0f, 0.0f, 0.0f, 0.0f}};
+        const VkImageSubresourceRange first{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0,
+                                            .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1};
+        vkCmdClearColorImage(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &first);
+        transition(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        std::vector<VkImageCopy> copies;
+        for (const XrRect2Di& piece : outside(whole, lifted)) copies.push_back(copyOf(piece));
+        if (!copies.empty()) {
+            vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copies.size()), copies.data());
+        }
+        // The windows themselves, where they are in the picture.
+        const VkImage sheet = f.windowSheet.images[f.windowSheet.imageIndex];
+        copies.clear();
+        for (const XrRect2Di& window : lifted) copies.push_back(copyOf(window));
+        transition(cmd, sheet, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, sheet, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       static_cast<uint32_t>(copies.size()), copies.data());
+        transition(cmd, sheet, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
     fillMipLevels(cmd, target, f.panelExtent, f.panelMips);
     if (f.dumpsLeft > 0) recordDump(cmd, source, sourceExtent);
     transition(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -1344,6 +1445,7 @@ void XrSystem::endFrame(bool submitted) {
     for (EyeSwapchain& eye : f.eyes) release(eye);
     for (EyeSwapchain& hands : f.handEyes) release(hands);
     release(f.panel);
+    release(f.windowSheet);
     release(f.beam);
     if (f.beamFilling && submitted && released) f.beamFilled = true;
     f.beamFilling = false;
@@ -1420,7 +1522,7 @@ void XrSystem::endFrame(bool submitted) {
         quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
         quad.space = localSpace_;
         quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-        quad.subImage.swapchain = f.panel.handle;
+        quad.subImage.swapchain = (f.windowsLifted >> i & 1u) != 0 ? f.windowSheet.handle : f.panel.handle;
         layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quad);
         XrCompositionLayerQuad& bar = windowBars[i];
         bar.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
