@@ -507,6 +507,13 @@ struct Widget {
         mutable int lines = 1;
     };
     std::vector<TooltipLine> tooltipLines;
+#ifdef WOWEE_VR
+    /// Where the draw last painted a tooltip's box, top and bottom in screen
+    /// pixels. Taller than the rect when the lines need it, and moved up from
+    /// it when that would run off the screen - so what is on screen is here,
+    /// not in the rect.
+    mutable float drawnBoxTop = 0.0f, drawnBoxBottom = 0.0f;
+#endif
     /// Stand-ins for GameTooltipTextLeft1..N, created on demand by whatever
     /// asks to be anchored to one. FrameXML positions things against a
     /// tooltip's individual lines - SetTooltipMoney hangs the coin frame off

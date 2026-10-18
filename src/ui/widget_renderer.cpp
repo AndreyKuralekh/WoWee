@@ -2470,6 +2470,13 @@ void WidgetRenderer::draw(WidgetTree& tree, float screenW, float screenH) {
                     boxY1 -= lift;
                 }
             }
+#ifdef WOWEE_VR
+            // The headset cuts the tooltip out of the picture by it.
+            if (w->isTooltip) {
+                w->drawnBoxTop = boxY0;
+                w->drawnBoxBottom = boxY1;
+            }
+#endif
 
             // With the frame's own scale in it: a backdrop's insets and edge
             // size are in the frame's units, the same as a font height, and a

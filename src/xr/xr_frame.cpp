@@ -1230,6 +1230,18 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
             f.tooltipHost = host;
         }
     }
+    if (debug_) {
+        // As it changes; see "VR: tooltips up" for what the interface has up.
+        static glm::vec4 saidRect{-1.0f};
+        static int saidHost = -2;
+        if (tooltipRect_ != saidRect || f.tooltipHost != saidHost) {
+            LOG_WARNING("VR: tooltip at frame ", ImGui::GetFrameCount(), ": ", tooltipRect_.x, ",", tooltipRect_.y,
+                        " ", tooltipRect_.z, "x", tooltipRect_.w, ", goes with window ", f.tooltipHost,
+                        " (lifted 0x", f.windowsLifted, ", ray on ", pointedWindow_, ")");
+            saidRect = tooltipRect_;
+            saidHost = f.tooltipHost;
+        }
+    }
 
     const VkImage target = f.panel.images[f.panel.imageIndex];
     transition(cmd, source, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);

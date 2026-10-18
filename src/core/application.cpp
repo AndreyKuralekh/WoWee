@@ -5030,6 +5030,12 @@ void Application::render() {
                             y0 = std::min(y0, top);
                             x1 = std::max(x1, right * sc);
                             y1 = std::max(y1, bottom);
+                            // A tooltip is painted where its box was drawn,
+                            // which can be taller than the rect and higher.
+                            if (w->isTooltip && w->drawnBoxBottom > w->drawnBoxTop) {
+                                y0 = std::min(y0, w->drawnBoxTop);
+                                y1 = std::max(y1, w->drawnBoxBottom);
+                            }
                         };
                         for (Named& n : names) {
                             const ui::Widget* w = find(n);
@@ -5061,6 +5067,22 @@ void Application::render() {
                     }
                     xr::system().setWindowRects(book, unionOf(bags), io.DisplaySize.x, io.DisplaySize.y);
                     xr::system().setTooltipRect(unionOf(tooltips));
+                    // Which tooltips are up, and where the mouse is, as they
+                    // change: the tooltip flickering on the panel as it goes
+                    // is not seen without a headset.
+                    if (xr::system().debugEnabled()) {
+                        static std::string lastSaid;
+                        std::string said;
+                        for (size_t id = 1; id < widgets.size(); ++id) {
+                            const ui::Widget* t = widgets.get(static_cast<uint32_t>(id));
+                            if (t && t->isTooltip && t->visible) said += t->name + " ";
+                        }
+                        if (said != lastSaid) {
+                            LOG_WARNING("VR: tooltips up at frame ", ImGui::GetFrameCount(), ": ",
+                                        said.empty() ? "none " : said, "mouse ", io.MousePos.x, ",", io.MousePos.y);
+                            lastSaid = said;
+                        }
+                    }
                 }
             }
 #endif
