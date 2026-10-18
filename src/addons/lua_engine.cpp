@@ -29,6 +29,9 @@
 #include "core/app_clock.hpp"
 #include "core/config_paths.hpp"
 #include <filesystem>
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 
 extern "C" {
 #include <lua.h>
@@ -600,6 +603,16 @@ int lua_Frame_StartMoving(lua_State* L) {
     // WoW raises on a frame that is not movable. Ignoring it loses nothing and
     // keeps a mistake in one frame from taking down the file that asked.
     if (!w || !w->movable) return 0;
+#ifdef WOWEE_VR
+    // The spell book and the bags stand on their own in the headset, moved by
+    // the bar under each. Dragged inside the interface as well, the frame ran
+    // away: the window stays where it is, the pointer is read against the
+    // frame, so each step of the frame moved the pointer on by as much again,
+    // and a bag ended up off the screen with its window left empty.
+    if (xr::system().windowsWanted() && (w->name == "SpellBookFrame" || w->name.starts_with("ContainerFrame"))) {
+        return 0;
+    }
+#endif
     tree->pinToCurrentPosition(id);
     tree->setMovingWidget(id);
     return 0;

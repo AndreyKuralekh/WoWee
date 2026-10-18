@@ -5066,6 +5066,24 @@ void Application::render() {
                         }
                     }
                     xr::system().setWindowRects(book, unionOf(bags), io.DisplaySize.x, io.DisplaySize.y);
+                    // Which bag frames make up the bags' window, as that
+                    // changes: one closed by its button sometimes left the
+                    // window standing, empty.
+                    if (xr::system().debugEnabled()) {
+                        static std::string lastBags;
+                        std::string open;
+                        for (Named& n : bags) {
+                            const ui::Widget* w = find(n);
+                            if (!w || (!w->shown && !w->visible)) continue;
+                            open += n.name + (w->shown ? "" : " (hidden)") + (w->visible ? "" : " (not visible)") +
+                                    " alpha " + std::to_string(w->alpha) + "; ";
+                        }
+                        if (open != lastBags) {
+                            LOG_WARNING("VR: bag frames at frame ", ImGui::GetFrameCount(), ": ",
+                                        open.empty() ? "none" : open);
+                            lastBags = open;
+                        }
+                    }
                     xr::system().setTooltipRect(unionOf(tooltips));
                     // Which tooltips are up, and where the mouse is, as they
                     // change: the tooltip flickering on the panel as it goes

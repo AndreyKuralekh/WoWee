@@ -61,8 +61,15 @@ void XrSystem::setWindowRects(const glm::vec4& spellBook, const glm::vec4& bags,
                               float windowHeight) {
     // Said when one opens or closes, and every ten seconds besides.
     const bool changed = (windowRect_[0].z > 1.0f) != (spellBook.z > 1.0f) || (windowRect_[1].z > 1.0f) != (bags.z > 1.0f);
-    windowRect_[0] = spellBook;
-    windowRect_[1] = bags;
+    // Only what is on the screen: the cut-out stops at its edge, and a window
+    // sized for more than it shows was stretched from that edge's pixels.
+    const auto onScreen = [&](const glm::vec4& r) {
+        const glm::vec2 lo = glm::max(glm::vec2(r), glm::vec2(0.0f));
+        const glm::vec2 hi = glm::min(glm::vec2(r.x + r.z, r.y + r.w), glm::vec2(windowWidth, windowHeight));
+        return hi.x > lo.x && hi.y > lo.y ? glm::vec4(lo, hi - lo) : glm::vec4(0.0f);
+    };
+    windowRect_[0] = onScreen(spellBook);
+    windowRect_[1] = onScreen(bags);
     windowPixels_ = glm::vec2(windowWidth, windowHeight);
     // Opened now, where the head was at the frame's start, rather than at the
     // next frame's: the frame that first draws a window lifts it off the panel.
