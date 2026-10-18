@@ -340,9 +340,10 @@ public:
     /// width of 0 when the frame is not shown. Said every frame from the
     /// interface's layout. Both are cut out of the panel and shown again on
     /// the wrist of the hand that does not point, where the ray can reach
-    /// them without looking away from the world.
-    void setHandPanelRects(const glm::vec4& actionBar, const glm::vec4& target, float windowWidth,
-                           float windowHeight);
+    /// them without looking away from the world. The menu - the micro buttons
+    /// and the bag slots - goes on the wrist of the hand that points.
+    void setHandPanelRects(const glm::vec4& actionBar, const glm::vec4& target, const glm::vec4& menu,
+                           float windowWidth, float windowHeight);
     void setHandPanels(bool on) { handPanels_ = on; }
     void setHandPanelSize(float scale) { handPanelSize_ = scale < 0.5f ? 0.5f : (scale > 2.0f ? 2.0f : scale); }
 
@@ -431,6 +432,8 @@ private:
     void saveWindowPlaces() const;
     /// The hand that does not point, as an action space; null without one.
     [[nodiscard]] XrSpace offHandSpace() const;
+    /// The hand that points, likewise.
+    [[nodiscard]] XrSpace pointingHandSpace() const;
     /// When the frame last begun is to be shown; 0 before the first.
     [[nodiscard]] XrTime frameTime() const;
     void logInteractionProfile();
@@ -466,7 +469,7 @@ private:
     float handTone_ = 0.5f;
     bool handPanels_ = true;
     float handPanelSize_ = 1.0f;
-    glm::vec4 handPanelRect_[2]{};  // the action bar, the target frame; window pixels
+    glm::vec4 handPanelRect_[3]{};  // the action bar, the target frame, the menu; window pixels
     glm::vec2 handPanelWindow_{0.0f};
     // The windows on their own. Each stands at `offset` from the head it was
     // opened for, turned by that head's yaw: x to the right, y up, -z ahead.

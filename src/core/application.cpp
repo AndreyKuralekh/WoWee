@@ -4976,6 +4976,7 @@ void Application::render() {
                     };
                     static std::vector<Named> barButtons;
                     static std::vector<Named> targetFrames;
+                    static std::vector<Named> menuButtons;
                     static std::vector<Named> spellBook;
                     static std::vector<Named> bookTabs;
                     static std::vector<Named> bags;
@@ -4987,7 +4988,24 @@ void Application::render() {
                                                    "MultiBarBottomRightButton"}) {
                             for (int i = 1; i <= 12; ++i) barButtons.push_back({prefix + std::to_string(i)});
                         }
+                        // With the arrows that page through the main bar,
+                        // without the empty strip above and below each.
+                        barButtons.push_back({"ActionBarUpButton", 0, 0, glm::vec4(0.0f, 0.0f, 6.0f, 6.0f)});
+                        barButtons.push_back({"ActionBarDownButton", 0, 0, glm::vec4(0.0f, 0.0f, 6.0f, 6.0f)});
+                        barButtons.push_back({"MainMenuBarPageNumber"});
                         targetFrames = {{"TargetFrame"}, {"TargetFrameToT"}};
+                        // The micro buttons, without the empty top of each,
+                        // and the bag slots: the right half of the bottom bar.
+                        for (const char* name : {"CharacterMicroButton", "SpellbookMicroButton", "TalentMicroButton",
+                                                 "AchievementMicroButton", "QuestLogMicroButton", "SocialsMicroButton",
+                                                 "PVPMicroButton", "LFDMicroButton", "MainMenuMicroButton",
+                                                 "HelpMicroButton"}) {
+                            menuButtons.push_back({name, 0, 0, glm::vec4(0.0f, 0.0f, 18.0f, 0.0f)});
+                        }
+                        for (const char* name : {"MainMenuBarBackpackButton", "CharacterBag0Slot", "CharacterBag1Slot",
+                                                 "CharacterBag2Slot", "CharacterBag3Slot", "KeyRingButton"}) {
+                            menuButtons.push_back({name});
+                        }
                         // The book with the tabs along its right edge, without
                         // the empty strip along its bottom; the tabs under it
                         // (spells, pet) apart. Every open bag, whichever frame
@@ -5049,8 +5067,8 @@ void Application::render() {
                                                    y1 - y0 + 2.0f * kMargin)
                                        : glm::vec4(0.0f);
                     };
-                    xr::system().setHandPanelRects(unionOf(barButtons), unionOf(targetFrames), io.DisplaySize.x,
-                                                   io.DisplaySize.y);
+                    xr::system().setHandPanelRects(unionOf(barButtons), unionOf(targetFrames), unionOf(menuButtons),
+                                                   io.DisplaySize.x, io.DisplaySize.y);
                     // The tabs only with the book itself open. The chat behind
                     // those under it stands aside in the headset (see
                     // AddonManager::loadAllAddons).

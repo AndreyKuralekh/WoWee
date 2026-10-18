@@ -442,6 +442,11 @@ XrSpace XrSystem::offHandSpace() const {
     return leftHanded_ ? input_->aimSpace : input_->aimLeftSpace;
 }
 
+XrSpace XrSystem::pointingHandSpace() const {
+    if (!input_) return XR_NULL_HANDLE;
+    return leftHanded_ ? input_->aimLeftSpace : input_->aimSpace;
+}
+
 // Which way the hand that does not point - the left, unless the player is
 // left-handed - points round the vertical, as headYaw_ is measured. False
 // while it is not tracked or points nearly straight up or down, which says

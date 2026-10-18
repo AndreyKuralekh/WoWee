@@ -586,10 +586,11 @@ void XrSystem::recordEyeCopy(VkCommandBuffer cmd, uint32_t eye, VkImage image) {
     transition(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }
 
-void XrSystem::setHandPanelRects(const glm::vec4& actionBar, const glm::vec4& target, float windowWidth,
-                                 float windowHeight) {
+void XrSystem::setHandPanelRects(const glm::vec4& actionBar, const glm::vec4& target, const glm::vec4& menu,
+                                 float windowWidth, float windowHeight) {
     handPanelRect_[0] = actionBar;
     handPanelRect_[1] = target;
+    handPanelRect_[2] = menu;
     handPanelWindow_ = glm::vec2(windowWidth, windowHeight);
     if (debug_) {
         static auto lastSaid = std::chrono::steady_clock::time_point{};
@@ -598,7 +599,8 @@ void XrSystem::setHandPanelRects(const glm::vec4& actionBar, const glm::vec4& ta
             lastSaid = now;
             LOG_WARNING("VR: hand panels from the window ", windowWidth, "x", windowHeight, ": action bar ",
                         actionBar.x, ",", actionBar.y, " ", actionBar.z, "x", actionBar.w, ", target ", target.x,
-                        ",", target.y, " ", target.z, "x", target.w);
+                        ",", target.y, " ", target.z, "x", target.w, ", menu ", menu.x, ",", menu.y, " ", menu.z,
+                        "x", menu.w);
         }
     }
 }
@@ -624,18 +626,22 @@ bool XrSystem::panelCrop(const glm::vec4& r, const glm::vec2& window, XrRect2Di&
 // the back of the hand and towards the elbow, tilted up to face the eyes
 // when the forearm is raised in front of them. The target frame stands over
 // the action bar. In the hand's aim space: -Z where it points, +Y its top.
+// The menu is on the other wrist, the one of the hand that points, the same
+// way round.
 bool XrSystem::handPanelQuad(uint32_t which, XrSpace& space, XrPosef& pose, XrExtent2Df& size,
                              XrRect2Di& crop) const {
-    if (!handPanels_ || !frame_ || which > 1 || handPanelWindow_.x <= 0.0f || handPanelWindow_.y <= 0.0f) return false;
+    if (!handPanels_ || !frame_ || which > 2 || handPanelWindow_.x <= 0.0f || handPanelWindow_.y <= 0.0f) return false;
     const FrameData& f = *frame_;
-    space = offHandSpace();
+    space = which == 2 ? pointingHandSpace() : offHandSpace();
     if (space == XR_NULL_HANDLE || f.panelExtent.width == 0 || f.panelExtent.height == 0) return false;
 
     XrRect2Di barCrop{};
     XrRect2Di targetCrop{};
+    XrRect2Di menuCrop{};
     const bool bar = panelCrop(handPanelRect_[0], handPanelWindow_, barCrop);
     const bool target = panelCrop(handPanelRect_[1], handPanelWindow_, targetCrop);
-    if (which == 0 ? !bar : !target) return false;
+    const bool menu = panelCrop(handPanelRect_[2], handPanelWindow_, menuCrop);
+    if (which == 0 ? !bar : (which == 1 ? !target : !menu)) return false;
 
     constexpr float kBarWidth = 0.30f;     // metres, at size 1
     constexpr float kTargetWidth = 0.14f;
@@ -652,6 +658,13 @@ bool XrSystem::handPanelQuad(uint32_t which, XrSpace& space, XrPosef& pose, XrEx
     if (which == 0) {
         crop = barCrop;
         size = {barWidth, barHeight};
+    } else if (which == 2) {
+        // Its buttons the size of the bar's, which they are on the screen.
+        crop = menuCrop;
+        const float width = bar ? barWidth * static_cast<float>(menuCrop.extent.width) /
+                                      static_cast<float>(barCrop.extent.width)
+                                : barWidth;
+        size = {width, heightOf(menuCrop, width)};
     } else {
         crop = targetCrop;
         const float width = kTargetWidth * handPanelSize_;
@@ -668,7 +681,7 @@ bool XrSystem::handPanelQuad(uint32_t which, XrSpace& space, XrPosef& pose, XrEx
     // right to left for the right, so the text reads along it from the elbow
     // on the left and from the hand on the right; either way its top faces
     // away from the player.
-    const uint32_t hand = leftHanded_ ? 1 : 0;
+    const uint32_t hand = (which == 2) != leftHanded_ ? 1 : 0;
     if (handsInWorld_.tracked[hand] && localSpace_ != XR_NULL_HANDLE) {
         const glm::mat4& wrist = handsInWorld_.joint[hand][1];
         const glm::vec3 at(wrist[3]);
@@ -1484,7 +1497,7 @@ void XrSystem::endFrame(bool submitted) {
     const bool showWorld = usable && f.eyesCopied == (1u << kEyeCount) - 1u;
     const bool showPanel = usable && f.panelCopied;
     const bool show = showWorld || showPanel;
-    const XrCompositionLayerBaseHeader* layers[12] = {};
+    const XrCompositionLayerBaseHeader* layers[13] = {};
     uint32_t layerCount = 0;
 
     std::array<XrCompositionLayerProjectionView, kEyeCount> projectionViews{};
@@ -1588,8 +1601,8 @@ void XrSystem::endFrame(bool submitted) {
     // panel's own image, so nothing is copied for them. Over the hands, since
     // they lie on the back of the wrist and are only shown while it faces the
     // eyes; the other hand passes under them.
-    XrCompositionLayerQuad handPanels[2]{};
-    for (uint32_t i = 0; i < 2; ++i) {
+    XrCompositionLayerQuad handPanels[3]{};
+    for (uint32_t i = 0; i < 3; ++i) {
         XrCompositionLayerQuad& quad = handPanels[i];
         quad.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
         if (!showWorld || !showPanel || !handPanelQuad(i, quad.space, quad.pose, quad.size, quad.subImage.imageRect)) {
