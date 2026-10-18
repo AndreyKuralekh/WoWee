@@ -425,11 +425,12 @@ void AddonManager::loadAllAddons() {
         // tabs under it, and the first chat window sits right behind them. The
         // interface puts that window back over the bars whenever they change,
         // so it is told where: clear to the right of the book (384 wide, its
-        // tabs' art reaching 413), at the height it would have anyway.
+        // tabs' art reaching 413), with the buttons along the chat's left edge
+        // as well, at the height it would have anyway.
         if (xr::system().windowsWanted() &&
             !luaEngine_.executeString("local p = UIPARENT_MANAGED_FRAME_POSITIONS and "
                                       "UIPARENT_MANAGED_FRAME_POSITIONS.ChatFrame1\n"
-                                      "if p then p.xOffset = 440 end\n")) {
+                                      "if p then p.xOffset = 480 end\n")) {
             LOG_WARNING("Chat window beside the spell book did not apply: ", luaEngine_.lastError());
         }
 #endif
