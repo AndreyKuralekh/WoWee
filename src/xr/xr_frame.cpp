@@ -247,6 +247,7 @@ struct XrSystem::FrameData {
     // once, standing on its own. Bit i: window i went here this frame.
     EyeSwapchain windowSheet;
     uint32_t windowsLifted = 0;
+    int tooltipHost = -1;  // the window the tooltip went with, lifted as well
     // The interface drawn larger than the window (setInterfaceResolution): a
     // picture of its own in the window's format, the overlay pass's
     // framebuffer on it, and whether this frame's interface went into it. Kept
@@ -964,7 +965,8 @@ bool XrSystem::liftedWindowAt(const glm::vec2& at, const glm::vec2& window) cons
             return true;
         }
     }
-    return false;
+    const glm::vec4& t = tooltipRect_;
+    return frame_->tooltipHost >= 0 && p.x >= t.x && p.y >= t.y && p.x < t.x + t.z && p.y < t.y + t.w;
 }
 
 float XrSystem::interfaceResolutionNow() const {
@@ -1220,6 +1222,14 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
             }
         }
     }
+    f.tooltipHost = -1;
+    if (const int host = lifted.empty() ? -1 : tooltipHost(); host >= 0 && (f.windowsLifted >> host & 1u) != 0) {
+        XrRect2Di crop{};
+        if (panelCrop(tooltipRect_, windowPixels_, crop)) {
+            lifted.push_back(crop);
+            f.tooltipHost = host;
+        }
+    }
 
     const VkImage target = f.panel.images[f.panel.imageIndex];
     transition(cmd, source, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -1247,7 +1257,11 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
         // The windows themselves, where they are in the picture.
         const VkImage sheet = f.windowSheet.images[f.windowSheet.imageIndex];
         copies.clear();
-        for (const XrRect2Di& window : lifted) copies.push_back(copyOf(window));
+        // Each where the ones before it are not: they may overlap.
+        for (size_t k = 0; k < lifted.size(); ++k) {
+            const std::vector<XrRect2Di> before(lifted.begin(), lifted.begin() + static_cast<std::ptrdiff_t>(k));
+            for (const XrRect2Di& piece : outside(lifted[k], before)) copies.push_back(copyOf(piece));
+        }
         transition(cmd, sheet, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, sheet, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                        static_cast<uint32_t>(copies.size()), copies.data());
@@ -1458,7 +1472,7 @@ void XrSystem::endFrame(bool submitted) {
     const bool showWorld = usable && f.eyesCopied == (1u << kEyeCount) - 1u;
     const bool showPanel = usable && f.panelCopied;
     const bool show = showWorld || showPanel;
-    const XrCompositionLayerBaseHeader* layers[11] = {};
+    const XrCompositionLayerBaseHeader* layers[12] = {};
     uint32_t layerCount = 0;
 
     std::array<XrCompositionLayerProjectionView, kEyeCount> projectionViews{};
@@ -1532,6 +1546,17 @@ void XrSystem::endFrame(bool submitted) {
         bar.subImage.swapchain = f.beam.handle;
         bar.subImage.imageRect.extent = {4, 4};
         layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&bar);
+    }
+    // The tooltip of one of them, beside it rather than on the panel.
+    XrCompositionLayerQuad tooltip{};
+    tooltip.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+    if (showWorld && showPanel && f.tooltipHost >= 0 &&
+        tooltipQuad(static_cast<uint32_t>(f.tooltipHost), tooltip.pose, tooltip.size, tooltip.subImage.imageRect)) {
+        tooltip.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        tooltip.space = localSpace_;
+        tooltip.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        tooltip.subImage.swapchain = f.windowSheet.handle;
+        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&tooltip);
     }
 
     // The hands, over the panel: the eyes once more, showing only what their

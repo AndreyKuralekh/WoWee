@@ -354,6 +354,10 @@ public:
     /// player, where a bar under it moves it (xr_windows.cpp).
     void setWindowRects(const glm::vec4& spellBook, const glm::vec4& bags, float windowWidth, float windowHeight);
     void setWindows(bool on) { windows_ = on; }
+    /// Where the tooltip is in the window, as for setWindowRects; a width of
+    /// 0 while none is shown. One that overlaps a window standing on its own
+    /// goes with it, lifted off the panel like the window.
+    void setTooltipRect(const glm::vec4& rect) { tooltipRect_ = rect; }
     /// Whether the spell book and the bags will stand on their own: a headset
     /// (or its stand-in) and the setting on.
     [[nodiscard]] bool windowsWanted() const { return windows_ && (running_ || fake_); }
@@ -408,6 +412,12 @@ private:
     /// False while it is closed. The bar under it, which moves it, likewise.
     [[nodiscard]] bool windowQuad(uint32_t which, XrPosef& pose, XrExtent2Df& size, XrRect2Di& crop) const;
     [[nodiscard]] bool windowBarQuad(uint32_t which, XrPosef& pose, XrExtent2Df& size) const;
+    /// The window the tooltip goes with, or -1 for none: the one it overlaps,
+    /// the one the ray is on if it overlaps both.
+    [[nodiscard]] int tooltipHost() const;
+    /// The tooltip beside window `host`, where it is in the picture relative
+    /// to that window, a little in front of it.
+    [[nodiscard]] bool tooltipQuad(uint32_t host, XrPosef& pose, XrExtent2Df& size, XrRect2Di& crop) const;
     /// Whether a point of the big panel, in the pixels of a window `window`
     /// in size, is where a window standing on its own was lifted off it: a
     /// hole there, and nothing for the ray to press.
@@ -475,6 +485,7 @@ private:
     float windowSize_ = 1.0f;
     glm::vec4 windowRect_[2]{};  // the spell book, the bags; window pixels
     glm::vec2 windowPixels_{0.0f};
+    glm::vec4 tooltipRect_{};  // window pixels
     WindowPlace windowPlace_[2];
     bool windowPlacesLoaded_ = false;
     int draggedWindow_ = -1;

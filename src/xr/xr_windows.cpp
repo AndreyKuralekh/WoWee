@@ -31,6 +31,7 @@ namespace {
 constexpr float kWindowHeightMetres = 0.6f;  // the whole window's height, at size 1
 constexpr float kBarHeight = 0.012f;
 constexpr float kBarGap = 0.01f;
+constexpr float kTooltipLift = 0.003f;  // in front of its window, where the two meet
 constexpr const char* kWindowNames[2] = {"spellbook", "bags"};
 
 std::string windowsConfigPath() {
@@ -143,6 +144,44 @@ bool XrSystem::windowBarQuad(uint32_t which, XrPosef& pose, XrExtent2Df& size) c
                              turn * glm::vec3(0.0f, 0.5f * window.height + kBarGap + 0.5f * kBarHeight, 0.0f);
     pose.position = {centre.x, centre.y, centre.z};
     size = {std::max(0.08f, window.width * 0.4f), kBarHeight};
+    return true;
+}
+
+int XrSystem::tooltipHost() const {
+    const glm::vec4& t = tooltipRect_;
+    if (!windows_ || t.z <= 1.0f || t.w <= 1.0f) return -1;
+    int host = -1;
+    float most = 0.0f;
+    for (uint32_t i = 0; i < 2; ++i) {
+        if (!windowPlace_[i].open) continue;
+        const glm::vec4& r = windowRect_[i];
+        const float w = std::min(t.x + t.z, r.x + r.z) - std::max(t.x, r.x);
+        const float h = std::min(t.y + t.w, r.y + r.w) - std::max(t.y, r.y);
+        if (w <= 0.0f || h <= 0.0f) continue;
+        if (pointedWindow_ == static_cast<int>(i)) return pointedWindow_;
+        if (w * h > most) {
+            most = w * h;
+            host = static_cast<int>(i);
+        }
+    }
+    return host;
+}
+
+bool XrSystem::tooltipQuad(uint32_t host, XrPosef& pose, XrExtent2Df& size, XrRect2Di& crop) const {
+    XrExtent2Df window{};
+    XrRect2Di windowCrop{};
+    if (!windowQuad(host, pose, window, windowCrop) || !panelCrop(tooltipRect_, windowPixels_, crop)) return false;
+    const glm::vec4& w = windowRect_[host];
+    const glm::vec4& t = tooltipRect_;
+    const float metresPerPixel = kWindowHeightMetres * windowSize_ / windowPixels_.y;
+    // Pixels run down the picture, the quad's y up it.
+    const glm::vec2 shift = (glm::vec2(t.x + 0.5f * t.z, t.y + 0.5f * t.w) - glm::vec2(w.x + 0.5f * w.z, w.y + 0.5f * w.w)) *
+                            metresPerPixel;
+    const glm::quat turn(pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z);
+    const glm::vec3 centre = glm::vec3(pose.position.x, pose.position.y, pose.position.z) +
+                             turn * glm::vec3(shift.x, -shift.y, kTooltipLift);
+    pose.position = {centre.x, centre.y, centre.z};
+    size = {t.z * metresPerPixel, t.w * metresPerPixel};
     return true;
 }
 

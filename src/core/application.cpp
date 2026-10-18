@@ -4223,6 +4223,7 @@ void Application::render() {
                     static std::vector<Named> spellBook;
                     static std::vector<Named> bookTabs;
                     static std::vector<Named> bags;
+                    static std::vector<Named> tooltips;
                     static uint32_t frameCount = 0;
                     ++frameCount;
                     if (barButtons.empty()) {
@@ -4245,6 +4246,8 @@ void Application::render() {
                                                 glm::vec4(15.0f, 14.0f, 13.0f, 15.0f)});
                         }
                         for (int i = 1; i <= 13; ++i) bags.push_back({"ContainerFrame" + std::to_string(i)});
+                        // With the comparisons Shift brings up beside it.
+                        tooltips = {{"GameTooltip"}, {"ShoppingTooltip1"}, {"ShoppingTooltip2"}};
                     }
                     // A name that is not there is looked for again now and
                     // then, not every frame: the search walks every widget.
@@ -4301,6 +4304,7 @@ void Application::render() {
                         }
                     }
                     xr::system().setWindowRects(book, unionOf(bags), io.DisplaySize.x, io.DisplaySize.y);
+                    xr::system().setTooltipRect(unionOf(tooltips));
                 }
 #endif
 
