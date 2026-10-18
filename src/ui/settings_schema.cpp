@@ -1007,8 +1007,12 @@ constexpr SettingDesc kSchema[] = {
     {"vrhandpanels", "Action bar on the wrist", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
      "The action bar, and the target frame when you have a target,\n"
      "on the wrist of the hand that does not point, like a watch.\n"
-     "Point at a button and pull the trigger. They stay on the big\n"
-     "panel as well.", "", 1},
+     "Point at a button and pull the trigger. The menu and the bags\n"
+     "go on the other wrist: press them with the other hand's ray\n"
+     "or touch them with its finger.", "", 1},
+    {"vrhidebars", "Hide the bars on the big panel", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
+     "While the bars are on the wrists, take them off the bottom of\n"
+     "the big panel.", "", 1},
     {"vrhandpanelsize", "Wrist panel size", SettingKind::Float, 0.5f, 2.0f, 0.05f, "VR comfort", "Hands",
      "How big the panels on the wrist are. 1 is a hand's span wide.", "", 1.0f},
     {"vrwindows", "Spell book and bags as windows", SettingKind::Bool, 0, 0, 0, "VR comfort", "Windows",

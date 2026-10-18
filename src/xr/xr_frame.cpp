@@ -248,6 +248,7 @@ struct XrSystem::FrameData {
     EyeSwapchain windowSheet;
     uint32_t windowsLifted = 0;
     int tooltipHost = -1;  // the window the tooltip went with, lifted as well
+    bool barsLifted = false;  // the bottom bars, which the wrists then show from windowSheet
     // The interface drawn larger than the window (setInterfaceResolution): a
     // picture of its own in the window's format, the overlay pass's
     // framebuffer on it, and whether this frame's interface went into it. Kept
@@ -606,7 +607,7 @@ void XrSystem::setHandPanelRects(const glm::vec4& actionBar, const glm::vec4& ta
             LOG_WARNING("VR: hand panels from the window ", windowWidth, "x", windowHeight, ": action bar ",
                         actionBar.x, ",", actionBar.y, " ", actionBar.z, "x", actionBar.w, ", target ", target.x,
                         ",", target.y, " ", target.z, "x", target.w, ", menu ", menu.x, ",", menu.y, " ", menu.z,
-                        "x", menu.w);
+                        "x", menu.w, ", bars ", barsRect_.x, ",", barsRect_.y, " ", barsRect_.z, "x", barsRect_.w);
         }
     }
 }
@@ -985,7 +986,9 @@ bool XrSystem::liftedWindowAt(const glm::vec2& at, const glm::vec2& window) cons
         }
     }
     const glm::vec4& t = tooltipRect_;
-    return frame_->tooltipHost >= 0 && p.x >= t.x && p.y >= t.y && p.x < t.x + t.z && p.y < t.y + t.w;
+    if (frame_->tooltipHost >= 0 && p.x >= t.x && p.y >= t.y && p.x < t.x + t.z && p.y < t.y + t.w) return true;
+    const glm::vec4& b = barsRect_;
+    return frame_->barsLifted && p.x >= b.x && p.y >= b.y && p.x < b.x + b.z && p.y < b.y + b.w;
 }
 
 float XrSystem::interfaceResolutionNow() const {
@@ -1249,6 +1252,31 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
             f.tooltipHost = host;
         }
     }
+    // Where the panel is cleared: what was lifted, and the bottom bars while
+    // the wrists show them - all but a tooltip over the bars that went with no
+    // window, which the panel keeps.
+    std::vector<XrRect2Di> holes = lifted;
+    f.barsLifted = false;
+    XrRect2Di bars{};
+    if (hideBars_ && handPanels_ && f.windowSheet.acquired && f.worldShown &&
+        panelCrop(barsRect_, handPanelWindow_, bars)) {
+        // With the wrists' own cut-outs inside it, whatever the names missed.
+        for (const uint32_t which : {0u, 2u}) {
+            XrRect2Di part{};
+            if (!panelCrop(handPanelRect_[which], handPanelWindow_, part)) continue;
+            const int32_t x0 = std::min(bars.offset.x, part.offset.x);
+            const int32_t y0 = std::min(bars.offset.y, part.offset.y);
+            const int32_t x1 = std::max(bars.offset.x + bars.extent.width, part.offset.x + part.extent.width);
+            const int32_t y1 = std::max(bars.offset.y + bars.extent.height, part.offset.y + part.extent.height);
+            bars = {{x0, y0}, {x1 - x0, y1 - y0}};
+        }
+        lifted.push_back(bars);
+        f.barsLifted = true;
+        std::vector<XrRect2Di> keep;
+        XrRect2Di tip{};
+        if (f.tooltipHost < 0 && panelCrop(tooltipRect_, windowPixels_, tip)) keep.push_back(tip);
+        for (const XrRect2Di& piece : outside(bars, keep)) holes.push_back(piece);
+    }
     if (debug_) {
         // As it changes; see "VR: tooltips up" for what the interface has up.
         static glm::vec4 saidRect{-1.0f};
@@ -1268,7 +1296,7 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
     // wants it back in COLOR_ATTACHMENT_OPTIMAL.
     transition(cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     const XrRect2Di whole{{0, 0}, {static_cast<int32_t>(sourceExtent.width), static_cast<int32_t>(sourceExtent.height)}};
-    if (lifted.empty()) {
+    if (holes.empty()) {
         const VkImageCopy copy = copyOf(whole);
         vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
@@ -1280,7 +1308,7 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
         vkCmdClearColorImage(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &first);
         transition(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         std::vector<VkImageCopy> copies;
-        for (const XrRect2Di& piece : outside(whole, lifted)) copies.push_back(copyOf(piece));
+        for (const XrRect2Di& piece : outside(whole, holes)) copies.push_back(copyOf(piece));
         if (!copies.empty()) {
             vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copies.size()), copies.data());
@@ -1616,7 +1644,9 @@ void XrSystem::endFrame(bool submitted) {
         }
         quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
         quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-        quad.subImage.swapchain = f.panel.handle;
+        // The bars from where they were lifted to, the target frame from the
+        // panel, which keeps it.
+        quad.subImage.swapchain = f.barsLifted && i != 1 ? f.windowSheet.handle : f.panel.handle;
         layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quad);
     }
 

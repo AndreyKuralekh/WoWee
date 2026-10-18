@@ -252,6 +252,7 @@ public:
     bool pendingVrHands = true;             // the player's hands drawn in the world
     float pendingVrHandTone = 0.5f;         // their skin, 0 pale to 1 dark
     bool pendingVrHandPanels = true;        // the action bar and the target frame on the wrist
+    bool pendingVrHideBars = true;          // and the bottom bars off the big panel meanwhile
     float pendingVrHandPanelSize = 1.0f;    // how big they are there
     bool pendingVrWindows = true;           // the spell book and the bags on their own
     float pendingVrWindowSize = 1.0f;       // how big they are then

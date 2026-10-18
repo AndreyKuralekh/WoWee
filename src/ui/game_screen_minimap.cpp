@@ -1840,6 +1840,7 @@ void GameScreen::saveSettings() {
     out << "vr_hands=" << (settingsPanel_.pendingVrHands ? 1 : 0) << "\n";
     out << "vr_hand_tone=" << settingsPanel_.pendingVrHandTone << "\n";
     out << "vr_hand_panels=" << (settingsPanel_.pendingVrHandPanels ? 1 : 0) << "\n";
+    out << "vr_hide_bars=" << (settingsPanel_.pendingVrHideBars ? 1 : 0) << "\n";
     out << "vr_hand_panel_size=" << settingsPanel_.pendingVrHandPanelSize << "\n";
     out << "vr_windows=" << (settingsPanel_.pendingVrWindows ? 1 : 0) << "\n";
     out << "vr_window_size=" << settingsPanel_.pendingVrWindowSize << "\n";
@@ -2131,6 +2132,7 @@ void GameScreen::loadSettings() {
             else if (key == "vr_hands") settingsPanel_.pendingVrHands = (val == "1");
             else if (key == "vr_hand_tone") settingsPanel_.pendingVrHandTone = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "vr_hand_panels") settingsPanel_.pendingVrHandPanels = (val == "1");
+            else if (key == "vr_hide_bars") settingsPanel_.pendingVrHideBars = (val == "1");
             else if (key == "vr_hand_panel_size") settingsPanel_.pendingVrHandPanelSize = std::clamp(std::stof(val), 0.5f, 2.0f);
             else if (key == "vr_windows") settingsPanel_.pendingVrWindows = (val == "1");
             else if (key == "vr_window_size") settingsPanel_.pendingVrWindowSize = std::clamp(std::stof(val), 0.5f, 2.0f);

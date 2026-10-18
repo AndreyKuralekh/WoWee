@@ -345,6 +345,11 @@ public:
     void setHandPanelRects(const glm::vec4& actionBar, const glm::vec4& target, const glm::vec4& menu,
                            float windowWidth, float windowHeight);
     void setHandPanels(bool on) { handPanels_ = on; }
+    /// Where the bars along the bottom are in the window, with their art, as
+    /// for setHandPanelRects. While they are on the wrists they are lifted off
+    /// the big panel, unless told not to.
+    void setBarsRect(const glm::vec4& rect) { barsRect_ = rect; }
+    void setHideBars(bool on) { hideBars_ = on; }
     void setHandPanelSize(float scale) { handPanelSize_ = scale < 0.5f ? 0.5f : (scale > 2.0f ? 2.0f : scale); }
 
     // --- Windows on their own ---
@@ -472,6 +477,8 @@ private:
     bool handPanels_ = true;
     float handPanelSize_ = 1.0f;
     glm::vec4 handPanelRect_[3]{};  // the action bar, the target frame, the menu; window pixels
+    glm::vec4 barsRect_{};          // the bottom bars with their art; window pixels
+    bool hideBars_ = true;
     glm::vec2 handPanelWindow_{0.0f};
     // The windows on their own. Each stands at `offset` from the head it was
     // opened for, turned by that head's yaw: x to the right, y up, -z ahead.

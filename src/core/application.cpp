@@ -4981,6 +4981,7 @@ void Application::render() {
                     static std::vector<Named> barButtons;
                     static std::vector<Named> targetFrames;
                     static std::vector<Named> menuButtons;
+                    static std::vector<Named> bottomBars;
                     static std::vector<Named> spellBook;
                     static std::vector<Named> bookTabs;
                     static std::vector<Named> bags;
@@ -5012,6 +5013,14 @@ void Application::render() {
                                                  "CharacterBag2Slot", "CharacterBag3Slot", "KeyRingButton"}) {
                             menuButtons.push_back({name});
                         }
+                        // The whole of the bottom strip, art and all, which
+                        // goes from the big panel while the wrists carry it.
+                        for (const char* name : {"MainMenuBar", "MainMenuBarLeftEndCap", "MainMenuBarRightEndCap",
+                                                 "MainMenuExpBar", "MainMenuBarMaxLevelBar", "ReputationWatchBar",
+                                                 "MultiBarBottomLeft", "MultiBarBottomRight"}) {
+                            bottomBars.push_back({name});
+                        }
+                        bottomBars.push_back({"MainMenuBarArtFrame", 0, 0, glm::vec4(0.0f), true});
                         // The book with the tabs along its right edge, without
                         // the empty strip along its bottom; the tabs under it
                         // (spells, pet) apart. Every open bag, whichever frame
@@ -5079,6 +5088,7 @@ void Application::render() {
                     };
                     xr::system().setHandPanelRects(unionOf(barButtons), unionOf(targetFrames), unionOf(menuButtons),
                                                    io.DisplaySize.x, io.DisplaySize.y);
+                    xr::system().setBarsRect(unionOf(bottomBars));
                     // The tabs only with the book itself open. The chat behind
                     // those under it stands aside in the headset (see
                     // AddonManager::loadAllAddons).
