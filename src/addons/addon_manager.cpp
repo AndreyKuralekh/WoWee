@@ -11,6 +11,9 @@ extern "C" {
 #include "core/logger.hpp"
 #include "core/window.hpp"
 #include "core/config_paths.hpp"
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 #include <sstream>
 #include "ui/xml_parser.hpp"
 #include "ui/framexml_emitter.hpp"
@@ -417,6 +420,19 @@ void AddonManager::loadAllAddons() {
         if (!luaEngine_.executeString(kTalentPreviewLua)) {
             LOG_WARNING("Talent preview hooks did not install: ", luaEngine_.lastError());
         }
+#ifdef WOWEE_VR
+        // In the headset the spell book is cut out of the interface with the
+        // tabs under it, and the first chat window sits right behind them. The
+        // interface puts that window back over the bars whenever they change,
+        // so it is told where: clear to the right of the book (384 wide, its
+        // tabs' art reaching 413), at the height it would have anyway.
+        if (xr::system().windowsWanted() &&
+            !luaEngine_.executeString("local p = UIPARENT_MANAGED_FRAME_POSITIONS and "
+                                      "UIPARENT_MANAGED_FRAME_POSITIONS.ChatFrame1\n"
+                                      "if p then p.xOffset = 440 end\n")) {
+            LOG_WARNING("Chat window beside the spell book did not apply: ", luaEngine_.lastError());
+        }
+#endif
         // Said once, after the interface is up: anything neither handed over
         // nor hidden is about to be on screen twice.
         ui::frameXmlReportUnaccountedElements();

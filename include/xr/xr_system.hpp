@@ -354,6 +354,9 @@ public:
     /// player, where a bar under it moves it (xr_windows.cpp).
     void setWindowRects(const glm::vec4& spellBook, const glm::vec4& bags, float windowWidth, float windowHeight);
     void setWindows(bool on) { windows_ = on; }
+    /// Whether the spell book and the bags will stand on their own: a headset
+    /// (or its stand-in) and the setting on.
+    [[nodiscard]] bool windowsWanted() const { return windows_ && (running_ || fake_); }
     void setWindowSize(float scale) { windowSize_ = scale < 0.5f ? 0.5f : (scale > 2.0f ? 2.0f : scale); }
     /// Back to where they stand at first, and the saved places forgotten.
     void resetWindowPlaces();

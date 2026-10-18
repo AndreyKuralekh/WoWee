@@ -4214,6 +4214,9 @@ void Application::render() {
                         // What of the frame is empty, as its HitRectInsets in
                         // the stock XML: left, right, top, bottom.
                         glm::vec4 inset{0.0f};
+                        // Whether its own textures count as well: a tab's art
+                        // is drawn past the button that holds it.
+                        bool withRegions = false;
                     };
                     static std::vector<Named> barButtons;
                     static std::vector<Named> targetFrames;
@@ -4233,7 +4236,10 @@ void Application::render() {
                         // (spells, pet) apart. Every open bag, whichever frame
                         // each was given.
                         spellBook = {{"SpellBookFrame", 0, 0, glm::vec4(0.0f, 0.0f, 0.0f, 70.0f)}};
-                        for (int i = 1; i <= 8; ++i) spellBook.push_back({"SpellBookSkillLineTab" + std::to_string(i)});
+                        for (int i = 1; i <= 8; ++i) {
+                            spellBook.push_back({"SpellBookSkillLineTab" + std::to_string(i), 0, 0, glm::vec4(0.0f),
+                                                 true});
+                        }
                         for (int i = 1; i <= 3; ++i) {
                             bookTabs.push_back({"SpellBookFrameTabButton" + std::to_string(i), 0, 0,
                                                 glm::vec4(15.0f, 14.0f, 13.0f, 15.0f)});
@@ -4254,18 +4260,23 @@ void Application::render() {
                     const float sc = widgets.uiScale();
                     const auto unionOf = [&](std::vector<Named>& names) {
                         float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
-                        for (Named& n : names) {
-                            const ui::Widget* w = find(n);
-                            if (!w || !w->visible || w->rectW <= 0.0f || w->rectH <= 0.0f) continue;
-                            const float left = w->left + n.inset.x;
-                            const float right = w->left + w->rectW - n.inset.y;
-                            const float top = io.DisplaySize.y - (w->bottom + w->rectH - n.inset.z) * sc;
-                            const float bottom = io.DisplaySize.y - (w->bottom + n.inset.w) * sc;
-                            if (right <= left || bottom <= top) continue;
+                        const auto add = [&](const ui::Widget* w, const glm::vec4& inset) {
+                            if (!w || !w->visible || w->rectW <= 0.0f || w->rectH <= 0.0f) return;
+                            const float left = w->left + inset.x;
+                            const float right = w->left + w->rectW - inset.y;
+                            const float top = io.DisplaySize.y - (w->bottom + w->rectH - inset.z) * sc;
+                            const float bottom = io.DisplaySize.y - (w->bottom + inset.w) * sc;
+                            if (right <= left || bottom <= top) return;
                             x0 = std::min(x0, left * sc);
                             y0 = std::min(y0, top);
                             x1 = std::max(x1, right * sc);
                             y1 = std::max(y1, bottom);
+                        };
+                        for (Named& n : names) {
+                            const ui::Widget* w = find(n);
+                            add(w, n.inset);
+                            if (!n.withRegions || !w || !w->visible) continue;
+                            for (uint32_t child : w->children) add(widgets.get(child), glm::vec4(0.0f));
                         }
                         // A few pixels of margin, so a button's edge is not cut.
                         constexpr float kMargin = 3.0f;
@@ -4275,13 +4286,12 @@ void Application::render() {
                     };
                     xr::system().setHandPanelRects(unionOf(barButtons), unionOf(targetFrames), io.DisplaySize.x,
                                                    io.DisplaySize.y);
-                    // The tabs only with the book itself open, and those under
-                    // it only when there is a second one to choose: alone, the
-                    // first would bring the chat behind it into the window.
+                    // The tabs only with the book itself open. The chat behind
+                    // those under it stands aside in the headset (see
+                    // AddonManager::loadAllAddons).
                     const ui::Widget* bookFrame = find(spellBook[0]);
                     glm::vec4 book = bookFrame && bookFrame->visible ? unionOf(spellBook) : glm::vec4(0.0f);
-                    const ui::Widget* petTab = find(bookTabs[1]);
-                    if (book.z > 0.0f && petTab && petTab->visible) {
+                    if (book.z > 0.0f) {
                         const glm::vec4 tabs = unionOf(bookTabs);
                         if (tabs.z > 0.0f) {
                             const glm::vec2 lo = glm::min(glm::vec2(book), glm::vec2(tabs));
