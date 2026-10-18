@@ -391,6 +391,8 @@ private:
     void updatePointer(SDL_Window* window, bool inWorld);
     /// The right controller's ray in `base` at `time`. False while it is not tracked.
     [[nodiscard]] bool aimRay(XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& direction) const;
+    /// The same for the controller whose aim space is `hand`.
+    [[nodiscard]] bool handRay(XrSpace hand, XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& direction) const;
     /// The ray as a thin sheet turned towards `head`, in the local space.
     [[nodiscard]] bool pointerBeam(XrTime time, const glm::vec3& head, XrPosef& pose, XrExtent2Df& size) const;
     /// Where the panel stands: the space it is placed in, its pose there and

@@ -68,6 +68,12 @@ struct XrSystem::InputData {
     // acted on in the frame it happens.
     bool worldPress = false;
     bool worldPressOver = false;
+    // The menu on the wrist of the hand that points is pressed by the other
+    // hand: by its ray, which then has the pointer, its trigger and its grip,
+    // or by its index finger, near enough to touch it.
+    bool menuRay = false;
+    bool fingerOnMenu = false;
+    bool fingerDown = false;
 
     // What this is holding down, so that only that is ever let go: the
     // keyboard and the gamepad hold the same keys by the same means.
@@ -422,13 +428,15 @@ bool XrSystem::pickRay(glm::vec3& origin, glm::vec3& direction) const {
 }
 
 bool XrSystem::aimRay(XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& direction) const {
-    if (!input_) return false;
     // The hand that points: the right one, unless the player is left-handed.
-    const XrSpace pointer = leftHanded_ ? input_->aimLeftSpace : input_->aimSpace;
-    if (pointer == XR_NULL_HANDLE || base == XR_NULL_HANDLE || time == 0) return false;
+    return handRay(pointingHandSpace(), base, time, origin, direction);
+}
+
+bool XrSystem::handRay(XrSpace hand, XrSpace base, XrTime time, glm::vec3& origin, glm::vec3& direction) const {
+    if (!input_ || hand == XR_NULL_HANDLE || base == XR_NULL_HANDLE || time == 0) return false;
     XrSpaceLocation location{};
     location.type = XR_TYPE_SPACE_LOCATION;
-    if (XR_FAILED(xrLocateSpace(pointer, base, time, &location))) return false;
+    if (XR_FAILED(xrLocateSpace(hand, base, time, &location))) return false;
     const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_POSITION_VALID_BIT;
     if ((location.locationFlags & needed) != needed) return false;
     const XrQuaternionf& o = location.pose.orientation;
@@ -472,9 +480,12 @@ bool XrSystem::pointerBeam(XrTime time, const glm::vec3& head, XrPosef& pose, Xr
     constexpr float kStart = 0.05f;   // metres ahead of the controller
     constexpr float kLength = 1.5f;   // before the pointer has said how far
     constexpr float kWidth = 0.004f;
+    // From the other hand while its ray has the menu, and none while a finger
+    // is on it: the point under the finger is what shows.
+    if (input_->fingerOnMenu) return false;
     glm::vec3 origin;
     glm::vec3 along;
-    if (!aimRay(localSpace_, time, origin, along)) return false;
+    if (!handRay(input_->menuRay ? offHandSpace() : pointingHandSpace(), localSpace_, time, origin, along)) return false;
     const float end = input_->beamLength > kStart * 2.0f ? input_->beamLength : kLength;
     const glm::vec3 middle = origin + along * (0.5f * (kStart + end));
     glm::vec3 facing = head - middle;
@@ -529,6 +540,86 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
         uv.y = 0.5f - glm::dot(hit, turn * glm::vec3(0.0f, 1.0f, 0.0f)) / extent.height;
         return uv.x >= 0.0f && uv.x <= 1.0f && uv.y >= 0.0f && uv.y <= 1.0f;
     };
+    // The menu on the wrist of the hand that points, pressed by the other
+    // hand. Its ray takes the pointer once it is on the menu with that hand's
+    // trigger and grip let go, and keeps it until it leaves the menu by more
+    // than a little; its index finger takes it within a few centimetres of the
+    // menu's face, and presses where it touches. Neither changes hands while a
+    // button is down.
+    const bool offTrigger =
+        button(session_, leftHanded_ ? in.click : in.buttons[static_cast<size_t>(ControlButton::LeftTrigger)]);
+    const bool offGrip = button(session_, leftHanded_ ? in.grab : in.buttons[static_cast<size_t>(ControlButton::LeftGrip)]);
+    bool rayOnMenu = false;
+    bool rayNearMenu = false;
+    float menuDistance = 0.0f;
+    glm::vec2 rayAt(0.0f);
+    bool fingerOver = false;
+    float fingerDepth = 0.0f;
+    glm::vec2 fingerAt(0.0f);
+    if (focused && inWorld && windowWidth > 0 && windowHeight > 0) {
+        XrRect2Di crop{};
+        XrSpace menuSpace = XR_NULL_HANDLE;
+        XrPosef menu{};
+        XrExtent2Df menuSize{};
+        if (handPanelQuad(2, menuSpace, menu, menuSize, crop)) {
+            const glm::vec2 window(static_cast<float>(windowWidth), static_cast<float>(windowHeight));
+            const glm::vec4& rect = handPanelRect_[2];
+            const auto pixel = [&](const glm::vec2& uv) {
+                const glm::vec2 inside = glm::clamp(uv, glm::vec2(0.0f), glm::vec2(1.0f));
+                return glm::clamp((glm::vec2(rect.x, rect.y) + inside * glm::vec2(rect.z, rect.w)) *
+                                      (window / handPanelWindow_),
+                                  glm::vec2(0.0f), window - 1.0f);
+            };
+            const glm::quat turn(menu.orientation.w, menu.orientation.x, menu.orientation.y, menu.orientation.z);
+            const glm::vec3 centre(menu.position.x, menu.position.y, menu.position.z);
+            const glm::vec3 normal = turn * glm::vec3(0.0f, 0.0f, 1.0f);
+            const uint32_t other = leftHanded_ ? 1 : 0;
+            if (menuSpace == localSpace_ && handsInWorld_.tracked[other]) {
+                constexpr float kOver = 0.03f;     // metres in front of the face: the finger has the pointer
+                constexpr float kThrough = 0.04f;  // behind it: gone through, and not pressing any more
+                const glm::vec3 tip(handsInWorld_.joint[other][XR_HAND_JOINT_INDEX_TIP_EXT][3]);
+                fingerDepth = glm::dot(tip - centre, normal);
+                const glm::vec3 onFace = tip - centre - normal * fingerDepth;
+                const glm::vec2 uv(glm::dot(onFace, turn * glm::vec3(1.0f, 0.0f, 0.0f)) / menuSize.width + 0.5f,
+                                   0.5f - glm::dot(onFace, turn * glm::vec3(0.0f, 1.0f, 0.0f)) / menuSize.height);
+                fingerOver = uv.x >= 0.0f && uv.x <= 1.0f && uv.y >= 0.0f && uv.y <= 1.0f && fingerDepth < kOver &&
+                             fingerDepth > -kThrough;
+                fingerAt = pixel(uv);
+            }
+            if (handRay(offHandSpace(), menuSpace, frameTime(), origin, direction)) {
+                constexpr float kLetGo = 0.03f;  // metres beyond the menu's edge before the ray lets it go
+                glm::vec2 uv(-1.0f);
+                rayOnMenu = meet(menu, menuSize, menuDistance, uv);
+                const glm::vec2 slack(kLetGo / menuSize.width, kLetGo / menuSize.height);
+                rayNearMenu = menuDistance > 0.0f && uv.x >= -slack.x && uv.x <= 1.0f + slack.x &&
+                              uv.y >= -slack.y && uv.y <= 1.0f + slack.y;
+                rayAt = pixel(uv);
+            }
+        }
+    }
+    if (!anyHeld) {
+        const bool wasRay = in.menuRay;
+        const bool wasFinger = in.fingerOnMenu;
+        in.menuRay = in.menuRay ? rayNearMenu : rayOnMenu && !offTrigger && !offGrip;
+        in.fingerOnMenu = fingerOver && !in.menuRay;
+        if (debug_ && (wasRay != in.menuRay || wasFinger != in.fingerOnMenu)) {
+            LOG_WARNING("VR: the menu on the wrist is ",
+                        in.menuRay ? "the other hand's ray's" : (in.fingerOnMenu ? "the finger's" : "let go"));
+        }
+    }
+    // Pressed within a few millimetres of the face - the tip joint is the
+    // middle of the fingertip - and let go once drawn back off it.
+    constexpr float kPress = 0.006f;
+    constexpr float kRelease = 0.015f;
+    if (!in.fingerOnMenu) {
+        in.fingerDown = false;
+    } else if (!in.fingerDown) {
+        in.fingerDown = fingerOver && fingerDepth < kPress;
+    } else {
+        in.fingerDown = fingerOver && fingerDepth < kRelease;
+    }
+    const bool menuTaken = in.menuRay || in.fingerOnMenu;
+
     // The panels on the wrist and the windows on their own first: they are
     // nearer, and stand in front of the big one. The nearest the ray meets
     // takes it. A point on one is a point in its part of the window; a point
@@ -536,7 +627,11 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
     int barHit = -1;
     float barDistance = 0.0f;
     int windowHit = -1;
-    if (focused && inWorld && windowWidth > 0 && windowHeight > 0) {
+    if (menuTaken) {
+        onPanel = true;
+        at = in.menuRay ? rayAt : fingerAt;
+        in.beamLength = in.menuRay ? menuDistance : 0.0f;
+    } else if (focused && inWorld && windowWidth > 0 && windowHeight > 0) {
         const glm::vec2 window(static_cast<float>(windowWidth), static_cast<float>(windowHeight));
         float nearest = FLT_MAX;
         const auto take = [&](float distance, const glm::vec4& rect, const glm::vec2& pixels, const glm::vec2& uv) {
@@ -595,7 +690,8 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
         glm::vec3 from;
         glm::vec3 along;
         const bool ray = focused && inWorld && aimRay(localSpace_, frameTime(), from, along);
-        moving = dragWindow(from, along, ray && trigger && !in.mouseHeld[0], ray ? barHit : -1, barDistance);
+        moving = dragWindow(from, along, ray && trigger && !in.mouseHeld[0] && !menuTaken, ray ? barHit : -1,
+                            barDistance);
         if (moving) {
             onPanel = false;
             in.beamLength = dragDistance_;
@@ -635,9 +731,11 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
     const bool tracked = focused && inWorld && aimRay(localSpace_, frameTime(), origin, direction);
     // The trigger and the grip of the hand that points; not the trigger while
     // it holds a window by its bar.
+    // While the other hand has the menu, its trigger and grip instead.
     const auto leftGrip = in.buttons[static_cast<size_t>(ControlButton::LeftGrip)];
-    const bool wanted[2] = {trigger && !moving && (barHit < 0 || in.mouseHeld[0]),
-                            button(session_, leftHanded_ ? leftGrip : in.grab)};
+    const bool wanted[2] = {
+        menuTaken ? (in.menuRay && offTrigger) || in.fingerDown : trigger && !moving && (barHit < 0 || in.mouseHeld[0]),
+        menuTaken ? in.menuRay && offGrip : button(session_, leftHanded_ ? leftGrip : in.grab)};
     for (size_t i = 0; i < std::size(kMouseButtons); ++i) {
         const bool down = wanted[i] && (in.mouseHeld[i] || onPanel || tracked);
         if (down == in.mouseHeld[i]) continue;
@@ -780,6 +878,12 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
     bool modifier = false;
     for (size_t i = 0; i < kControlButtonCount; ++i) {
         down[i] = !typing && button(session_, buttonSource(in.buttons, in.click, in.grab, i, leftHanded_));
+        // The other hand's trigger and grip are the mouse's while its ray has
+        // the menu on the wrist.
+        if (in.menuRay && (i == static_cast<size_t>(ControlButton::LeftTrigger) ||
+                           i == static_cast<size_t>(ControlButton::LeftGrip))) {
+            down[i] = false;
+        }
         if (down[i] && controls_.plain[i] == ControlFunction::Modifier) modifier = true;
     }
     bool keyWanted[kControlFunctionCount] = {};
