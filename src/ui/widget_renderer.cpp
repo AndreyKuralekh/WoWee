@@ -2271,6 +2271,13 @@ void WidgetRenderer::draw(WidgetTree& tree, float screenW, float screenH) {
     }
 
     for (const Widget* w : order) {
+#ifdef WOWEE_VR
+        // The order is rebuilt only by the solve, which a headset frame runs
+        // every third frame; hidden since, a frame is not drawn. A tooltip
+        // drawn on for two frames after it went showed on the big panel,
+        // which cuts it out only while it is visible.
+        if (!w->visible) continue;
+#endif
         // Anything inside a scroll frame is bounded by it. Without this a
         // scroll child taller than its window draws over everything above and
         // below, which is not a window onto it at all.
