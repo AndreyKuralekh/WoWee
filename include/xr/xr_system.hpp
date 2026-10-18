@@ -495,6 +495,7 @@ private:
     glm::vec3 dragFromHit_{0.0f};  // the window's centre from where the ray took its bar
     bool dragTriggerWas_ = false;
     glm::vec3 windowHead_{0.0f};
+    float windowHeadYaw_ = 0.0f;
     std::chrono::steady_clock::time_point windowsMoved_{};
     struct HandData;
     HandData* hands_ = nullptr;  // null without hand tracking

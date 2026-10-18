@@ -64,6 +64,15 @@ void XrSystem::setWindowRects(const glm::vec4& spellBook, const glm::vec4& bags,
     windowRect_[0] = spellBook;
     windowRect_[1] = bags;
     windowPixels_ = glm::vec2(windowWidth, windowHeight);
+    // Opened now, where the head was at the frame's start, rather than at the
+    // next frame's: the frame that first draws a window lifts it off the panel.
+    for (uint32_t i = 0; i < 2 && windowPlacesLoaded_; ++i) {
+        WindowPlace& p = windowPlace_[i];
+        if (p.open || !windows_ || windowRect_[i].z <= 1.0f || windowRect_[i].w <= 1.0f) continue;
+        p.open = true;
+        p.yaw = p.targetYaw = windowHeadYaw_;
+        p.anchor = p.targetAnchor = windowHead_;
+    }
     if (debug_) {
         static auto lastSaid = std::chrono::steady_clock::time_point{};
         const auto now = std::chrono::steady_clock::now();
@@ -79,6 +88,7 @@ void XrSystem::setWindowRects(const glm::vec4& spellBook, const glm::vec4& bags,
 void XrSystem::placeWindows(const glm::vec3& head, float headYaw) {
     if (!windowPlacesLoaded_) loadWindowPlaces();
     windowHead_ = head;
+    windowHeadYaw_ = headYaw;
     const auto now = std::chrono::steady_clock::now();
     const float dt = std::min(0.1f, std::chrono::duration<float>(now - windowsMoved_).count());
     windowsMoved_ = now;
