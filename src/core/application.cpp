@@ -4973,6 +4973,10 @@ void Application::render() {
                         // Whether its own textures count as well: a tab's art
                         // is drawn past the button that holds it.
                         bool withRegions = false;
+                        // Whether it counts hidden as well, while its parent is
+                        // shown: an empty action button is hidden, and the bar
+                        // is as wide with it as without.
+                        bool evenHidden = false;
                     };
                     static std::vector<Named> barButtons;
                     static std::vector<Named> targetFrames;
@@ -4986,7 +4990,9 @@ void Application::render() {
                     if (barButtons.empty()) {
                         for (const char* prefix : {"ActionButton", "MultiBarBottomLeftButton",
                                                    "MultiBarBottomRightButton"}) {
-                            for (int i = 1; i <= 12; ++i) barButtons.push_back({prefix + std::to_string(i)});
+                            for (int i = 1; i <= 12; ++i) {
+                                barButtons.push_back({prefix + std::to_string(i), 0, 0, glm::vec4(0.0f), false, true});
+                            }
                         }
                         // With the arrows that page through the main bar,
                         // without the empty strip above and below each.
@@ -5037,8 +5043,12 @@ void Application::render() {
                     const float sc = widgets.uiScale();
                     const auto unionOf = [&](std::vector<Named>& names) {
                         float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
-                        const auto add = [&](const ui::Widget* w, const glm::vec4& inset) {
-                            if (!w || !w->visible || w->rectW <= 0.0f || w->rectH <= 0.0f) return;
+                        const auto add = [&](const ui::Widget* w, const glm::vec4& inset, bool evenHidden = false) {
+                            if (!w || w->rectW <= 0.0f || w->rectH <= 0.0f) return;
+                            if (!w->visible) {
+                                const ui::Widget* parent = evenHidden ? widgets.get(w->parent) : nullptr;
+                                if (!parent || !parent->visible) return;
+                            }
                             const float left = w->left + inset.x;
                             const float right = w->left + w->rectW - inset.y;
                             const float top = io.DisplaySize.y - (w->bottom + w->rectH - inset.z) * sc;
@@ -5057,7 +5067,7 @@ void Application::render() {
                         };
                         for (Named& n : names) {
                             const ui::Widget* w = find(n);
-                            add(w, n.inset);
+                            add(w, n.inset, n.evenHidden);
                             if (!n.withRegions || !w || !w->visible) continue;
                             for (uint32_t child : w->children) add(widgets.get(child), glm::vec4(0.0f));
                         }

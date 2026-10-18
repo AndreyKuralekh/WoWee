@@ -588,6 +588,12 @@ void XrSystem::recordEyeCopy(VkCommandBuffer cmd, uint32_t eye, VkImage image) {
 
 void XrSystem::setHandPanelRects(const glm::vec4& actionBar, const glm::vec4& target, const glm::vec4& menu,
                                  float windowWidth, float windowHeight) {
+    // Said when one changes size, and every ten seconds besides.
+    const auto sized = [](const glm::vec4& a, const glm::vec4& b) {
+        return std::abs(a.z - b.z) > 1.0f || std::abs(a.w - b.w) > 1.0f;
+    };
+    const bool changed = sized(handPanelRect_[0], actionBar) || sized(handPanelRect_[1], target) ||
+                         sized(handPanelRect_[2], menu);
     handPanelRect_[0] = actionBar;
     handPanelRect_[1] = target;
     handPanelRect_[2] = menu;
@@ -595,7 +601,7 @@ void XrSystem::setHandPanelRects(const glm::vec4& actionBar, const glm::vec4& ta
     if (debug_) {
         static auto lastSaid = std::chrono::steady_clock::time_point{};
         const auto now = std::chrono::steady_clock::now();
-        if (now - lastSaid > std::chrono::seconds(10)) {
+        if (changed || now - lastSaid > std::chrono::seconds(10)) {
             lastSaid = now;
             LOG_WARNING("VR: hand panels from the window ", windowWidth, "x", windowHeight, ": action bar ",
                         actionBar.x, ",", actionBar.y, " ", actionBar.z, "x", actionBar.w, ", target ", target.x,
