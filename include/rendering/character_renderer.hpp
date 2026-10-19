@@ -127,6 +127,12 @@ public:
     /// Where a key bone's pivot is in the world, as the instance stands now
     /// and as its bones were last posed. False if it has no such bone.
     bool getInstanceKeyBoneWorld(uint32_t instanceId, int32_t keyBoneId, glm::vec3& out) const;
+    /// Has an arm (0 left, 1 right) reach for a wrist in the world, turned as
+    /// an OpenXR wrist joint is - -Z to the fingers, +Y the back of the hand -
+    /// instead of playing its animation. Taken against where the instance
+    /// stands now: set it after the instance is placed for the frame.
+    void setInstanceArmReach(uint32_t instanceId, int arm, bool reach, const glm::vec3& wrist = glm::vec3(0.0f),
+                             const glm::mat3& wristTurn = glm::mat3(1.0f));
 #endif
     void removeInstance(uint32_t instanceId);
     bool getAnimationState(uint32_t instanceId, uint32_t& animationId, float& animationTimeMs, float& animationDurationMs) const;
@@ -261,6 +267,11 @@ private:
         float torsoYawOverrideRad = 0.0f;
 #ifdef WOWEE_VR
         bool headless = false;  // see setInstanceHeadless
+        // See setInstanceArmReach; the wrist in the model's own space.
+        bool armReach[2] = {false, false};
+        glm::vec3 armReachAt[2] = {glm::vec3(0.0f), glm::vec3(0.0f)};
+        glm::mat3 armReachTurn[2] = {glm::mat3(1.0f), glm::mat3(1.0f)};
+        std::vector<glm::mat4> boneLocals;  // each bone's own transform, while an arm reaches
 #endif
 
         // Animation state
@@ -336,6 +347,9 @@ private:
     void setupModelBuffers(M2ModelGPU& gpuModel);
     void calculateBindPose(M2ModelGPU& gpuModel);
     void calculateBoneMatrices(CharacterInstance& instance);
+#ifdef WOWEE_VR
+    void reachArms(CharacterInstance& instance) const;
+#endif
     glm::mat4 getBoneTransform(const pipeline::M2Bone& bone, float animTime, float globalSeqTime,
                                int sequenceIndex, const std::vector<uint32_t>& globalSeqDurations);
     [[nodiscard]] glm::mat4 getModelMatrix(const CharacterInstance& instance) const;

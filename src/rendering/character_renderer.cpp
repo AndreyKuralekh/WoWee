@@ -2405,6 +2405,10 @@ void CharacterRenderer::calculateBoneMatrices(CharacterInstance& instance) {
 
     const bool armsOwnSequences = (instance.armSequenceIndex[0] >= 0 || instance.armSequenceIndex[1] >= 0) &&
                                   instance.boneArm.size() == numBones;
+#ifdef WOWEE_VR
+    const bool reaching = instance.armReach[0] || instance.armReach[1];
+    if (reaching) instance.boneLocals.resize(numBones);
+#endif
 
     for (size_t i = 0; i < numBones; i++) {
         const auto& bone = model.bones[i];
@@ -2439,6 +2443,10 @@ void CharacterRenderer::calculateBoneMatrices(CharacterInstance& instance) {
                              glm::scale(glm::mat4(1.0f), glm::vec3(0.001f)) *
                              glm::translate(glm::mat4(1.0f), -bone.pivot);
         }
+#endif
+
+#ifdef WOWEE_VR
+        if (reaching) instance.boneLocals[i] = localTransform;
 #endif
 
         // Compose with parent
@@ -2476,7 +2484,156 @@ void CharacterRenderer::calculateBoneMatrices(CharacterInstance& instance) {
     // session (a5080cec), and one `continue` added above would make this the
     // same fault. tools/bounded_log_check.py reports it.
     if (diagFrames < 3) diagFrames++;
+#ifdef WOWEE_VR
+    if (reaching) reachArms(instance);
+#endif
 }
+
+#ifdef WOWEE_VR
+namespace {
+
+// The shortest turn taking one direction to another, both of unit length.
+glm::mat3 turnBetween(const glm::vec3& from, const glm::vec3& to) {
+    const float cosine = glm::dot(from, to);
+    if (cosine > 0.99999f) return glm::mat3(1.0f);
+    glm::vec3 axis = glm::cross(from, to);
+    if (glm::length(axis) < 1e-6f) {
+        // Opposite: about anything at right angles to them.
+        axis = glm::cross(from, std::abs(from.x) < 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0));
+    }
+    return glm::mat3(glm::rotate(glm::mat4(1.0f), std::acos(std::clamp(cosine, -1.0f, 1.0f)), glm::normalize(axis)));
+}
+
+// A bone's matrix that turns the model's rest pose by `turn` (after `stretch`)
+// about its pivot and puts the pivot `at`.
+glm::mat4 boneAt(const glm::vec3& at, const glm::mat3& turn, const glm::mat3& stretch, const glm::vec3& pivot) {
+    const glm::mat3 linear = turn * stretch;
+    glm::mat4 m(linear);
+    m[3] = glm::vec4(at - linear * pivot, 1.0f);
+    return m;
+}
+
+// The turn of a matrix, without any scale it has.
+glm::mat3 turnOf(const glm::mat4& m) {
+    return glm::mat3(glm::normalize(glm::vec3(m[0])), glm::normalize(glm::vec3(m[1])), glm::normalize(glm::vec3(m[2])));
+}
+
+}  // namespace
+
+// Each reaching arm posed after its animation: the upper arm and the forearm
+// turned so that the wrist is where it was asked to be, the elbow bent down
+// and out, and the hand turned as the wrist asked. An arm too short for the
+// reach - a gnome's, held out by a person - is lengthened along itself up to
+// half as long again rather than leave its hand short of the real one. All
+// that hangs from the arm follows: the fingers, and what the hand holds.
+//
+// The arm is found from the hand's attachment point up to its arm key bone:
+// the bone under that is the forearm, the one under the forearm the hand.
+// The hand's rest frame comes from its fingers' key bones.
+void CharacterRenderer::reachArms(CharacterInstance& instance) const {
+    const auto& bones = instance.cachedModel->data.bones;
+    auto& m = instance.boneMatrices;
+    const int n = static_cast<int>(m.size());
+    if (static_cast<int>(instance.boneLocals.size()) != n) return;
+    std::vector<uint8_t> moved(static_cast<size_t>(n), 0);
+    for (int arm = 0; arm < 2; ++arm) {
+        if (!instance.armReach[arm]) continue;
+        constexpr uint32_t kAttachmentHand[2] = {2, 1};                        // left, right
+        constexpr int32_t kKeyBoneArm[2] = {0, 1};
+        constexpr int32_t kKeyBoneFinger[2][3] = {{13, 14, 15}, {8, 9, 10}};  // index, middle, little
+        int upper = -1, fore = -1, hand = -1;
+        for (const auto& a : instance.cachedModel->data.attachments) {
+            if (a.id != kAttachmentHand[arm]) continue;
+            int below1 = -1, below2 = -1;
+            for (int b = a.bone; b >= 0 && b < n; b = bones[b].parentBone) {
+                if (bones[b].keyBoneId == kKeyBoneArm[arm]) {
+                    upper = b;
+                    fore = below1;
+                    hand = below2;
+                    break;
+                }
+                below2 = below1;
+                below1 = b;
+            }
+            break;
+        }
+        if (upper < 0 || fore < 0 || hand < 0) continue;
+
+        const glm::vec3 pU = bones[upper].pivot, pF = bones[fore].pivot, pH = bones[hand].pivot;
+        const float a = glm::length(pF - pU), b = glm::length(pH - pF);
+        if (a < 1e-4f || b < 1e-4f) continue;
+        const glm::vec3 shoulder(m[upper] * glm::vec4(pU, 1.0f));
+        const glm::vec3 toWrist = instance.armReachAt[arm] - shoulder;
+        const float d = glm::length(toWrist);
+        if (d < 1e-4f) continue;
+        const glm::vec3 along = toWrist / d;
+        constexpr float kMostStretch = 1.5f;
+        const float stretch = std::clamp(d / (a + b), 1.0f, kMostStretch);
+        const float upperLength = a * stretch, foreLength = b * stretch;
+        const float reach =
+            std::clamp(d, std::abs(upperLength - foreLength) + 1e-4f, (upperLength + foreLength) * 0.9999f);
+        const float cosine =
+            (upperLength * upperLength + reach * reach - foreLength * foreLength) / (2.0f * upperLength * reach);
+        const float sine = std::sqrt(std::max(0.0f, 1.0f - cosine * cosine));
+        // The elbow down, out to its own side and a little back; the model
+        // faces +X with its left to +Y.
+        const glm::vec3 pole = glm::normalize(glm::vec3(-0.35f, arm == 0 ? 0.6f : -0.6f, -1.0f));
+        glm::vec3 bend = pole - along * glm::dot(pole, along);
+        bend = glm::length(bend) > 1e-4f ? glm::normalize(bend) : glm::vec3(0.0f, 0.0f, -1.0f);
+        const glm::vec3 elbow = shoulder + along * (upperLength * cosine) + bend * (upperLength * sine);
+        const glm::vec3 wrist = shoulder + along * reach;
+
+        const glm::vec3 upperRest = (pF - pU) / a, foreRest = (pH - pF) / b;
+        const glm::mat3 upperNow = turnOf(m[upper]), foreNow = turnOf(m[fore]);
+        const glm::mat3 upperTurn =
+            turnBetween(glm::normalize(upperNow * upperRest), glm::normalize(elbow - shoulder)) * upperNow;
+        const glm::mat3 foreTurn = turnBetween(glm::normalize(foreNow * foreRest), glm::normalize(wrist - elbow)) * foreNow;
+        const glm::mat3 none(1.0f);
+        const glm::mat3 upperStretch = none + (stretch - 1.0f) * glm::outerProduct(upperRest, upperRest);
+        const glm::mat3 foreStretch = none + (stretch - 1.0f) * glm::outerProduct(foreRest, foreRest);
+
+        // The hand at rest, framed as an OpenXR wrist is: -Z to the fingers,
+        // X across the knuckles (towards the thumb on a left hand, away from it
+        // on a right one), Y the back of the hand.
+        glm::vec3 finger[3] = {};
+        int found = 0;
+        for (int i = hand + 1; i < n; ++i) {
+            if (bones[i].parentBone != hand) continue;
+            for (int k = 0; k < 3; ++k) {
+                if (bones[i].keyBoneId == kKeyBoneFinger[arm][k]) {
+                    finger[k] = bones[i].pivot;
+                    found |= 1 << k;
+                }
+            }
+        }
+        glm::mat3 handTurn = foreTurn;  // without fingers, as the forearm
+        if (found == 7) {
+            const glm::vec3 z = -glm::normalize(finger[1] - pH);
+            glm::vec3 x = glm::normalize(finger[0] - finger[2]) * (arm == 0 ? 1.0f : -1.0f);
+            const glm::vec3 y = glm::normalize(glm::cross(z, x));
+            x = glm::cross(y, z);
+            handTurn = instance.armReachTurn[arm] * glm::transpose(glm::mat3(x, y, z));
+        }
+
+        m[upper] = boneAt(shoulder, upperTurn, upperStretch, pU);
+        m[fore] = boneAt(elbow, foreTurn, foreStretch, pF);
+        m[hand] = boneAt(wrist, handTurn, none, pH);
+        // What else hangs from the upper arm or the forearm - a shoulder pad,
+        // the elbow's attachment - goes with it unstretched.
+        const glm::mat4 upperPlain = boneAt(shoulder, upperTurn, none, pU);
+        const glm::mat4 forePlain = boneAt(elbow, foreTurn, none, pF);
+        moved[upper] = moved[fore] = moved[hand] = 1;
+        for (int i = upper + 1; i < n; ++i) {
+            if (i == fore || i == hand) continue;
+            const int parent = bones[i].parentBone;
+            if (parent < 0 || !moved[parent]) continue;
+            const glm::mat4& from = parent == upper ? upperPlain : parent == fore ? forePlain : m[parent];
+            m[i] = from * instance.boneLocals[i];
+            moved[i] = 1;
+        }
+    }
+}
+#endif
 
 glm::mat4 CharacterRenderer::getBoneTransform(const pipeline::M2Bone& bone, float animTime, float globalSeqTime,
                                                int sequenceIndex, const std::vector<uint32_t>& globalSeqDurations) {
@@ -3858,6 +4015,18 @@ void CharacterRenderer::setInstanceVisible(uint32_t instanceId, bool visible) {
 void CharacterRenderer::setInstanceHeadless(uint32_t instanceId, bool headless) {
     auto it = instances.find(instanceId);
     if (it != instances.end()) it->second.headless = headless;
+}
+
+void CharacterRenderer::setInstanceArmReach(uint32_t instanceId, int arm, bool reach, const glm::vec3& wrist,
+                                             const glm::mat3& wristTurn) {
+    auto it = instances.find(instanceId);
+    if (it == instances.end() || arm < 0 || arm > 1) return;
+    CharacterInstance& instance = it->second;
+    instance.armReach[arm] = reach;
+    if (!reach) return;
+    const glm::mat4 model = instance.hasOverrideModelMatrix ? instance.overrideModelMatrix : getModelMatrix(instance);
+    instance.armReachAt[arm] = glm::vec3(glm::inverse(model) * glm::vec4(wrist, 1.0f));
+    instance.armReachTurn[arm] = glm::transpose(turnOf(model)) * wristTurn;
 }
 
 bool CharacterRenderer::getInstanceKeyBoneWorld(uint32_t instanceId, int32_t keyBoneId, glm::vec3& out) const {

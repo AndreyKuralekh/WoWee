@@ -281,7 +281,13 @@ void Renderer::vrBeginViews() {
         cameraController->setPlayerHidden(false);
         cameraController->setPlayerShown(false);
     }
-    if (characterRenderer && characterInstanceId) characterRenderer->setInstanceHeadless(characterInstanceId, false);
+    if (characterRenderer && characterInstanceId) {
+        characterRenderer->setInstanceHeadless(characterInstanceId, false);
+        if (vrBodyShown_) {
+            characterRenderer->setInstanceArmReach(characterInstanceId, 0, false);
+            characterRenderer->setInstanceArmReach(characterInstanceId, 1, false);
+        }
+    }
     vrBodyShown_ = false;
     if (camera) camera->clearPickRay();
     if (!vrGameHandler_) vrInWorld_ = false;
@@ -354,6 +360,29 @@ void Renderer::vrBeginViews() {
         const glm::vec3 looks = -glm::vec3(glm::inverse(center.view)[2]);
         const float flat = std::sqrt(looks.x * looks.x + looks.y * looks.y);
         if (flat > 1e-3f) vrHeadForward_ = glm::vec2(looks.x, looks.y) / flat;
+        // The wrists, for the arms to reach to. Without a headset they are
+        // held out in front of the chest.
+        const xr::HandPoses& hands = xr::system().handsInWorld();
+        const glm::mat3 trackingTurn(glm::normalize(glm::vec3(hands.trackingToWorld[0])),
+                                     glm::normalize(glm::vec3(hands.trackingToWorld[1])),
+                                     glm::normalize(glm::vec3(hands.trackingToWorld[2])));
+        for (int hand = 0; hand < 2; ++hand) {
+            glm::mat4 wrist(1.0f);
+            constexpr uint32_t kWristJoint = 1;
+            if (hands.tracked[hand]) {
+                wrist = hands.joint[hand][kWristJoint];
+            } else if (hands.fake) {
+                // Palms facing, as round a controller: the backs of the hands out.
+                wrist = glm::rotate(glm::mat4(1.0f), glm::radians(hand == 0 ? 90.0f : -90.0f), glm::vec3(0, 0, 1));
+                wrist[3] = glm::vec4(hand == 0 ? -0.2f : 0.2f, -0.3f, -0.35f, 1.0f);
+            } else {
+                vrWristSeen_[hand] = false;
+                continue;
+            }
+            vrWristSeen_[hand] = true;
+            vrWristOffset_[hand] = glm::vec3(hands.trackingToWorld * wrist[3]) - reference;
+            vrWristTurn_[hand] = trackingTurn * glm::mat3(wrist);
+        }
     }
 
     // What the controller points at is what a click is about.
@@ -390,6 +419,13 @@ void Renderer::vrPlaceBody(float torsoYawDeg) {
     const float away = glm::length(by);
     if (away > kFurthest) by *= kFurthest / away;
     characterRenderer->setInstancePosition(characterInstanceId, characterPosition + glm::vec3(by, 0.0f));
+
+    // The arms reach for the player's own hands.
+    const glm::vec3 eyes = characterPosition + glm::vec3(0.0f, 0.0f, cameraController->followedEyeHeight());
+    for (int hand = 0; hand < 2; ++hand) {
+        characterRenderer->setInstanceArmReach(characterInstanceId, hand, vrWristSeen_[hand],
+                                               eyes + vrWristOffset_[hand], vrWristTurn_[hand]);
+    }
 }
 
 // Where the head looked in the last stereo frame: the point between the eyes
@@ -542,7 +578,7 @@ void Renderer::vrRenderEyes() {
     // The hands are the same for both eyes; only the matrix they are seen by
     // differs, and that is handed to each eye's draw.
     vrEyes_->handsThisFrame =
-        xr::system().showHands() &&
+        xr::system().showHands() && !vrBodyShown_ &&
         vrEyes_->hands.prepare(frame, xr::system().handsInWorld(), glm::vec3(currentFrameData.lightDir),
                                glm::vec3(currentFrameData.lightColor), glm::vec3(currentFrameData.ambientColor),
                                xr::system().handTone());

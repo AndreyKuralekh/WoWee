@@ -505,6 +505,9 @@ private:
     bool vrBodyShown_ = false;
     glm::vec2 vrHeadOffset_{0.0f};
     glm::vec2 vrHeadForward_{1.0f, 0.0f};
+    bool vrWristSeen_[2] = {false, false};           // and the wrists, from those eyes' reference
+    glm::vec3 vrWristOffset_[2] = {glm::vec3(0.0f), glm::vec3(0.0f)};
+    glm::mat3 vrWristTurn_[2] = {glm::mat3(1.0f), glm::mat3(1.0f)};
 #endif
     uint32_t currentImageIndex = 0;
 
