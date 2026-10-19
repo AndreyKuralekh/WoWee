@@ -398,7 +398,10 @@ void Renderer::vrBeginViews() {
 // model is posed for the frame, before its bones; they are the last frame's.
 // Not on a mount or a flight, which pose the rider themselves.
 void Renderer::vrPlaceBody(float torsoYawDeg) {
-    if (!vrBodyShown_ || !characterRenderer || !characterInstanceId || !cameraController) return;
+    if (!characterRenderer || !characterInstanceId) return;
+    // Set here, as the frame is updated, and kept while it is drawn.
+    characterRenderer->setInstanceArmsOnly(characterInstanceId, vrBodyShown_ && xr::system().bodyArmsOnly());
+    if (!vrBodyShown_ || !cameraController) return;
     if (animationController_ && (animationController_->isMounted() || animationController_->isTaxiFlight())) return;
     // Strafing, the legs go the way it walks and the chest is turned back by
     // the torso's own twist: the model takes the view's yaw less that.

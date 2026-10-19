@@ -997,6 +997,12 @@ constexpr SettingDesc kSchema[] = {
      "The original client's full-screen glow: what is bright bleeds\n"
      "softly into what is round it, and the picture reads warmer and\n"
      "less hard-edged. 0 turns it off.", "", 0.8f},
+    {"vrbody", "Your body", SettingKind::Enum, 0, 2, 1, "VR comfort", "Hands",
+     "What you see of your character from its eyes. Whole body: look\n"
+     "down and it is there, its arms where yours are, holding what it\n"
+     "holds. Arms only: just its forearms and hands. Hands only: plain\n"
+     "hands instead, as Show hands and Hand skin tone set them.",
+     "Whole body|Arms only|Hands only", 0},
     {"vrhands", "Show hands", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
      "Your own hands in the world, where the controllers are. The\n"
      "fingers follow how you hold them: the trigger, the grip and\n"

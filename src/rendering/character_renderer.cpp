@@ -708,6 +708,21 @@ void CharacterRenderer::destroyModelGPU(M2ModelGPU& gpuModel, bool defer) {
     gpuModel.vertexAlloc = VK_NULL_HANDLE;
     gpuModel.indexBuffer = VK_NULL_HANDLE;
     gpuModel.indexAlloc = VK_NULL_HANDLE;
+#ifdef WOWEE_VR
+    if (gpuModel.armIndexBuffer) {
+        ::VkBuffer ab = gpuModel.armIndexBuffer;
+        VmaAllocation abAlloc = gpuModel.armIndexAlloc;
+        if (!defer) {
+            vmaDestroyBuffer(alloc, ab, abAlloc);
+        } else {
+            vkCtx_->deferAfterAllFrameFences([alloc, ab, abAlloc]() { vmaDestroyBuffer(alloc, ab, abAlloc); });
+        }
+    }
+    gpuModel.armIndexBuffer = VK_NULL_HANDLE;
+    gpuModel.armIndexAlloc = VK_NULL_HANDLE;
+    gpuModel.armBatchRange.clear();
+    gpuModel.armIndicesBuilt = false;
+#endif
 
     if (!defer) {
         // Safe after vkDeviceWaitIdle (shutdown / clear paths)
@@ -2518,6 +2533,32 @@ glm::mat3 turnOf(const glm::mat4& m) {
     return glm::mat3(glm::normalize(glm::vec3(m[0])), glm::normalize(glm::vec3(m[1])), glm::normalize(glm::vec3(m[2])));
 }
 
+// An arm's bones (0 left, 1 right): from the hand's attachment point up to
+// the arm key bone, the upper arm; the bone under it the forearm, and the
+// one under that the hand. False if the model has no such arm.
+bool findArm(const pipeline::M2Model& model, int arm, int& upper, int& fore, int& hand) {
+    constexpr uint32_t kAttachmentHand[2] = {2, 1};  // left, right
+    constexpr int32_t kKeyBoneArm[2] = {0, 1};
+    const int n = static_cast<int>(model.bones.size());
+    upper = fore = hand = -1;
+    for (const auto& a : model.attachments) {
+        if (a.id != kAttachmentHand[arm]) continue;
+        int below1 = -1, below2 = -1;
+        for (int b = a.bone; b >= 0 && b < n; b = model.bones[b].parentBone) {
+            if (model.bones[b].keyBoneId == kKeyBoneArm[arm]) {
+                upper = b;
+                fore = below1;
+                hand = below2;
+                break;
+            }
+            below2 = below1;
+            below1 = b;
+        }
+        break;
+    }
+    return upper >= 0 && fore >= 0 && hand >= 0;
+}
+
 }  // namespace
 
 // Each reaching arm posed after its animation: the upper arm and the forearm
@@ -2527,8 +2568,6 @@ glm::mat3 turnOf(const glm::mat4& m) {
 // half as long again rather than leave its hand short of the real one. All
 // that hangs from the arm follows: the fingers, and what the hand holds.
 //
-// The arm is found from the hand's attachment point up to its arm key bone:
-// the bone under that is the forearm, the one under the forearm the hand.
 // The hand's rest frame comes from its fingers' key bones.
 void CharacterRenderer::reachArms(CharacterInstance& instance) const {
     const auto& bones = instance.cachedModel->data.bones;
@@ -2541,26 +2580,9 @@ void CharacterRenderer::reachArms(CharacterInstance& instance) const {
         // What this arm moves, and no more: the other arm's bones, posed
         // already, hang from bones moved too and must not be put back.
         std::fill(moved.begin(), moved.end(), uint8_t{0});
-        constexpr uint32_t kAttachmentHand[2] = {2, 1};                        // left, right
-        constexpr int32_t kKeyBoneArm[2] = {0, 1};
         constexpr int32_t kKeyBoneFingers[2] = {13, 8};  // the first of index, middle, little, ring
         int upper = -1, fore = -1, hand = -1;
-        for (const auto& a : instance.cachedModel->data.attachments) {
-            if (a.id != kAttachmentHand[arm]) continue;
-            int below1 = -1, below2 = -1;
-            for (int b = a.bone; b >= 0 && b < n; b = bones[b].parentBone) {
-                if (bones[b].keyBoneId == kKeyBoneArm[arm]) {
-                    upper = b;
-                    fore = below1;
-                    hand = below2;
-                    break;
-                }
-                below2 = below1;
-                below1 = b;
-            }
-            break;
-        }
-        if (upper < 0 || fore < 0 || hand < 0) continue;
+        if (!findArm(instance.cachedModel->data, arm, upper, fore, hand) || hand >= n) continue;
 
         const glm::vec3 pU = bones[upper].pivot, pF = bones[fore].pivot, pH = bones[hand].pivot;
         const float a = glm::length(pF - pU), b = glm::length(pH - pF);
@@ -2904,6 +2926,13 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &gpuModel.vertexBuffer, &offset);
         vkCmdBindIndexBuffer(cmd, gpuModel.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+#ifdef WOWEE_VR
+        const bool armsOnly = instance.armsOnly;
+        if (armsOnly) {
+            if (!gpuModel.armIndexBuffer || gpuModel.data.batches.empty()) continue;
+            vkCmdBindIndexBuffer(cmd, gpuModel.armIndexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        }
+#endif
 
         if (!gpuModel.data.batches.empty()) {
             bool applyGeosetFilter = !instance.activeGeosets.empty();
@@ -3330,6 +3359,13 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
                 // armor pieces (chest/legs/gloves) that share identical depth.
                 vkCmdSetDepthBias(cmd, static_cast<float>(batch.materialLayer) * 0.5f, 0.0f, 0.0f);
 
+#ifdef WOWEE_VR
+                if (armsOnly) {
+                    const glm::uvec2 share = bi < gpuModel.armBatchRange.size() ? gpuModel.armBatchRange[bi] : glm::uvec2(0);
+                    if (share.y) vkCmdDrawIndexed(cmd, share.y, 1, share.x, 0, 0);
+                    continue;
+                }
+#endif
                 vkCmdDrawIndexed(cmd, batch.indexCount, 1, batch.indexStart, 0, 0);
             }
             } // end pass loop
@@ -3551,6 +3587,9 @@ void CharacterRenderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& light
     for (auto& pair : instances) {
         auto& inst = pair.second;
         if (!inst.visible) continue;
+#ifdef WOWEE_VR
+        if (inst.armsOnly) continue;  // forearms alone cast no shadow worth having
+#endif
 
         // Distance cull against shadow frustum
         glm::vec3 diff = inst.position - shadowCenter;
@@ -4021,6 +4060,69 @@ void CharacterRenderer::setInstanceVisible(uint32_t instanceId, bool visible) {
 void CharacterRenderer::setInstanceHeadless(uint32_t instanceId, bool headless) {
     auto it = instances.find(instanceId);
     if (it != instances.end()) it->second.headless = headless;
+}
+
+// The model's triangles that belong to its forearms and hands: those whose
+// every corner is held at least half by the forearm or a bone under it.
+void CharacterRenderer::buildArmIndices(M2ModelGPU& gpuModel) {
+    gpuModel.armIndicesBuilt = true;
+    const auto& model = gpuModel.data;
+    const size_t n = model.bones.size();
+    std::vector<uint8_t> inArm(n, 0);
+    for (int arm = 0; arm < 2; ++arm) {
+        int upper = -1, fore = -1, hand = -1;
+        if (findArm(model, arm, upper, fore, hand)) inArm[static_cast<size_t>(fore)] = 1;
+    }
+    for (size_t i = 0; i < n; ++i) {
+        const int parent = model.bones[i].parentBone;
+        if (parent >= 0 && static_cast<size_t>(parent) < n && inArm[static_cast<size_t>(parent)]) inArm[i] = 1;
+    }
+    const auto armHeld = [&](uint16_t v) {
+        if (v >= model.vertices.size()) return false;
+        int weight = 0;
+        for (int k = 0; k < 4; ++k) {
+            const uint8_t bone = model.vertices[v].boneIndices[k];
+            if (bone < n && inArm[bone]) weight += model.vertices[v].boneWeights[k];
+        }
+        return weight >= 128;
+    };
+    std::vector<uint16_t> kept;
+    gpuModel.armBatchRange.assign(model.batches.size(), glm::uvec2(0));
+    for (size_t b = 0; b < model.batches.size(); ++b) {
+        const auto& batch = model.batches[b];
+        const size_t first = kept.size();
+        const size_t end = std::min<size_t>(static_cast<size_t>(batch.indexStart) + batch.indexCount, model.indices.size());
+        for (size_t t = batch.indexStart; t + 2 < end; t += 3) {
+            if (armHeld(model.indices[t]) && armHeld(model.indices[t + 1]) && armHeld(model.indices[t + 2])) {
+                kept.insert(kept.end(), {model.indices[t], model.indices[t + 1], model.indices[t + 2]});
+            }
+        }
+        gpuModel.armBatchRange[b] = glm::uvec2(static_cast<uint32_t>(first), static_cast<uint32_t>(kept.size() - first));
+    }
+    LOG_INFO("VR body: arms only - ", kept.size() / 3, " of ", model.indices.size() / 3, " triangles");
+    if (kept.empty() || !vkCtx_) return;
+    auto ib = uploadBuffer(*vkCtx_, kept.data(), kept.size() * sizeof(uint16_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    gpuModel.armIndexBuffer = ib.buffer;
+    gpuModel.armIndexAlloc = ib.allocation;
+}
+
+void CharacterRenderer::setInstanceArmsOnly(uint32_t instanceId, bool armsOnly) {
+    auto it = instances.find(instanceId);
+    if (it == instances.end()) return;
+    CharacterInstance& instance = it->second;
+    instance.armsOnly = armsOnly;
+    if (!armsOnly) return;
+    auto mIt = models.find(instance.modelId);
+    if (mIt != models.end() && !mIt->second.armIndicesBuilt) buildArmIndices(mIt->second);
+    // Of what hangs from it only what the hands hold: shoulder pads, the
+    // helmet and whatever is sheathed go. Shown again the next time the
+    // instance's own visibility is set.
+    for (const auto& wa : instance.weaponAttachments) {
+        constexpr uint32_t kAttachmentLeftHand = 2;  // 0 the shield, 1 the right hand
+        if (wa.attachmentId <= kAttachmentLeftHand) continue;
+        auto weapIt = instances.find(wa.weaponInstanceId);
+        if (weapIt != instances.end()) weapIt->second.visible = false;
+    }
 }
 
 void CharacterRenderer::setInstanceArmReach(uint32_t instanceId, int arm, bool reach, const glm::vec3& wrist,

@@ -133,6 +133,9 @@ public:
     /// stands now: set it after the instance is placed for the frame.
     void setInstanceArmReach(uint32_t instanceId, int arm, bool reach, const glm::vec3& wrist = glm::vec3(0.0f),
                              const glm::mat3& wristTurn = glm::mat3(1.0f));
+    /// Draws only the instance's forearms and hands, and of what hangs from
+    /// it only what the hands hold; it casts no shadow meanwhile.
+    void setInstanceArmsOnly(uint32_t instanceId, bool armsOnly);
 #endif
     void removeInstance(uint32_t instanceId);
     bool getAnimationState(uint32_t instanceId, uint32_t& animationId, float& animationTimeMs, float& animationDurationMs) const;
@@ -249,6 +252,15 @@ private:
         // batch metadata, so doing it per-instance per-frame in render() was
         // pure overhead.
         std::vector<size_t> sortedBatchIndices;
+#ifdef WOWEE_VR
+        // The triangles of the forearms and hands alone, for an instance
+        // drawn arms only: x the first index of each batch's share, y how
+        // many. Built the first time one is asked for.
+        VkBuffer armIndexBuffer = VK_NULL_HANDLE;
+        VmaAllocation armIndexAlloc = VK_NULL_HANDLE;
+        std::vector<glm::uvec2> armBatchRange;
+        bool armIndicesBuilt = false;
+#endif
 
         // Pre-classified at load time to avoid per-batch string ops in render loop
         bool isKoboldFlame = false;
@@ -270,6 +282,7 @@ private:
         // See setInstanceArmReach; the wrist in the model's own space.
         bool armReach[2] = {false, false};
         bool armReachLogged[2] = {false, false};
+        bool armsOnly = false;  // see setInstanceArmsOnly
         glm::vec3 armReachAt[2] = {glm::vec3(0.0f), glm::vec3(0.0f)};
         glm::mat3 armReachTurn[2] = {glm::mat3(1.0f), glm::mat3(1.0f)};
         std::vector<glm::mat4> boneLocals;  // each bone's own transform, while an arm reaches
@@ -350,6 +363,7 @@ private:
     void calculateBoneMatrices(CharacterInstance& instance);
 #ifdef WOWEE_VR
     void reachArms(CharacterInstance& instance) const;
+    void buildArmIndices(M2ModelGPU& gpuModel);
 #endif
     glm::mat4 getBoneTransform(const pipeline::M2Bone& bone, float animTime, float globalSeqTime,
                                int sequenceIndex, const std::vector<uint32_t>& globalSeqDurations);

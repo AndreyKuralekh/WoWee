@@ -250,10 +250,13 @@ public:
     /// from where the game put its camera behind it.
     void setFirstPerson(bool on) { firstPerson_ = on; }
     [[nodiscard]] bool firstPerson() const { return firstPerson_; }
-    /// From the character's eyes: whether its body is seen below them, its
-    /// head drawn into a point, or the character is left out.
-    void setShowBody(bool on) { showBody_ = on; }
-    [[nodiscard]] bool showBody() const { return showBody_; }
+    /// From the character's eyes, what of the character is seen: its body,
+    /// the head drawn into a point (0); only its forearms and hands (1); or
+    /// none of it, and the stock hands instead (2). Its arms reach for the
+    /// player's hands in the first two.
+    void setBodyMode(int mode) { bodyMode_ = mode < 0 ? 0 : (mode > 2 ? 2 : mode); }
+    [[nodiscard]] bool showBody() const { return bodyMode_ != 2; }
+    [[nodiscard]] bool bodyArmsOnly() const { return bodyMode_ == 1; }
 
     /// Takes where the head is at the next frame as the place the character's
     /// head is, and the way it faces as straight ahead: the body is wherever
@@ -472,7 +475,7 @@ private:
     PanelFollow panelFollow_ = PanelFollow::Yaw;
     bool showFrameRate_ = false;
     bool firstPerson_ = true;
-    bool showBody_ = true;
+    int bodyMode_ = 0;  // see setBodyMode
     bool snapTurn_ = true;
     bool moveByHand_ = false;
     bool leftHanded_ = false;
