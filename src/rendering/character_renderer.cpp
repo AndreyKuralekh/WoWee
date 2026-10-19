@@ -2688,6 +2688,19 @@ void CharacterRenderer::reachArms(CharacterInstance& instance) const {
                 const glm::vec3 pFirst = bones[first].pivot;
                 glm::vec3 along = second >= 0 ? bones[second].pivot - pFirst : pFirst - pH;
                 along = glm::length(along) > 1e-5f ? glm::normalize(along) : -z;
+                // A model's fingers rest already bent from the line of the
+                // back of the hand - the wrist to the knuckle - which a flat
+                // hand of the player's is not: that bend comes off, and a
+                // flat hand straightens them. Not the thumb's, which rests
+                // off to the side.
+                if (f > 0 && second >= 0) {
+                    const glm::vec3 back = glm::normalize(pFirst - pH);
+                    glm::vec3 towardsPalm = palm - back * glm::dot(palm, back);
+                    if (glm::length(towardsPalm) > 1e-4f) {
+                        towardsPalm = glm::normalize(towardsPalm);
+                        atKnuckle -= std::atan2(glm::dot(along, towardsPalm), glm::dot(along, back));
+                    }
+                }
                 glm::vec3 axis = glm::cross(along, palm);
                 if (glm::length(axis) < 1e-4f) continue;
                 axis = glm::normalize(axis);
