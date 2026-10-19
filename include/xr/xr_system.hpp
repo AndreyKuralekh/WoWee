@@ -350,6 +350,9 @@ public:
     /// the big panel, unless told not to.
     void setBarsRect(const glm::vec4& rect) { barsRect_ = rect; }
     void setHideBars(bool on) { hideBars_ = on; }
+    /// Whether the bars will be lifted off the big panel: a headset (or its
+    /// stand-in), the wrist panels and the setting on.
+    [[nodiscard]] bool barsHiddenWanted() const { return hideBars_ && handPanels_ && (running_ || fake_); }
     void setHandPanelSize(float scale) { handPanelSize_ = scale < 0.5f ? 0.5f : (scale > 2.0f ? 2.0f : scale); }
 
     // --- Windows on their own ---

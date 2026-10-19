@@ -433,6 +433,16 @@ void AddonManager::loadAllAddons() {
                                       "if p then p.xOffset = 480 end\n")) {
             LOG_WARNING("Chat window beside the spell book did not apply: ", luaEngine_.lastError());
         }
+        // And while the bars are on the wrists and off the big panel, above
+        // the hole they leave, which the gryphons at its ends make 130 tall:
+        // the window's foot is 95 up otherwise, and its background hangs a little
+        // below it.
+        if (xr::system().barsHiddenWanted() &&
+            !luaEngine_.executeString("local p = UIPARENT_MANAGED_FRAME_POSITIONS and "
+                                      "UIPARENT_MANAGED_FRAME_POSITIONS.ChatFrame1\n"
+                                      "if p then p.yOffset = (p.yOffset or 40) + 50 end\n")) {
+            LOG_WARNING("Chat window above the lifted bars did not apply: ", luaEngine_.lastError());
+        }
 #endif
         // Said once, after the interface is up: anything neither handed over
         // nor hidden is about to be on screen twice.
