@@ -8,6 +8,7 @@
 #include "rendering/renderer.hpp"
 
 #include "core/logger.hpp"
+#include "rendering/animation_controller.hpp"
 #include "rendering/camera.hpp"
 #include "rendering/camera_controller.hpp"
 #include "rendering/character_renderer.hpp"
@@ -281,6 +282,7 @@ void Renderer::vrBeginViews() {
         cameraController->setPlayerShown(false);
     }
     if (characterRenderer && characterInstanceId) characterRenderer->setInstanceHeadless(characterInstanceId, false);
+    vrBodyShown_ = false;
     if (camera) camera->clearPickRay();
     if (!vrGameHandler_) vrInWorld_ = false;
     if (!vrGameHandler_ || !camera || currentCmd == VK_NULL_HANDLE || !xr::system().stereoFrame()) return;
@@ -315,19 +317,12 @@ void Renderer::vrBeginViews() {
         const float eyeZ = followed->z + cameraController->followedEyeHeight();
         if (xr::system().firstPerson()) {
             reference = glm::vec3(followed->x, followed->y, eyeZ);
-            // The body below the eyes, without the head they are in. Eyes are
-            // in front of the neck the head bone turns on, not over it: left
-            // there, a look down saw the chest from inside the collar.
+            // The body below the eyes, without the head they are in; vrPlaceBody
+            // stands it under them.
             if (xr::system().showBody() && characterRenderer && characterInstanceId) {
                 cameraController->setPlayerShown(true);
                 characterRenderer->setInstanceHeadless(characterInstanceId, true);
-                const glm::vec3 ahead = camera->getForward();
-                const float flat = std::sqrt(ahead.x * ahead.x + ahead.y * ahead.y);
-                constexpr float kEyesForward = 0.09f;  // of the eye height
-                if (flat > 1e-4f) {
-                    reference += glm::vec3(ahead.x / flat, ahead.y / flat, 0.0f) *
-                                 (kEyesForward * cameraController->followedEyeHeight());
-                }
+                vrBodyShown_ = true;
             } else {
                 cameraController->setPlayerHidden(true);
             }
@@ -354,10 +349,47 @@ void Renderer::vrBeginViews() {
 
     const xr::EyeView& center = vrEyes_->views.center;
     camera->setExternalView(center.view, center.projection, center.position);
+    if (vrBodyShown_) {
+        vrHeadOffset_ = glm::vec2(center.position - reference);
+        const glm::vec3 looks = -glm::vec3(glm::inverse(center.view)[2]);
+        const float flat = std::sqrt(looks.x * looks.x + looks.y * looks.y);
+        if (flat > 1e-3f) vrHeadForward_ = glm::vec2(looks.x, looks.y) / flat;
+    }
 
     // What the controller points at is what a click is about.
     Ray pointer{};
     if (xr::system().pickRay(pointer.origin, pointer.direction)) camera->setPickRay(pointer);
+}
+
+// The character's body stood under the eyes the headset last saw from: turned
+// as the view is round the vertical - the game turns its model only while it
+// walks or a mouse button is down - and moved so its neck is behind those eyes
+// wherever the head has gone, a lean or a step in the room, or the run's own
+// sway. Its own place is unchanged: this is where it is drawn. Called as the
+// model is posed for the frame, before its bones; they are the last frame's.
+// Not on a mount or a flight, which pose the rider themselves.
+void Renderer::vrPlaceBody(float torsoYawDeg) {
+    if (!vrBodyShown_ || !characterRenderer || !characterInstanceId || !cameraController) return;
+    if (animationController_ && (animationController_->isMounted() || animationController_->isTaxiFlight())) return;
+    // Strafing, the legs go the way it walks and the chest is turned back by
+    // the torso's own twist: the model takes the view's yaw less that.
+    characterRenderer->setInstanceRotation(characterInstanceId,
+                                           glm::vec3(0.0f, 0.0f, glm::radians(cameraController->getYaw() - torsoYawDeg)));
+    constexpr int32_t kKeyBoneHead = 6;
+    glm::vec3 neck(0.0f);
+    if (!characterRenderer->getInstanceKeyBoneWorld(characterInstanceId, kKeyBoneHead, neck)) return;
+    // Eyes are in front of the neck the head bone turns on, not over it: left
+    // there, a look down saw the chest from inside the collar.
+    constexpr float kEyesForward = 0.09f;  // of the eye height
+    const glm::vec2 wanted = glm::vec2(characterPosition) + vrHeadOffset_ -
+                             vrHeadForward_ * (kEyesForward * cameraController->followedEyeHeight());
+    glm::vec2 by = wanted - glm::vec2(neck);
+    // A head further off than this has gone through a wall or been recentred
+    // badly; the body stays with the character.
+    constexpr float kFurthest = 1.0f;
+    const float away = glm::length(by);
+    if (away > kFurthest) by *= kFurthest / away;
+    characterRenderer->setInstancePosition(characterInstanceId, characterPosition + glm::vec3(by, 0.0f));
 }
 
 // Where the head looked in the last stereo frame: the point between the eyes

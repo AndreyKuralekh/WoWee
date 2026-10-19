@@ -124,6 +124,9 @@ public:
     /// Has the instance's head bone, and all that hangs from it, drawn into a
     /// point: a headset looks out from where the head is.
     void setInstanceHeadless(uint32_t instanceId, bool headless);
+    /// Where a key bone's pivot is in the world, as the instance stands now
+    /// and as its bones were last posed. False if it has no such bone.
+    bool getInstanceKeyBoneWorld(uint32_t instanceId, int32_t keyBoneId, glm::vec3& out) const;
 #endif
     void removeInstance(uint32_t instanceId);
     bool getAnimationState(uint32_t instanceId, uint32_t& animationId, float& animationTimeMs, float& animationDurationMs) const;

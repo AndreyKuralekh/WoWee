@@ -482,6 +482,7 @@ private:
     void vrReplayWorldForEye(uint32_t eye);
     void vrRecordHands(uint32_t eye, bool secondaryOnly);
     bool vrLastHeadView(glm::vec3& position, glm::mat4& viewProjection) const;
+    void vrPlaceBody(float torsoYawDeg);
     void vrRenderWindowMinimap(game::GameHandler* gameHandler);
     VrEyes* vrEyes_ = nullptr;
     game::GameHandler* vrGameHandler_ = nullptr;
@@ -499,6 +500,11 @@ private:
     bool vrWorldInEyes_ = false;                      // the eyes took this frame's world
     bool vrInWorld_ = false;                          // a stereo frame has been drawn since the world was entered
     bool vrHomeDown_ = false;                         // Home, last frame: it recentres the view
+    // The character's body under the eyes of the last stereo frame: where
+    // those were from the character, and which way they looked.
+    bool vrBodyShown_ = false;
+    glm::vec2 vrHeadOffset_{0.0f};
+    glm::vec2 vrHeadForward_{1.0f, 0.0f};
 #endif
     uint32_t currentImageIndex = 0;
 

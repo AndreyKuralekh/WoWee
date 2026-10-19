@@ -3859,6 +3859,21 @@ void CharacterRenderer::setInstanceHeadless(uint32_t instanceId, bool headless) 
     auto it = instances.find(instanceId);
     if (it != instances.end()) it->second.headless = headless;
 }
+
+bool CharacterRenderer::getInstanceKeyBoneWorld(uint32_t instanceId, int32_t keyBoneId, glm::vec3& out) const {
+    auto it = instances.find(instanceId);
+    if (it == instances.end() || !it->second.cachedModel) return false;
+    const CharacterInstance& instance = it->second;
+    const auto& bones = instance.cachedModel->data.bones;
+    for (size_t i = 0; i < bones.size() && i < instance.boneMatrices.size(); ++i) {
+        if (bones[i].keyBoneId != keyBoneId) continue;
+        const glm::mat4 model = instance.hasOverrideModelMatrix ? instance.overrideModelMatrix
+                                                                : getModelMatrix(instance);
+        out = glm::vec3(model * instance.boneMatrices[i] * glm::vec4(bones[i].pivot, 1.0f));
+        return true;
+    }
+    return false;
+}
 #endif
 
 void CharacterRenderer::removeInstance(uint32_t instanceId) {

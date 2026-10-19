@@ -2257,6 +2257,9 @@ void Renderer::update(float deltaTime) {
         while (torsoYawDeltaDeg > 180.0f) torsoYawDeltaDeg -= 360.0f;
         while (torsoYawDeltaDeg < -180.0f) torsoYawDeltaDeg += 360.0f;
         characterRenderer->setInstanceTorsoYaw(characterInstanceId, glm::radians(torsoYawDeltaDeg));
+#ifdef WOWEE_VR
+        vrPlaceBody(torsoYawDeltaDeg);
+#endif
 
         // Update animation based on movement state (delegated to AnimationController §4.2)
         if (animationController_) {
