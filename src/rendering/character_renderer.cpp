@@ -2538,6 +2538,9 @@ void CharacterRenderer::reachArms(CharacterInstance& instance) const {
     std::vector<uint8_t> moved(static_cast<size_t>(n), 0);
     for (int arm = 0; arm < 2; ++arm) {
         if (!instance.armReach[arm]) continue;
+        // What this arm moves, and no more: the other arm's bones, posed
+        // already, hang from bones moved too and must not be put back.
+        std::fill(moved.begin(), moved.end(), uint8_t{0});
         constexpr uint32_t kAttachmentHand[2] = {2, 1};                        // left, right
         constexpr int32_t kKeyBoneArm[2] = {0, 1};
         constexpr int32_t kKeyBoneFingers[2] = {13, 8};  // the first of index, middle, little, ring

@@ -361,7 +361,7 @@ void Renderer::vrBeginViews() {
         const float flat = std::sqrt(looks.x * looks.x + looks.y * looks.y);
         if (flat > 1e-3f) vrHeadForward_ = glm::vec2(looks.x, looks.y) / flat;
         // The wrists, for the arms to reach to. Without a headset they are
-        // held out in front of the chest.
+        // held in front of the chest, the elbows bent.
         const xr::HandPoses& hands = xr::system().handsInWorld();
         const glm::mat3 trackingTurn(glm::normalize(glm::vec3(hands.trackingToWorld[0])),
                                      glm::normalize(glm::vec3(hands.trackingToWorld[1])),
@@ -374,7 +374,7 @@ void Renderer::vrBeginViews() {
             } else if (hands.fake) {
                 // Palms facing, as round a controller: the backs of the hands out.
                 wrist = glm::rotate(glm::mat4(1.0f), glm::radians(hand == 0 ? 90.0f : -90.0f), glm::vec3(0, 0, 1));
-                wrist[3] = glm::vec4(hand == 0 ? -0.2f : 0.2f, -0.3f, -0.35f, 1.0f);
+                wrist[3] = glm::vec4(hand == 0 ? -0.2f : 0.2f, -0.3f, -0.2f, 1.0f);
             } else {
                 vrWristSeen_[hand] = false;
                 continue;
