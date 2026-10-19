@@ -2540,7 +2540,7 @@ void CharacterRenderer::reachArms(CharacterInstance& instance) const {
         if (!instance.armReach[arm]) continue;
         constexpr uint32_t kAttachmentHand[2] = {2, 1};                        // left, right
         constexpr int32_t kKeyBoneArm[2] = {0, 1};
-        constexpr int32_t kKeyBoneFinger[2][3] = {{13, 14, 15}, {8, 9, 10}};  // index, middle, little
+        constexpr int32_t kKeyBoneFingers[2] = {13, 8};  // the first of index, middle, little, ring
         int upper = -1, fore = -1, hand = -1;
         for (const auto& a : instance.cachedModel->data.attachments) {
             if (a.id != kAttachmentHand[arm]) continue;
@@ -2594,25 +2594,28 @@ void CharacterRenderer::reachArms(CharacterInstance& instance) const {
 
         // The hand at rest, framed as an OpenXR wrist is: -Z to the fingers,
         // X across the knuckles (towards the thumb on a left hand, away from it
-        // on a right one), Y the back of the hand.
-        glm::vec3 finger[3] = {};
+        // on a right one), Y the back of the hand. The fingers are wherever
+        // their key bones under the hand are - some models have one for each,
+        // some one for all four - or on along the forearm if it has none. At
+        // rest the palms face the body and the thumbs point ahead, +X.
+        glm::vec3 fingers(0.0f);
         int found = 0;
         for (int i = hand + 1; i < n; ++i) {
-            if (bones[i].parentBone != hand) continue;
-            for (int k = 0; k < 3; ++k) {
-                if (bones[i].keyBoneId == kKeyBoneFinger[arm][k]) {
-                    finger[k] = bones[i].pivot;
-                    found |= 1 << k;
-                }
+            const int32_t key = bones[i].keyBoneId;
+            if (bones[i].parentBone == hand && key >= kKeyBoneFingers[arm] && key < kKeyBoneFingers[arm] + 4) {
+                fingers += bones[i].pivot;
+                ++found;
             }
         }
-        glm::mat3 handTurn = foreTurn;  // without fingers, as the forearm
-        if (found == 7) {
-            const glm::vec3 z = -glm::normalize(finger[1] - pH);
-            glm::vec3 x = glm::normalize(finger[0] - finger[2]) * (arm == 0 ? 1.0f : -1.0f);
-            const glm::vec3 y = glm::normalize(glm::cross(z, x));
-            x = glm::cross(y, z);
-            handTurn = instance.armReachTurn[arm] * glm::transpose(glm::mat3(x, y, z));
+        const glm::vec3 z = found ? -glm::normalize(fingers / static_cast<float>(found) - pH) : -foreRest;
+        const glm::vec3 ahead(arm == 0 ? 1.0f : -1.0f, 0.0f, 0.0f);
+        const glm::vec3 y = glm::normalize(glm::cross(z, ahead));
+        const glm::vec3 x = glm::cross(y, z);
+        const glm::mat3 handTurn = instance.armReachTurn[arm] * glm::transpose(glm::mat3(x, y, z));
+        if (!instance.armReachLogged[arm]) {
+            instance.armReachLogged[arm] = true;
+            LOG_INFO("VR body: ", arm == 0 ? "left" : "right", " arm bones ", upper, " ", fore, " ", hand, ", ",
+                     found, " finger key bones under the hand");
         }
 
         m[upper] = boneAt(shoulder, upperTurn, upperStretch, pU);

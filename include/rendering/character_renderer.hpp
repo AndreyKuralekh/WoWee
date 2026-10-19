@@ -269,6 +269,7 @@ private:
         bool headless = false;  // see setInstanceHeadless
         // See setInstanceArmReach; the wrist in the model's own space.
         bool armReach[2] = {false, false};
+        bool armReachLogged[2] = {false, false};
         glm::vec3 armReachAt[2] = {glm::vec3(0.0f), glm::vec3(0.0f)};
         glm::mat3 armReachTurn[2] = {glm::mat3(1.0f), glm::mat3(1.0f)};
         std::vector<glm::mat4> boneLocals;  // each bone's own transform, while an arm reaches
