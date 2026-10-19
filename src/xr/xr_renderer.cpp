@@ -382,6 +382,33 @@ void Renderer::vrBeginViews() {
             vrWristSeen_[hand] = true;
             vrWristOffset_[hand] = glm::vec3(hands.trackingToWorld * wrist[3]) - reference;
             vrWristTurn_[hand] = trackingTurn * glm::mat3(wrist);
+            // How far each finger bends towards the palm, as the stock hands
+            // are drawn: a hand round a controller at least curled as at rest.
+            // Without a headset, about so.
+            float* bend = vrFingerBend_[hand];
+            if (!hands.tracked[hand]) {
+                for (int f = 0; f < 5; ++f) {
+                    bend[f * 2] = f == 0 ? 0.3f : 0.6f;
+                    bend[f * 2 + 1] = f == 0 ? 0.3f : 0.7f;
+                }
+                continue;
+            }
+            std::array<glm::mat4, xr::kHandJointCount> joints = hands.joint[hand];
+            if (hands.onController[hand]) xr::relaxHand(joints);
+            // The turn of a joint's bone from its parent's, towards the palm:
+            // -Z ahead along each bone, -Y the palm side.
+            const auto bendAt = [&](uint32_t parent, uint32_t joint) {
+                const glm::vec3 ahead = glm::transpose(glm::mat3(joints[parent])) * -glm::vec3(joints[joint][2]);
+                return std::clamp(std::atan2(-ahead.y, -ahead.z), 0.0f, 1.8f);
+            };
+            bend[0] = bendAt(2, 3);  // thumb: metacarpal 2, proximal 3, distal 4
+            bend[1] = bendAt(3, 4);
+            constexpr uint32_t kMetacarpal[4] = {6, 11, 16, 21};  // index, middle, ring, little
+            for (int f = 0; f < 4; ++f) {
+                const uint32_t m = kMetacarpal[f];
+                bend[2 + f * 2] = bendAt(m, m + 1);
+                bend[3 + f * 2] = bendAt(m + 1, m + 2) + 0.5f * bendAt(m + 2, m + 3);
+            }
         }
     }
 
@@ -427,7 +454,7 @@ void Renderer::vrPlaceBody(float torsoYawDeg) {
     const glm::vec3 eyes = characterPosition + glm::vec3(0.0f, 0.0f, cameraController->followedEyeHeight());
     for (int hand = 0; hand < 2; ++hand) {
         characterRenderer->setInstanceArmReach(characterInstanceId, hand, vrWristSeen_[hand],
-                                               eyes + vrWristOffset_[hand], vrWristTurn_[hand]);
+                                               eyes + vrWristOffset_[hand], vrWristTurn_[hand], vrFingerBend_[hand]);
     }
 }
 

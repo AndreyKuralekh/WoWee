@@ -2575,6 +2575,7 @@ void CharacterRenderer::reachArms(CharacterInstance& instance) const {
     const int n = static_cast<int>(m.size());
     if (static_cast<int>(instance.boneLocals.size()) != n) return;
     std::vector<uint8_t> moved(static_cast<size_t>(n), 0);
+    std::vector<uint8_t> posed(static_cast<size_t>(n), 0);  // set here, not carried down from a parent
     for (int arm = 0; arm < 2; ++arm) {
         if (!instance.armReach[arm]) continue;
         // What this arm moves, and no more: the other arm's bones, posed
@@ -2650,9 +2651,64 @@ void CharacterRenderer::reachArms(CharacterInstance& instance) const {
         // the elbow's attachment - goes with it unstretched.
         const glm::mat4 upperPlain = boneAt(shoulder, upperTurn, none, pU);
         const glm::mat4 forePlain = boneAt(elbow, foreTurn, none, pF);
+        std::fill(posed.begin(), posed.end(), uint8_t{0});
+        posed[upper] = posed[fore] = posed[hand] = 1;
+
+        // The fingers as the player's bend, in place of their animation: each
+        // finger key bone under the hand, and the bone under it, turned about
+        // its pivot towards the palm. A model with one key bone for all four
+        // fingers bends it as they bend on average.
+        if (instance.armFingers[arm]) {
+            constexpr int32_t kKeyBoneFinger[2][5] = {{17, 13, 14, 16, 15}, {12, 8, 9, 11, 10}};  // thumb .. little
+            const float* bend = instance.armFingerBend[arm];
+            int fingerBone[5] = {-1, -1, -1, -1, -1};
+            int fingersFound = 0;
+            for (int i = hand + 1; i < n; ++i) {
+                if (bones[i].parentBone != hand) continue;
+                for (int f = 0; f < 5; ++f) {
+                    if (bones[i].keyBoneId == kKeyBoneFinger[arm][f] && fingerBone[f] < 0) {
+                        fingerBone[f] = i;
+                        if (f > 0) ++fingersFound;
+                    }
+                }
+            }
+            const glm::vec3 palm = -y;
+            for (int f = 0; f < 5; ++f) {
+                const int first = fingerBone[f];
+                if (first < 0) continue;
+                int second = -1;
+                for (int i = first + 1; i < n && second < 0; ++i) {
+                    if (bones[i].parentBone == first) second = i;
+                }
+                float atKnuckle = bend[f * 2], beyond = bend[f * 2 + 1];
+                if (f > 0 && fingersFound == 1) {
+                    atKnuckle = 0.25f * (bend[2] + bend[4] + bend[6] + bend[8]);
+                    beyond = 0.25f * (bend[3] + bend[5] + bend[7] + bend[9]);
+                }
+                const glm::vec3 pFirst = bones[first].pivot;
+                glm::vec3 along = second >= 0 ? bones[second].pivot - pFirst : pFirst - pH;
+                along = glm::length(along) > 1e-5f ? glm::normalize(along) : -z;
+                glm::vec3 axis = glm::cross(along, palm);
+                if (glm::length(axis) < 1e-4f) continue;
+                axis = glm::normalize(axis);
+                const auto curl = [&](const glm::vec3& pivot, float angle) {
+                    return glm::translate(glm::mat4(1.0f), pivot) * glm::rotate(glm::mat4(1.0f), angle, axis) *
+                           glm::translate(glm::mat4(1.0f), -pivot);
+                };
+                m[first] = m[hand] * curl(pFirst, atKnuckle);
+                posed[first] = 1;
+                moved[first] = 1;
+                if (second >= 0) {
+                    m[second] = m[first] * curl(bones[second].pivot, beyond);
+                    posed[second] = 1;
+                    moved[second] = 1;
+                }
+            }
+        }
+
         moved[upper] = moved[fore] = moved[hand] = 1;
         for (int i = upper + 1; i < n; ++i) {
-            if (i == fore || i == hand) continue;
+            if (posed[i]) continue;
             const int parent = bones[i].parentBone;
             if (parent < 0 || !moved[parent]) continue;
             const glm::mat4& from = parent == upper ? upperPlain : parent == fore ? forePlain : m[parent];
@@ -4126,12 +4182,14 @@ void CharacterRenderer::setInstanceArmsOnly(uint32_t instanceId, bool armsOnly) 
 }
 
 void CharacterRenderer::setInstanceArmReach(uint32_t instanceId, int arm, bool reach, const glm::vec3& wrist,
-                                             const glm::mat3& wristTurn) {
+                                             const glm::mat3& wristTurn, const float* fingerBend) {
     auto it = instances.find(instanceId);
     if (it == instances.end() || arm < 0 || arm > 1) return;
     CharacterInstance& instance = it->second;
     instance.armReach[arm] = reach;
+    instance.armFingers[arm] = reach && fingerBend;
     if (!reach) return;
+    if (fingerBend) std::copy(fingerBend, fingerBend + 10, instance.armFingerBend[arm]);
     const glm::mat4 model = instance.hasOverrideModelMatrix ? instance.overrideModelMatrix : getModelMatrix(instance);
     instance.armReachAt[arm] = glm::vec3(glm::inverse(model) * glm::vec4(wrist, 1.0f));
     instance.armReachTurn[arm] = glm::transpose(turnOf(model)) * wristTurn;

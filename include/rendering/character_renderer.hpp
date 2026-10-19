@@ -131,8 +131,11 @@ public:
     /// an OpenXR wrist joint is - -Z to the fingers, +Y the back of the hand -
     /// instead of playing its animation. Taken against where the instance
     /// stands now: set it after the instance is placed for the frame.
+    /// `fingerBend`, if given, is how far each finger bends towards the palm,
+    /// in radians: thumb, index, middle, ring and little, at the knuckle and
+    /// then beyond it - ten in all. The fingers keep their animation without.
     void setInstanceArmReach(uint32_t instanceId, int arm, bool reach, const glm::vec3& wrist = glm::vec3(0.0f),
-                             const glm::mat3& wristTurn = glm::mat3(1.0f));
+                             const glm::mat3& wristTurn = glm::mat3(1.0f), const float* fingerBend = nullptr);
     /// Draws only the instance's forearms and hands, and of what hangs from
     /// it only what the hands hold; it casts no shadow meanwhile.
     void setInstanceArmsOnly(uint32_t instanceId, bool armsOnly);
@@ -285,6 +288,8 @@ private:
         bool armsOnly = false;  // see setInstanceArmsOnly
         glm::vec3 armReachAt[2] = {glm::vec3(0.0f), glm::vec3(0.0f)};
         glm::mat3 armReachTurn[2] = {glm::mat3(1.0f), glm::mat3(1.0f)};
+        bool armFingers[2] = {false, false};
+        float armFingerBend[2][10] = {};
         std::vector<glm::mat4> boneLocals;  // each bone's own transform, while an arm reaches
 #endif
 
