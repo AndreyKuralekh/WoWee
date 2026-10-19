@@ -744,11 +744,18 @@ void XrSystem::beginFrame() {
         f.shouldRender = true;
         f.eyesCopied = 0;
         f.handsCopied = 0;
+        // WOWEE_VR_FAKE_PITCH=degrees: the fake head looks down (negative) or
+        // up - at the character's own body, say.
+        static const float pitch = [] {
+            const char* v = std::getenv("WOWEE_VR_FAKE_PITCH");
+            return v && *v ? glm::radians(static_cast<float>(std::atof(v))) : 0.0f;
+        }();
         for (uint32_t i = 0; i < kEyeCount; ++i) {
             const float side = i == 0 ? -1.0f : 1.0f;
             f.views[i] = {};
             f.views[i].type = XR_TYPE_VIEW;
-            f.views[i].pose.orientation.w = 1.0f;
+            f.views[i].pose.orientation.x = std::sin(pitch * 0.5f);
+            f.views[i].pose.orientation.w = std::cos(pitch * 0.5f);
             f.views[i].pose.position.x = side * 0.032f;
             // Wider outwards than towards the nose, and further down than up.
             f.views[i].fov.angleLeft = i == 0 ? -0.94f : -0.70f;

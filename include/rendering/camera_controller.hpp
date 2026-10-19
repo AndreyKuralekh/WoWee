@@ -115,6 +115,11 @@ public:
     /// wherever the camera itself is. For a view that is drawn from the
     /// character's head by something other than this camera - a headset.
     void setPlayerHidden(bool hidden) { playerHidden_ = hidden; }
+#ifdef WOWEE_VR
+    /// Keeps the followed character drawn however close the camera is: a
+    /// headset in its eyes shows its body below.
+    void setPlayerShown(bool shown) { playerShown_ = shown; }
+#endif
     /// How far above its feet the followed character's eyes are: a little
     /// over the head bone, which sits at the base of the skull, and the pivot
     /// where no head bone was measured. On a mount, as much higher as the
@@ -581,6 +586,9 @@ private:
     static constexpr float kPivotReferenceHeadZ = 1.843f;
     float pivotHeight_ = PIVOT_HEIGHT_DEFAULT;  // User-configurable pivot height
     bool playerHidden_ = false;  // see setPlayerHidden
+#ifdef WOWEE_VR
+    bool playerShown_ = false;  // see setPlayerShown
+#endif
     /// The followed character's height, refreshed as it is followed. Zero
     /// until something has been measured, which reads as the old behaviour.
     float followedHeight_ = 0.0f;

@@ -10,6 +10,7 @@
 #include "core/logger.hpp"
 #include "rendering/camera.hpp"
 #include "rendering/camera_controller.hpp"
+#include "rendering/character_renderer.hpp"
 #include "rendering/m2_renderer.hpp"
 #include "rendering/overlay_system.hpp"
 #include "rendering/terrain_manager.hpp"
@@ -275,7 +276,11 @@ void Renderer::vrBeginViews() {
     vrWorldInEyes_ = false;
     if (vrEyes_) vrEyes_->viewsValid = false;
     // Until this frame turns out to be seen from the character's eyes.
-    if (cameraController) cameraController->setPlayerHidden(false);
+    if (cameraController) {
+        cameraController->setPlayerHidden(false);
+        cameraController->setPlayerShown(false);
+    }
+    if (characterRenderer && characterInstanceId) characterRenderer->setInstanceHeadless(characterInstanceId, false);
     if (camera) camera->clearPickRay();
     if (!vrGameHandler_) vrInWorld_ = false;
     if (!vrGameHandler_ || !camera || currentCmd == VK_NULL_HANDLE || !xr::system().stereoFrame()) return;
@@ -310,7 +315,22 @@ void Renderer::vrBeginViews() {
         const float eyeZ = followed->z + cameraController->followedEyeHeight();
         if (xr::system().firstPerson()) {
             reference = glm::vec3(followed->x, followed->y, eyeZ);
-            cameraController->setPlayerHidden(true);
+            // The body below the eyes, without the head they are in. Eyes are
+            // in front of the neck the head bone turns on, not over it: left
+            // there, a look down saw the chest from inside the collar.
+            if (xr::system().showBody() && characterRenderer && characterInstanceId) {
+                cameraController->setPlayerShown(true);
+                characterRenderer->setInstanceHeadless(characterInstanceId, true);
+                const glm::vec3 ahead = camera->getForward();
+                const float flat = std::sqrt(ahead.x * ahead.x + ahead.y * ahead.y);
+                constexpr float kEyesForward = 0.09f;  // of the eye height
+                if (flat > 1e-4f) {
+                    reference += glm::vec3(ahead.x / flat, ahead.y / flat, 0.0f) *
+                                 (kEyesForward * cameraController->followedEyeHeight());
+                }
+            } else {
+                cameraController->setPlayerHidden(true);
+            }
         } else {
             // The game's camera looks down at the character from above it, and
             // a head does not take its tilt: left at that height it looks out

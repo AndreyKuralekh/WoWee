@@ -120,6 +120,11 @@ public:
     void setTextureSlotOverride(uint32_t instanceId, uint16_t textureSlot, VkTexture* texture);
     void clearTextureSlotOverride(uint32_t instanceId, uint16_t textureSlot);
     void setInstanceVisible(uint32_t instanceId, bool visible);
+#ifdef WOWEE_VR
+    /// Has the instance's head bone, and all that hangs from it, drawn into a
+    /// point: a headset looks out from where the head is.
+    void setInstanceHeadless(uint32_t instanceId, bool headless);
+#endif
     void removeInstance(uint32_t instanceId);
     bool getAnimationState(uint32_t instanceId, uint32_t& animationId, float& animationTimeMs, float& animationDurationMs) const;
     /// Footfall ($FSD) event times in ms for the sequence the instance is
@@ -251,6 +256,9 @@ private:
         float scale;
         bool visible = true;  // For first-person camera hiding
         float torsoYawOverrideRad = 0.0f;
+#ifdef WOWEE_VR
+        bool headless = false;  // see setInstanceHeadless
+#endif
 
         // Animation state
         uint32_t currentAnimationId = 0;

@@ -246,11 +246,14 @@ public:
     /// as drawFrameRate.
     void drawPointer();
 
-    /// Whether the world is seen from the character's own eyes, with the
-    /// character itself left out, rather than from where the game put its
-    /// camera behind it.
+    /// Whether the world is seen from the character's own eyes rather than
+    /// from where the game put its camera behind it.
     void setFirstPerson(bool on) { firstPerson_ = on; }
     [[nodiscard]] bool firstPerson() const { return firstPerson_; }
+    /// From the character's eyes: whether its body is seen below them, its
+    /// head drawn into a point, or the character is left out.
+    void setShowBody(bool on) { showBody_ = on; }
+    [[nodiscard]] bool showBody() const { return showBody_; }
 
     /// Takes where the head is at the next frame as the place the character's
     /// head is, and the way it faces as straight ahead: the body is wherever
@@ -469,6 +472,7 @@ private:
     PanelFollow panelFollow_ = PanelFollow::Yaw;
     bool showFrameRate_ = false;
     bool firstPerson_ = true;
+    bool showBody_ = true;
     bool snapTurn_ = true;
     bool moveByHand_ = false;
     bool leftHanded_ = false;

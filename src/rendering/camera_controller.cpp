@@ -2493,6 +2493,9 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
         // extra term was meant for, since it reads the target distance, not
         // the squeezed one.
         bool shouldHidePlayer = isFirstPersonView();
+#ifdef WOWEE_VR
+        if (playerShown_) shouldHidePlayer = false;
+#endif
         characterRenderer->setInstanceVisible(playerInstanceId, !shouldHidePlayer);
 
         // Note: the Renderer's CharAnimState machine drives player character animations

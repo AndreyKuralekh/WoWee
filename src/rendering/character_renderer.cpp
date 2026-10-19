@@ -2338,6 +2338,9 @@ void CharacterRenderer::update(float deltaTime, const glm::vec3& cameraPos) {
 constexpr int32_t kKeyBoneShoulderL = 2;
 constexpr int32_t kKeyBoneShoulderR = 3;
 constexpr int32_t kKeyBoneSpineLow = 4;
+#ifdef WOWEE_VR
+constexpr int32_t kKeyBoneHead = 6;
+#endif
 
 void CharacterRenderer::setArmAnimations(uint32_t instanceId, uint32_t leftArmAnim, uint32_t rightArmAnim) {
     auto it = instances.find(instanceId);
@@ -2428,6 +2431,15 @@ void CharacterRenderer::calculateBoneMatrices(CharacterInstance& instance) {
                                 * glm::translate(glm::mat4(1.0f), -bone.pivot);
             localTransform = extraYaw * localTransform;
         }
+#ifdef WOWEE_VR
+        // Everything under the head drawn into its pivot: the face, the hair
+        // and the helmet hung from it. Not quite zero, so no normal is.
+        if (instance.headless && bone.keyBoneId == kKeyBoneHead) {
+            localTransform = localTransform * glm::translate(glm::mat4(1.0f), bone.pivot) *
+                             glm::scale(glm::mat4(1.0f), glm::vec3(0.001f)) *
+                             glm::translate(glm::mat4(1.0f), -bone.pivot);
+        }
+#endif
 
         // Compose with parent
         if (bone.parentBone >= 0 && static_cast<size_t>(bone.parentBone) < numBones) {
@@ -3841,6 +3853,13 @@ void CharacterRenderer::setInstanceVisible(uint32_t instanceId, bool visible) {
         }
     }
 }
+
+#ifdef WOWEE_VR
+void CharacterRenderer::setInstanceHeadless(uint32_t instanceId, bool headless) {
+    auto it = instances.find(instanceId);
+    if (it != instances.end()) it->second.headless = headless;
+}
+#endif
 
 void CharacterRenderer::removeInstance(uint32_t instanceId) {
     auto it = instances.find(instanceId);
