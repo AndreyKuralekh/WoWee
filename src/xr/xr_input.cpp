@@ -809,7 +809,11 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
     // Either keeps the grip until it is let go.
     const bool pointGrip = button(session_, leftHanded_ ? leftGrip : in.grab);
     if (pointGrip && !in.gripWasDown && !menuTaken && !in.mouseHeld[1]) {
-        if (drawByReach_ && inWorld && handAtSheath()) {
+        // Not in the saddle, on a taxi or in a vehicle: no weapon is drawn
+        // there, and the grip stays the right button.
+        const game::GameHandler* game = core::Application::getInstance().getGameHandler();
+        const bool riding = game && (game->isMounted() || game->isOnTaxiFlight() || game->isInVehicle());
+        if (drawByReach_ && inWorld && !riding && handAtSheath()) {
             sheathToggle_ = true;
             in.gripTaken = true;
         } else if (onPanel) {
