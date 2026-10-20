@@ -683,6 +683,9 @@ public:
         particleDensity_ = std::clamp(density, 0.05f, 1.0f);
     }
     [[nodiscard]] float particleDensity() const { return particleDensity_; }
+    /// How far into the night it is, 0 by day to 1 once the sun is down: lamp
+    /// halos and the light they throw are stronger for it.
+    void setNightGlow(float night) { nightGlow_ = std::clamp(night, 0.0f, 1.0f); }
 
     void setSuppressBakedStars(bool suppress) { suppressBakedStars_ = suppress; }
     void setInsideInterior(bool inside) { insideInterior = inside; }
@@ -1213,6 +1216,7 @@ private:
     /// drawing stars. See BatchGPU::starLayer.
     bool suppressBakedStars_ = false;
     float particleDensity_ = 1.0f;
+    float nightGlow_ = 0.0f;
     float furthestDrawnSq_ = 0.0f;
     bool forceNoCull_ = false;
 

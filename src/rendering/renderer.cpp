@@ -580,6 +580,12 @@ void Renderer::updatePerFrameUBO() {
     if (lightingManager) {
         const auto& lp = lightingManager->getLightingParams();
         currentFrameData.lightDir = glm::vec4(lp.directionalDir, 0.0f);
+        // Night by the height of the sun, as the windows of a building glow
+        // by it in wmo.frag.
+        if (m2Renderer && glm::length(lp.directionalDir) > 1e-4f) {
+            const float sunHeight = -glm::normalize(lp.directionalDir).z;
+            m2Renderer->setNightGlow(glm::smoothstep(0.12f, -0.08f, sunHeight));
+        }
         currentFrameData.lightColor = glm::vec4(lp.diffuseColor, 1.0f);
         currentFrameData.ambientColor = glm::vec4(lp.ambientColor, 1.0f);
         currentFrameData.fogColor = glm::vec4(lp.fogColor, 1.0f);

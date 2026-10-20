@@ -247,6 +247,8 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         if (candidates[i].flame) {
             outColorIntensity[i].w *= lampFlicker(candidates[i].phaseSeed,
                                                   flickerSeconds, 0.82f, 0.12f, 0.06f);
+            // A lamp is lit for the night: by day its pool is lost in the sun.
+            outColorIntensity[i].w *= 1.0f + 0.6f * nightGlow_;
         }
     }
     return count;

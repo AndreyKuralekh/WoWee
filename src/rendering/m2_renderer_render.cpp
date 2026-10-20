@@ -1776,6 +1776,10 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                                 gs.color.a *= flicker;
                                 gs.size    *= 0.98f + 0.02f * flicker;
                             }
+                            // Brighter and a little wider at night, with the
+                            // light it throws in gatherLocalLights.
+                            gs.color.a *= 1.0f + 0.6f * nightGlow_;
+                            gs.size *= 1.0f + 0.3f * nightGlow_;
                             glowSprites_.push_back(gs);
                             GlowSprite halo = gs;
                             halo.color.a *= batch.preserveGlowMesh ? 0.34f : 0.42f;
