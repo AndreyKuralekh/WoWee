@@ -64,6 +64,11 @@ struct XrSystem::InputData {
     // was until the button comes up, or a hand that shook would make a drag
     // of every click.
     bool steady = false;
+    // A press that began on a window: the cursor stays where it went down
+    // until the ray has gone clearly away, so that a shake as the trigger is
+    // squeezed is a click and not the drag of what was under it.
+    bool pinned = false;
+    glm::vec2 pressAt{0.0f};
     // A press that began beside the panel. The interface is told the mouse
     // has left for as long as it lasts, and for one frame more: the release is
     // acted on in the frame it happens.
@@ -780,7 +785,14 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
         }
     }
 
-    if (onPanel && !(anyHeld && in.steady)) {
+    if (in.pinned && anyHeld && onPanel) {
+        // Some twenty pixels of the window: more than a hand shakes on the
+        // small wrist panel, less than any drag that means it.
+        constexpr float kClickSlop = 24.0f;
+        if (glm::distance(at, in.pressAt) > kClickSlop) in.pinned = false;
+    }
+    if (!anyHeld) in.pinned = false;
+    if (onPanel && !(anyHeld && (in.steady || in.pinned))) {
         // A hand is never still: near where the pointer already is it goes
         // half the way each frame, and anything under a pixel is let be.
         constexpr float kSteadyWithin = 40.0f;
@@ -848,6 +860,8 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
         if (down == in.mouseHeld[i]) continue;
         if (down && !in.mouseHeld[0] && !in.mouseHeld[1]) {
             in.steady = inWorld && !(onPanel && overUi);
+            in.pinned = onPanel;
+            in.pressAt = in.mouseAt;
             if (!onPanel) {
                 // The cursor is wherever it was left, and may well be on a
                 // window: this click is not for that window.
