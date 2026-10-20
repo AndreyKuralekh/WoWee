@@ -527,7 +527,7 @@ bool XrSystem::handAtSheath() const {
     const float forward = glm::dot(from, ahead);
     const float outward = glm::dot(from, right) * (leftHanded_ ? -1.0f : 1.0f);  // to its own side
     const bool overShoulder = up > -0.2f && forward < -0.05f && outward > -0.15f;
-    const bool farHip = up < -0.4f && up > -1.1f && outward < -0.08f && std::abs(forward) < 0.3f;
+    const bool farHip = up < -0.4f && up > -1.1f && outward < -0.12f && forward < 0.2f && forward > -0.3f;
     return overShoulder || farHip;
 }
 
@@ -811,9 +811,20 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
     if (pointGrip && !in.gripWasDown && !menuTaken && !in.mouseHeld[1]) {
         // Not in the saddle, on a taxi or in a vehicle: no weapon is drawn
         // there, and the grip stays the right button.
-        const game::GameHandler* game = core::Application::getInstance().getGameHandler();
+        game::GameHandler* game = core::Application::getInstance().getGameHandler();
         const bool riding = game && (game->isMounted() || game->isOnTaxiFlight() || game->isInVehicle());
-        if (drawByReach_ && inWorld && !riding && handAtSheath()) {
+        // Nor while the ray is on someone: a hand let down to point at what
+        // stands close by is a right click on it.
+        const auto onSomeone = [&] {
+            glm::vec3 origin;
+            glm::vec3 direction;
+            if (!game || !pickRay(origin, direction)) return false;
+            rendering::Ray ray{};
+            ray.origin = origin;
+            ray.direction = direction;
+            return ui::pickScene(*game, ray, ui::ScenePickParams{}).resolve() != 0;
+        };
+        if (drawByReach_ && inWorld && !riding && handAtSheath() && !onSomeone()) {
             sheathToggle_ = true;
             in.gripTaken = true;
         } else if (onPanel) {
