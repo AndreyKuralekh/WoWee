@@ -4175,6 +4175,23 @@ void CharacterRenderer::buildArmIndices(M2ModelGPU& gpuModel) {
     gpuModel.armIndexAlloc = ib.allocation;
 }
 
+void CharacterRenderer::nudgeInstance(uint32_t instanceId, const glm::vec3& by) {
+    auto it = instances.find(instanceId);
+    if (it == instances.end()) return;
+    CharacterInstance& instance = it->second;
+    instance.position += by;
+    instance.moveStart += by;
+    instance.moveEnd += by;
+    // The weapons were placed from it as the bones were posed.
+    const glm::mat4 shift = glm::translate(glm::mat4(1.0f), by);
+    for (const auto& wa : instance.weaponAttachments) {
+        auto weapon = instances.find(wa.weaponInstanceId);
+        if (weapon != instances.end() && weapon->second.hasOverrideModelMatrix) {
+            weapon->second.overrideModelMatrix = shift * weapon->second.overrideModelMatrix;
+        }
+    }
+}
+
 void CharacterRenderer::setInstanceArmsOnly(uint32_t instanceId, bool armsOnly) {
     auto it = instances.find(instanceId);
     if (it == instances.end()) return;

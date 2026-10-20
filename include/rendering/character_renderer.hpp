@@ -139,6 +139,9 @@ public:
     /// Draws only the instance's forearms and hands, and of what hangs from
     /// it only what the hands hold; it casts no shadow meanwhile.
     void setInstanceArmsOnly(uint32_t instanceId, bool armsOnly);
+    /// Moves the instance and what it holds by `by`, its bones as they are:
+    /// a last placement after they are posed, once the head is known.
+    void nudgeInstance(uint32_t instanceId, const glm::vec3& by);
 #endif
     void removeInstance(uint32_t instanceId);
     bool getAnimationState(uint32_t instanceId, uint32_t& animationId, float& animationTimeMs, float& animationDurationMs) const;

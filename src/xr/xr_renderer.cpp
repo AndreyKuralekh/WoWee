@@ -360,6 +360,7 @@ void Renderer::vrBeginViews() {
         const glm::vec3 looks = -glm::vec3(glm::inverse(center.view)[2]);
         const float flat = std::sqrt(looks.x * looks.x + looks.y * looks.y);
         if (flat > 1e-3f) vrHeadForward_ = glm::vec2(looks.x, looks.y) / flat;
+        vrSettleBody();
         // The wrists, for the arms to reach to. Without a headset they are
         // held in front of the chest, the elbows bent.
         const xr::HandPoses& hands = xr::system().handsInWorld();
@@ -434,21 +435,12 @@ void Renderer::vrPlaceBody(float torsoYawDeg) {
     // the torso's own twist: the model takes the view's yaw less that.
     characterRenderer->setInstanceRotation(characterInstanceId,
                                            glm::vec3(0.0f, 0.0f, glm::radians(cameraController->getYaw() - torsoYawDeg)));
-    constexpr int32_t kKeyBoneHead = 6;
-    glm::vec3 neck(0.0f);
-    if (!characterRenderer->getInstanceKeyBoneWorld(characterInstanceId, kKeyBoneHead, neck)) return;
-    // Eyes are in front of the neck the head bone turns on, not over it: left
-    // there, a look down saw the chest from inside the collar.
-    constexpr float kEyesForward = 0.09f;  // of the eye height
-    const glm::vec2 wanted = glm::vec2(characterPosition) + vrHeadOffset_ -
-                             vrHeadForward_ * (kEyesForward * cameraController->followedEyeHeight());
-    glm::vec2 by = wanted - glm::vec2(neck);
-    // A head further off than this has gone through a wall or been recentred
-    // badly; the body stays with the character.
-    constexpr float kFurthest = 1.0f;
-    const float away = glm::length(by);
-    if (away > kFurthest) by *= kFurthest / away;
-    characterRenderer->setInstancePosition(characterInstanceId, characterPosition + glm::vec3(by, 0.0f));
+    // The instance was stood on the character for this frame just before.
+    glm::vec2 by(0.0f);
+    vrBodyOffset_ = glm::vec2(0.0f);
+    if (!vrBodyShift(by)) return;
+    vrBodyOffset_ = vrBodyOffsetWithin(by);
+    characterRenderer->setInstancePosition(characterInstanceId, characterPosition + glm::vec3(vrBodyOffset_, 0.0f));
 
     // The arms reach for the player's own hands.
     const glm::vec3 eyes = characterPosition + glm::vec3(0.0f, 0.0f, cameraController->followedEyeHeight());
@@ -456,6 +448,43 @@ void Renderer::vrPlaceBody(float torsoYawDeg) {
         characterRenderer->setInstanceArmReach(characterInstanceId, hand, vrWristSeen_[hand],
                                                eyes + vrWristOffset_[hand], vrWristTurn_[hand], vrFingerBend_[hand]);
     }
+}
+
+// How far the body has to move from where it stands now for its neck to be
+// behind the eyes.
+bool Renderer::vrBodyShift(glm::vec2& by) const {
+    constexpr int32_t kKeyBoneHead = 6;
+    glm::vec3 neck(0.0f);
+    if (!characterRenderer->getInstanceKeyBoneWorld(characterInstanceId, kKeyBoneHead, neck)) return false;
+    // Eyes are in front of the neck the head bone turns on, not over it: left
+    // there, a look down saw the chest from inside the collar.
+    constexpr float kEyesForward = 0.09f;  // of the eye height
+    const glm::vec2 wanted = glm::vec2(characterPosition) + vrHeadOffset_ -
+                             vrHeadForward_ * (kEyesForward * cameraController->followedEyeHeight());
+    by = wanted - glm::vec2(neck);
+    return true;
+}
+
+// The body's offset from the character, kept within a yard: a head further
+// off has gone through a wall or been recentred badly, and the body stays
+// with the character.
+glm::vec2 Renderer::vrBodyOffsetWithin(glm::vec2 offset) {
+    constexpr float kFurthest = 1.0f;
+    const float away = glm::length(offset);
+    return away > kFurthest ? offset * (kFurthest / away) : offset;
+}
+
+// Placed as the frame was updated, the body went by the head of the frame
+// before and the neck of bones not yet posed: one frame behind both, it shook
+// against a view that never is. Placed again once both are this frame's.
+void Renderer::vrSettleBody() {
+    if (!characterRenderer || !characterInstanceId || !cameraController) return;
+    if (animationController_ && (animationController_->isMounted() || animationController_->isTaxiFlight())) return;
+    glm::vec2 by(0.0f);
+    if (!vrBodyShift(by)) return;
+    const glm::vec2 offset = vrBodyOffsetWithin(vrBodyOffset_ + by);
+    characterRenderer->nudgeInstance(characterInstanceId, glm::vec3(offset - vrBodyOffset_, 0.0f));
+    vrBodyOffset_ = offset;
 }
 
 // Where the head looked in the last stereo frame: the point between the eyes

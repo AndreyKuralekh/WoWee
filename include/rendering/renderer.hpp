@@ -483,6 +483,9 @@ private:
     void vrRecordHands(uint32_t eye, bool secondaryOnly);
     bool vrLastHeadView(glm::vec3& position, glm::mat4& viewProjection) const;
     void vrPlaceBody(float torsoYawDeg);
+    bool vrBodyShift(glm::vec2& by) const;
+    static glm::vec2 vrBodyOffsetWithin(glm::vec2 offset);
+    void vrSettleBody();
     void vrRenderWindowMinimap(game::GameHandler* gameHandler);
     VrEyes* vrEyes_ = nullptr;
     game::GameHandler* vrGameHandler_ = nullptr;
@@ -505,6 +508,7 @@ private:
     bool vrBodyShown_ = false;
     glm::vec2 vrHeadOffset_{0.0f};
     glm::vec2 vrHeadForward_{1.0f, 0.0f};
+    glm::vec2 vrBodyOffset_{0.0f};                    // where the body stands from the character
     bool vrWristSeen_[2] = {false, false};           // and the wrists, from those eyes' reference
     glm::vec3 vrWristOffset_[2] = {glm::vec3(0.0f), glm::vec3(0.0f)};
     glm::mat3 vrWristTurn_[2] = {glm::mat3(1.0f), glm::mat3(1.0f)};
