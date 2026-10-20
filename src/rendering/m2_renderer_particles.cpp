@@ -16,11 +16,36 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
+#include <cstring>
 #include <limits>
 #include <set>
 
 namespace wowee {
 namespace rendering {
+
+namespace {
+
+// Gravity given as a packed vector rather than a pull down the Z axis.
+constexpr uint32_t kParticleFlagCompressedGravity = 0x800000;
+
+// A glow rather than a flame: some colour it passes through is bluer than it
+// is red, which no flame is. The night elves' lamps hold wisps that go white,
+// violet, teal; the floors and the pull below are for fire, and turned that
+// into orange specks raining down the post.
+bool isColdGlow(const pipeline::M2ParticleEmitter& em) {
+    for (const auto& c : em.particleColor.vec3Values) {
+        if (c.b > c.r) return true;
+    }
+    return false;
+}
+
+// Whether the flame fixes apply to this emitter of this model.
+bool isFlameEmitter(const M2ModelGPU& gpu, const pipeline::M2ParticleEmitter& em) {
+    if (gpu.isTorch || gpu.isBrazierOrFire || gpu.isKoboldFlame) return true;
+    return gpu.isLanternLike && !isColdGlow(em);
+}
+
+}  // namespace
 
 // --- M2 Particle Emitter Helpers ---
 
@@ -123,8 +148,7 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
         // that reduces how many particles are alive or how far they travel. The
         // effect is only visible because a scattering of particles reaches open
         // air, so thinning it drops the whole thing below the threshold.
-        if (rate > 0.0f && life > 0.0f &&
-            (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire || gpu.isKoboldFlame)) {
+        if (rate > 0.0f && life > 0.0f && isFlameEmitter(gpu, em)) {
             constexpr float kMinLiveParticles = 15.0f;
             rate = std::max(rate, kMinLiveParticles / std::max(life, 0.1f));
         }
@@ -160,8 +184,25 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
             p.maxLife = life;
             p.tileIndex = 0.0f;
 
-            // Position: emitter position transformed by bone matrix
+            // Position: emitter position transformed by bone matrix, anywhere
+            // in the emitter's area - a plane's rectangle, a sphere's ball.
+            // From one point a lamp's cloud of wisps was a few specks.
             glm::vec3 localPos = em.position;
+            const float areaLength = interpFloat(em.emissionAreaLength, inst.animTime, inst.globalSequenceTime,
+                                                 inst.currentSequenceIndex, gpu.globalSequenceDurations);
+            const float areaWidth = interpFloat(em.emissionAreaWidth, inst.animTime, inst.globalSequenceTime,
+                                                inst.currentSequenceIndex, gpu.globalSequenceDurations);
+            if (em.emitterType == 1) {
+                localPos.x += distN(particleRng_) * areaLength * 0.5f;
+                localPos.y += distN(particleRng_) * areaWidth * 0.5f;
+            } else if (em.emitterType == 2 && std::max(areaLength, areaWidth) > 0.0f) {
+                glm::vec3 out(distN(particleRng_), distN(particleRng_), distN(particleRng_));
+                const float outSq = glm::dot(out, out);
+                if (outSq > 1e-6f) out *= glm::inversesqrt(outSq);
+                const float inner = std::min(areaLength, areaWidth);
+                const float outer = std::max(areaLength, areaWidth);
+                localPos += out * (inner + dist01(particleRng_) * (outer - inner));
+            }
             glm::mat4 boneXform = glm::mat4(1.0f);
             if (em.bone < inst.boneMatrices.size()) {
                 boneXform = inst.boneMatrices[em.bone];
@@ -172,6 +213,9 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
             // Velocity: emission speed in upward direction + random spread
             float speed = interpFloat(em.emissionSpeed, inst.animTime, inst.globalSequenceTime,
                                       inst.currentSequenceIndex, gpu.globalSequenceDurations);
+            const float speedVariation = interpFloat(em.speedVariation, inst.animTime, inst.globalSequenceTime,
+                                                     inst.currentSequenceIndex, gpu.globalSequenceDurations);
+            speed *= 1.0f + distN(particleRng_) * speedVariation;
             float vRange = interpFloat(em.verticalRange, inst.animTime, inst.globalSequenceTime,
                                        inst.currentSequenceIndex, gpu.globalSequenceDurations);
             float hRange = interpFloat(em.horizontalRange, inst.animTime, inst.globalSequenceTime,
@@ -249,10 +293,10 @@ void M2Renderer::updateParticles(M2Instance& inst, float dt) {
     // not on the particle itself - so interpFloat was being re-evaluated for
     // every particle even when 100s of particles share one emitter.
     constexpr size_t kMaxStackEmitters = 16;
-    float emitterGravStack[kMaxStackEmitters];
-    std::vector<float> emitterGravHeap;
+    glm::vec3 emitterGravStack[kMaxStackEmitters];
+    std::vector<glm::vec3> emitterGravHeap;
     const size_t numEm = gpu.particleEmitters.size();
-    float* emitterGrav = nullptr;
+    glm::vec3* emitterGrav = nullptr;
     if (numEm > 0) {
         if (numEm <= kMaxStackEmitters) {
             emitterGrav = emitterGravStack;
@@ -265,13 +309,27 @@ void M2Renderer::updateParticles(M2Instance& inst, float dt) {
             float grav = interpFloat(pem.gravity,
                                       inst.animTime, inst.globalSequenceTime,
                                       inst.currentSequenceIndex, gpu.globalSequenceDurations);
-            if (grav == 0.0f && !gpu.isFireflyEffect) {
+            // The pull is down, as much as it says. Packed, it is a direction
+            // as two bytes and a strength as a short in the float's bits.
+            glm::vec3 pull(0.0f, 0.0f, grav);
+            if (pem.flags & kParticleFlagCompressedGravity) {
+                uint32_t bits = 0;
+                std::memcpy(&bits, &grav, sizeof(bits));
+                const float x = static_cast<float>(static_cast<int8_t>(bits & 0xFF)) / 128.0f;
+                const float y = static_cast<float>(static_cast<int8_t>((bits >> 8) & 0xFF)) / 128.0f;
+                const float z = std::sqrt(std::max(0.0f, 1.0f - x * x - y * y));
+                const float strength = static_cast<float>(static_cast<int16_t>(bits >> 16)) * 0.04238648f;
+                pull = glm::vec3(x, y, z) * strength;
+            } else if (grav == 0.0f && !gpu.isFireflyEffect && isFlameEmitter(gpu, pem)) {
+                // Only flames are pulled where none is authored: without it they
+                // were never seen (upstream 5f1c4dae). Anything else that asks for
+                // none - a lamp's wisps - floats as it is told.
                 float emSpeed = interpFloat(pem.emissionSpeed,
                                              inst.animTime, inst.globalSequenceTime,
                                              inst.currentSequenceIndex, gpu.globalSequenceDurations);
-                grav = (std::abs(emSpeed) > 0.1f) ? 4.0f : 1.5f;
+                pull.z = (std::abs(emSpeed) > 0.1f) ? 4.0f : 1.5f;
             }
-            emitterGrav[e] = grav;
+            emitterGrav[e] = pull;
         }
     }
 
@@ -285,7 +343,7 @@ void M2Renderer::updateParticles(M2Instance& inst, float dt) {
             continue;
         }
         if (p.emitterIndex >= 0 && static_cast<size_t>(p.emitterIndex) < numEm) {
-            p.velocity.z -= emitterGrav[p.emitterIndex] * dt;
+            p.velocity -= emitterGrav[p.emitterIndex] * dt;
         }
         p.position += p.velocity * dt;
         i++;
@@ -634,6 +692,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         uint32_t cachedTotalTiles = 1;
         uint16_t cachedBlendType = 0;
         const pipeline::M2ParticleEmitter* cachedEm = nullptr;
+        bool cachedFlame = false;
         ParticleGroup* cachedGroup = nullptr;
         // animFrame depends only on inst.animTime + totalTiles, so it's also
         // emitter-stable within one frame.
@@ -656,6 +715,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             if (p.emitterIndex != lastEmitterIdx) {
                 lastEmitterIdx = p.emitterIndex;
                 cachedEm = &gpu.particleEmitters[p.emitterIndex];
+                cachedFlame = isFlameEmitter(gpu, *cachedEm);
 
                 cachedTex = whiteTexture_.get();
                 if (p.emitterIndex < static_cast<int>(gpu.particleTextures.size())) {
@@ -706,8 +766,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             // the frame. Floor colour and alpha so a lit fixture always shows
             // flame. Floors only lift the dim end, leaving torches and candles
             // that already read correctly untouched.
-            if (gpu.isLanternLike || gpu.isTorch ||
-                gpu.isBrazierOrFire || gpu.isKoboldFlame) {
+            if (cachedFlame) {
                 color = glm::max(color, glm::vec3(0.50f, 0.26f, 0.09f));
                 alpha = std::max(alpha, 0.30f);
             }
@@ -726,8 +785,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 // cut, so its five candles rendered as nothing. Give flame
                 // fixtures the same floor without making them spell effects,
                 // which would also change how they blend.
-                if (gpu.isLanternLike || gpu.isTorch ||
-                    gpu.isBrazierOrFire || gpu.isKoboldFlame) {
+                if (cachedFlame) {
                     scale = std::max(scale, 0.15f);
                 }
             }
