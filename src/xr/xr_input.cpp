@@ -24,6 +24,7 @@
 #include "game/game_handler.hpp"
 #include "rendering/camera_controller.hpp"
 #include "ui/framexml_takeover.hpp"
+#include "ui/scene_pick.hpp"
 
 #include <SDL3/SDL.h>
 #include <glm/gtc/quaternion.hpp>
@@ -87,12 +88,28 @@ struct XrSystem::InputData {
     ControlFunction latched[kControlButtonCount] = {};
     bool keyHeld[kControlFunctionCount] = {};  // by function; see functionKey
     bool escapeDown = false;
+
+    // The grip of the hand that points, while it does something other than
+    // the right button: drawing the weapon, or loading a button.
+    bool gripWasDown = false;
+    bool gripTaken = false;
+    // The loaded action: whether its button was down last frame, the key it
+    // holds - the loaded button's, as of the press - and whether a cast was
+    // already going when it went down, which letting go does not cancel.
+    bool loadedWanted = false;
+    bool loadedKeyDown = false;
+    SDL_Scancode loadedKey = SDL_SCANCODE_UNKNOWN;
+    bool castingAtPress = false;
 };
 
 namespace {
 
 constexpr SDL_Scancode kMoveKeys[4] = {SDL_SCANCODE_W, SDL_SCANCODE_S, SDL_SCANCODE_Q, SDL_SCANCODE_E};
 constexpr int kMouseButtons[2] = {SDL_BUTTON_LEFT, SDL_BUTTON_RIGHT};
+// The action bar's keys, button by button, as the game polls them.
+constexpr SDL_Scancode kActionKeys[12] = {SDL_SCANCODE_1, SDL_SCANCODE_2, SDL_SCANCODE_3,     SDL_SCANCODE_4,
+                                          SDL_SCANCODE_5, SDL_SCANCODE_6, SDL_SCANCODE_7,     SDL_SCANCODE_8,
+                                          SDL_SCANCODE_9, SDL_SCANCODE_0, SDL_SCANCODE_MINUS, SDL_SCANCODE_EQUALS};
 
 // Where each button is on a Touch controller, and what its action is called.
 struct ButtonSource {
@@ -366,6 +383,9 @@ void XrSystem::releaseControllerKeys() {
     }
     if (input_->escapeDown && ImGui::GetCurrentContext()) ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
     input_->escapeDown = false;
+    if (input_->loadedKeyDown) input.setVirtualKey(input_->loadedKey, false);
+    input_->loadedKeyDown = false;
+    input_->loadedWanted = false;
     // Forgotten as well as released: a button still down when the controllers
     // are live again is a fresh press.
     for (size_t i = 0; i < kControlButtonCount; ++i) {
@@ -471,6 +491,56 @@ bool XrSystem::offHandYaw(float& yaw) const {
     const glm::vec3 forward = glm::quat(o.w, o.x, o.y, o.z) * glm::vec3(0.0f, 0.0f, -1.0f);
     if (std::abs(forward.x) + std::abs(forward.z) < 0.35f) return false;
     yaw = std::atan2(-forward.x, -forward.z);
+    return true;
+}
+
+// Whether the hand that points is where a weapon is sheathed: reached back
+// over the shoulder on its own side - a two-handed weapon is on the back - or
+// down to the hip on the other, where a one-handed one hangs to be drawn
+// across the body. Measured from the head, turned only round the vertical,
+// so that it holds sitting or standing and wherever the head looks.
+bool XrSystem::handAtSheath() const {
+    const XrSpace hand = pointingHandSpace();
+    if (!input_ || hand == XR_NULL_HANDLE || viewSpace_ == XR_NULL_HANDLE || localSpace_ == XR_NULL_HANDLE ||
+        frameTime() == 0) {
+        return false;
+    }
+    constexpr XrSpaceLocationFlags kNeeded = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_POSITION_VALID_BIT;
+    XrSpaceLocation head{};
+    head.type = XR_TYPE_SPACE_LOCATION;
+    XrSpaceLocation held{};
+    held.type = XR_TYPE_SPACE_LOCATION;
+    if (XR_FAILED(xrLocateSpace(viewSpace_, localSpace_, frameTime(), &head)) ||
+        XR_FAILED(xrLocateSpace(hand, localSpace_, frameTime(), &held)) ||
+        (head.locationFlags & kNeeded) != kNeeded || (held.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) == 0) {
+        return false;
+    }
+    const XrQuaternionf& o = head.pose.orientation;
+    glm::vec3 ahead = glm::quat(o.w, o.x, o.y, o.z) * glm::vec3(0.0f, 0.0f, -1.0f);
+    ahead.y = 0.0f;
+    if (glm::length(ahead) < 0.2f) return false;
+    ahead = glm::normalize(ahead);
+    const glm::vec3 right = glm::cross(ahead, glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::vec3 from = glm::vec3(held.pose.position.x, held.pose.position.y, held.pose.position.z) -
+                           glm::vec3(head.pose.position.x, head.pose.position.y, head.pose.position.z);
+    const float up = from.y;
+    const float forward = glm::dot(from, ahead);
+    const float outward = glm::dot(from, right) * (leftHanded_ ? -1.0f : 1.0f);  // to its own side
+    const bool overShoulder = up > -0.2f && forward < -0.05f && outward > -0.15f;
+    const bool farHip = up < -0.4f && up > -1.1f && outward < -0.08f && std::abs(forward) < 0.3f;
+    return overShoulder || farHip;
+}
+
+// The ray of the hand that does not point, in the world, as pickRay's.
+bool XrSystem::offHandWorldRay(glm::vec3& origin, glm::vec3& direction) const {
+    if (!input_ || !worldPlaced_) return false;
+    glm::vec3 from;
+    glm::vec3 along;
+    if (!handRay(offHandSpace(), localSpace_, frameTime(), from, along)) return false;
+    const float kYardsPerMetre = yardsPerMetre();
+    const glm::quat recentre = glm::angleAxis(-(headOriginYaw_ + bodyYaw_), glm::vec3(0.0f, 1.0f, 0.0f));
+    origin = worldReference_ + worldBasis_ * ((recentre * (from - headOrigin_)) * kYardsPerMetre);
+    direction = glm::normalize(worldBasis_ * (recentre * along));
     return true;
 }
 
@@ -733,9 +803,31 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
     // it holds a window by its bar.
     // While the other hand has the menu, its trigger and grip instead.
     const auto leftGrip = in.buttons[static_cast<size_t>(ControlButton::LeftGrip)];
+    // Before it is the right button, that hand's grip squeezed over the
+    // shoulder or at the far hip draws the weapon or puts it away, and
+    // squeezed on an action bar button puts that button in the glowing frame.
+    // Either keeps the grip until it is let go.
+    const bool pointGrip = button(session_, leftHanded_ ? leftGrip : in.grab);
+    if (pointGrip && !in.gripWasDown && !menuTaken && !in.mouseHeld[1]) {
+        if (drawByReach_ && inWorld && handAtSheath()) {
+            sheathToggle_ = true;
+            in.gripTaken = true;
+        } else if (onPanel) {
+            for (int i = 0; i < static_cast<int>(actionButtonRects_.size()); ++i) {
+                const glm::vec4& r = actionButtonRects_[static_cast<size_t>(i)];
+                if (r.z > 0.0f && at.x >= r.x && at.x < r.x + r.z && at.y >= r.y && at.y < r.y + r.w) {
+                    loadedSlot_ = i;
+                    in.gripTaken = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (!pointGrip) in.gripTaken = false;
+    in.gripWasDown = pointGrip;
     const bool wanted[2] = {
         menuTaken ? (in.menuRay && offTrigger) || in.fingerDown : trigger && !moving && (barHit < 0 || in.mouseHeld[0]),
-        menuTaken ? in.menuRay && offGrip : button(session_, leftHanded_ ? leftGrip : in.grab)};
+        menuTaken ? in.menuRay && offGrip : pointGrip && !in.gripTaken};
     for (size_t i = 0; i < std::size(kMouseButtons); ++i) {
         const bool down = wanted[i] && (in.mouseHeld[i] || onPanel || tracked);
         if (down == in.mouseHeld[i]) continue;
@@ -909,6 +1001,37 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
         input.setVirtualKey(key, keyWanted[f]);
         in.keyHeld[f] = keyWanted[f];
     }
+    // The loaded action: the key of the button in the glowing frame. As its
+    // button goes down the other hand aims, if asked - what it points at is
+    // made the target - and the key follows a frame later, so that the cast
+    // goes at that target. Let go while a cast it began is still going, the
+    // cast is cancelled: held to the end, the spell goes.
+    {
+        const bool loaded = keyWanted[static_cast<size_t>(ControlFunction::LoadedAction)];
+        game::GameHandler* game = core::Application::getInstance().getGameHandler();
+        if (loaded && !in.loadedWanted) {
+            in.loadedKey = kActionKeys[std::clamp(loadedSlot_, 0, 11)];
+            in.castingAtPress = game && game->isCasting();
+            glm::vec3 origin;
+            glm::vec3 direction;
+            if (aimWithHand_ && game && offHandWorldRay(origin, direction)) {
+                rendering::Ray ray{};
+                ray.origin = origin;
+                ray.direction = direction;
+                const uint64_t aimed = ui::pickScene(*game, ray, ui::ScenePickParams{}).resolve();
+                if (aimed != 0 && aimed != game->getTargetGuid()) game->setTarget(aimed);
+            }
+        } else if (!loaded && in.loadedWanted && game && !in.castingAtPress && game->isCasting()) {
+            game->cancelCast();
+        }
+        const bool press = loaded && in.loadedWanted;
+        if (press != in.loadedKeyDown) {
+            input.setVirtualKey(in.loadedKey, press);
+            in.loadedKeyDown = press;
+        }
+        in.loadedWanted = loaded;
+    }
+
     // Escape is the interface's: it is asked of ImGui, which a held scancode
     // never reaches.
     if (escape != in.escapeDown && ImGui::GetCurrentContext()) {

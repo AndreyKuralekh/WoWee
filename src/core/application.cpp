@@ -3756,7 +3756,12 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
         const bool uiWantsKeyboard = ImGui::GetIO().WantCaptureKeyboard ||
                                      ui::interfaceTakingTypedInput();
         auto& input = Input::getInstance();
-        if (!uiWantsKeyboard && input.isKeyJustPressed(SDL_SCANCODE_Z) && appearanceComposer_) {
+        bool toggleSheath = !uiWantsKeyboard && input.isKeyJustPressed(SDL_SCANCODE_Z);
+#ifdef WOWEE_VR
+        // Or a reach to where the weapons hang, and the grip.
+        if (xr::system().takeSheathToggle()) toggleSheath = true;
+#endif
+        if (toggleSheath && appearanceComposer_) {
             if (renderer && renderer->getAnimationController()) {
                 renderer->getAnimationController()->playWeaponSheathAnimation(
                     appearanceComposer_->sheathSpot(game::EquipSlot::MAIN_HAND),
@@ -5089,6 +5094,24 @@ void Application::render() {
                     xr::system().setHandPanelRects(unionOf(barButtons), unionOf(targetFrames), unionOf(menuButtons),
                                                    io.DisplaySize.x, io.DisplaySize.y);
                     xr::system().setBarsRect(unionOf(bottomBars));
+                    // The main bar's twelve buttons one by one, for the grip
+                    // that loads one, and the glowing frame round the one
+                    // loaded: the spell the left trigger fires.
+                    std::array<glm::vec4, 12> actionButtons{};
+                    for (size_t i = 0; i < actionButtons.size(); ++i) {
+                        std::vector<Named> one(1, barButtons[i]);
+                        actionButtons[i] = unionOf(one);
+                        barButtons[i] = one[0];
+                    }
+                    xr::system().setActionButtonRects(actionButtons);
+                    const glm::vec4 loaded = actionButtons[static_cast<size_t>(xr::system().loadedSlot())];
+                    if (loaded.z > 0.0f) {
+                        const float glow = 0.65f + 0.35f * std::sin(static_cast<float>(ImGui::GetTime()) * 4.0f);
+                        ImGui::GetForegroundDrawList()->AddRect(
+                            ImVec2(loaded.x + 1.0f, loaded.y + 1.0f),
+                            ImVec2(loaded.x + loaded.z - 1.0f, loaded.y + loaded.w - 1.0f),
+                            IM_COL32(255, 205, 60, static_cast<int>(255.0f * glow)), 4.0f, 0, 3.0f);
+                    }
                     // The tabs only with the book itself open. The chat behind
                     // those under it stands aside in the headset (see
                     // AddonManager::loadAllAddons).

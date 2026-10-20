@@ -46,6 +46,7 @@ enum class ControlFunction : uint8_t {
     Autorun,
     Escape,
     Recenter,
+    LoadedAction,  // the action bar button in the glowing frame; see XrSystem::loadedSlot
     Count
 };
 

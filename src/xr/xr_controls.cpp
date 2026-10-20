@@ -53,6 +53,7 @@ constexpr ButtonName kFunctions[kControlFunctionCount] = {
     {"Autorun", "autorun"},
     {"Escape / game menu", "escape"},
     {"Recenter view", "recenter"},
+    {"Spell in the glowing frame", "loaded"},
 };
 
 constexpr std::string_view kShiftedSuffix = ".modifier";
@@ -96,9 +97,10 @@ ControlBindings ControlBindings::defaults() {
         b.plain[static_cast<std::size_t>(button)] = plain;
         b.shifted[static_cast<std::size_t>(button)] = shifted;
     };
-    // The right hand aims, the left one fires: the first action is on the
-    // left trigger. Seven of the bar's twelve are reached without the pointer.
-    set(ControlButton::LeftTrigger, ControlFunction::Action1, ControlFunction::Action7);
+    // The right hand aims, the left one fires: the left trigger fires the
+    // button in the glowing frame, which the right grip moves on the bar.
+    // Seven of the bar's twelve are reached without the pointer.
+    set(ControlButton::LeftTrigger, ControlFunction::LoadedAction, ControlFunction::Action7);
     set(ControlButton::LeftGrip, ControlFunction::Modifier, ControlFunction::None);
     set(ControlButton::A, ControlFunction::Jump, ControlFunction::Action3);
     set(ControlButton::B, ControlFunction::Action2, ControlFunction::Action4);

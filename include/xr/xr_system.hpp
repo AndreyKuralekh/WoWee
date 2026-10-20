@@ -36,6 +36,7 @@
 #include <openxr/openxr.h>
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -312,6 +313,30 @@ public:
     /// opposite hand - what the settings call the left trigger is the right.
     void setLeftHanded(bool leftHanded) { leftHanded_ = leftHanded; }
 
+    /// Whether the grip of the hand that points, squeezed with that hand over
+    /// the shoulder or down at the far hip - where weapons are sheathed -
+    /// draws the weapon or puts it away instead of being the right button.
+    void setDrawByReach(bool on) { drawByReach_ = on; }
+    /// Asked once a frame by what draws the weapons: whether a reach asked for
+    /// them to be drawn or put away since it last asked.
+    bool takeSheathToggle() {
+        const bool asked = sheathToggle_;
+        sheathToggle_ = false;
+        return asked;
+    }
+
+    /// The action bar's twelve buttons where the interface has them this
+    /// frame, in window pixels as x, y, width, height; a zero size where one
+    /// is not shown. The grip of the hand that points, squeezed on one, puts
+    /// it in the glowing frame.
+    void setActionButtonRects(const std::array<glm::vec4, 12>& rects) { actionButtonRects_ = rects; }
+    /// Which of them is in the glowing frame, 0 to 11: what the loaded action
+    /// (the left trigger, unless rebound) fires.
+    [[nodiscard]] int loadedSlot() const { return loadedSlot_; }
+    /// Whether the loaded action's spell is aimed by the other hand: what its
+    /// ray points at, as the button goes down, becomes the target.
+    void setAimWithHand(bool on) { aimWithHand_ = on; }
+
     /// How big the world is made to look: 1 is its own size, a yard to 0.9144
     /// metres; at 2 everything is twice as large and a real step covers half
     /// the ground. And how far above or below the character's own eyes the
@@ -399,6 +424,8 @@ private:
     void releaseControllerKeys();
     void loadControls();
     bool offHandYaw(float& yaw) const;
+    bool handAtSheath() const;
+    bool offHandWorldRay(glm::vec3& origin, glm::vec3& direction) const;
     void updateVignette(const glm::vec3& referencePosition);
     bool vignetteQuad(XrPosef& pose, XrExtent2Df& size) const;
     void releasePointer();
@@ -479,6 +506,11 @@ private:
     bool snapTurn_ = true;
     bool moveByHand_ = false;
     bool leftHanded_ = false;
+    bool drawByReach_ = true;
+    bool sheathToggle_ = false;
+    std::array<glm::vec4, 12> actionButtonRects_{};
+    int loadedSlot_ = 0;
+    bool aimWithHand_ = false;
     float worldScale_ = 1.0f;
     float eyeHeightOffset_ = 0.0f;
     float glow_ = 0.8f;
