@@ -52,7 +52,12 @@ constexpr uint16_t kGeosetBareFeetAlt      = 2001;
 /// Off for everyone else, which is why the renderer strips group 17 from any
 /// model drawn without a geoset filter: an NPC given the whole model drew
 /// glowing eyes whatever it was.
-constexpr uint16_t kGeosetEyeGlow          = 1701;
+///
+/// 1702: the models carry 1702 (the glow) and 1703 (a death knight's), and
+/// no 1701 - which, as variant 1, reads as "none" to resolveGeoset, so the
+/// eyes never shone. A model of another client with only 1701 still gets
+/// it: resolveGeoset falls back to the group's lowest member.
+constexpr uint16_t kGeosetEyeGlow          = 1702;
 
 
 /// The body part a geoset id belongs to: 501 and 505 are both group 5, boots.
