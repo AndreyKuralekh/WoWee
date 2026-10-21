@@ -333,6 +333,10 @@ public:
     /// Which of them is in the glowing frame, 0 to 11: what the loaded action
     /// (the left trigger, unless rebound) fires.
     [[nodiscard]] int loadedSlot() const { return loadedSlot_; }
+    /// Whether the pointer has the mouse: it is on a panel or a window, or
+    /// holds a button. The system's own motion of the mouse is not wanted
+    /// meanwhile; see core::Input::setVirtualMousePosition.
+    [[nodiscard]] bool pointerHasMouse() const { return pointerHasMouse_; }
     /// Whether the loaded action's spell is aimed by the other hand: what its
     /// ray points at, as the button goes down, becomes the target.
     void setAimWithHand(bool on) { aimWithHand_ = on; }
@@ -510,6 +514,7 @@ private:
     bool sheathToggle_ = false;
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;
+    bool pointerHasMouse_ = false;
     bool aimWithHand_ = false;
     float worldScale_ = 1.0f;
     float eyeHeightOffset_ = 0.0f;

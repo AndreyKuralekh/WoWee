@@ -27,6 +27,9 @@ void Input::update() {
     float mouseY = 0.0f;
     const SDL_MouseButtonFlags mouseState = SDL_GetMouseState(&mouseX, &mouseY);
     mousePosition = glm::vec2(mouseX, mouseY);
+#ifdef WOWEE_VR
+    if (virtualMouseHeld) mousePosition = virtualMousePosition;
+#endif
 
     // SDL_BUTTON_MASK(x) is defined as (1 << (x-1)), so button indices are 1-based.
     // SDL_BUTTON_MASK(0) is undefined behavior (negative shift). Start at 1.

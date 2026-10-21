@@ -812,10 +812,17 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
         if (moved > 1.0f) {
             in.mouseAt = at;
             SDL_WarpMouseInWindow(window, at.x, at.y);
+            core::Input::getInstance().setVirtualMousePosition(true, at);
             // Told at once as well: a click in this same frame has to land here.
             if (io) io->AddMousePosEvent(at.x, at.y);
         }
     }
+
+    // The system's cursor stops at the screen's edge, and the window can be
+    // wider than the screen: while the pointer has the mouse, where it put
+    // the mouse is where the mouse is.
+    pointerHasMouse_ = onPanel || anyHeld;
+    core::Input::getInstance().setVirtualMousePosition(pointerHasMouse_, in.mouseAt);
 
     // A press starts on the panel, or in the world beside it; once down, a
     // button is held until it is let go, wherever the ray has gone since -

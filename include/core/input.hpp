@@ -34,6 +34,16 @@ public:
     /// mouse. The pointer itself is the real one - it is warped, so everything
     /// that asks where it is gets the truth - and only the button is faked.
     void setVirtualMouseButton(int button, bool held);
+#ifdef WOWEE_VR
+    /// Where the pointer has the mouse, while it has it. Warping the real one
+    /// is not enough when the window is larger than the screen - a headset's
+    /// desktop can be 1280 wide under a window of 1920 - because the system
+    /// puts the cursor back at the screen's edge.
+    void setVirtualMousePosition(bool held, const glm::vec2& at = glm::vec2(0.0f)) {
+        virtualMouseHeld = held;
+        virtualMousePosition = at;
+    }
+#endif
     [[nodiscard]] bool isKeyJustPressed(SDL_Scancode key) const;
 
     // Mouse
@@ -67,6 +77,10 @@ private:
     glm::vec2 previousMousePosition = glm::vec2(0.0f);
     glm::vec2 mouseDelta = glm::vec2(0.0f);
     bool mouseLocked = false;
+#ifdef WOWEE_VR
+    bool virtualMouseHeld = false;
+    glm::vec2 virtualMousePosition = glm::vec2(0.0f);
+#endif
 };
 
 } // namespace core

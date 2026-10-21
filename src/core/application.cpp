@@ -1464,6 +1464,11 @@ void Application::run() {
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+#ifdef WOWEE_VR
+            // While the headset's pointer has the mouse, the system's motion of
+            // it is the cursor pushed back to the screen's edge, not a hand.
+            if (event.type == SDL_EVENT_MOUSE_MOTION && xr::system().pointerHasMouse()) continue;
+#endif
             // Sound in Background. Off in the real client and off here: losing
             // focus silences the client rather than playing on behind whatever
             // the player switched to. Read at the moment focus changes, so
