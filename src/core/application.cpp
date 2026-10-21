@@ -240,6 +240,21 @@ float wheelClicks(float delta, uint64_t timestampNs) {
 #endif
 }
 
+// A rider in the mount's seat - its own attachment point, as the player's
+// character is seated (AnimationController) - not the saddle's height over the
+// middle of the mount, which on a saber is up by its neck. Once the mount is
+// placed and turned for the frame; nothing when its model has no seat.
+void seatRiderOnMount(rendering::CharacterRenderer* cr, uint32_t rider, uint32_t mount) {
+    static constexpr uint32_t kSeatAttachments[] = {0, 5, 6, 7, 8};
+    glm::mat4 seat(1.0f);
+    for (const uint32_t id : kSeatAttachments) {
+        if (cr->getAttachmentTransform(mount, id, seat)) {
+            cr->setInstancePosition(rider, glm::vec3(seat[3]) + glm::vec3(0.0f, 0.0f, 0.08f));
+            return;
+        }
+    }
+}
+
 } // namespace
 
 Application* Application::instance = nullptr;
@@ -3476,6 +3491,7 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
             charRenderer->setInstanceRotation(instanceId, glm::vec3(0.0f, 0.0f, renderYaw));
             if (creatureMount) {
                 charRenderer->setInstanceRotation(creatureMount->instanceId, glm::vec3(0.0f, 0.0f, renderYaw));
+                seatRiderOnMount(charRenderer, instanceId, creatureMount->instanceId);
             }
         }
     }
@@ -3679,6 +3695,7 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
             if (remoteMount) {
                 charRenderer->setInstanceRotation(remoteMount->instanceId,
                                                   glm::vec3(0.0f, 0.0f, renderYaw));
+                seatRiderOnMount(charRenderer, instanceId, remoteMount->instanceId);
             }
         }
     }
