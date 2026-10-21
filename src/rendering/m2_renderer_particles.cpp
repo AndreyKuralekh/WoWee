@@ -320,15 +320,12 @@ void M2Renderer::updateParticles(M2Instance& inst, float dt) {
                 const float z = std::sqrt(std::max(0.0f, 1.0f - x * x - y * y));
                 const float strength = static_cast<float>(static_cast<int16_t>(bits >> 16)) * 0.04238648f;
                 pull = glm::vec3(x, y, z) * strength;
-            } else if (grav == 0.0f && !gpu.isFireflyEffect && isFlameEmitter(gpu, pem)) {
-                // Only flames are pulled where none is authored: without it they
-                // were never seen (upstream 5f1c4dae). Anything else that asks for
-                // none - a lamp's wisps - floats as it is told.
-                float emSpeed = interpFloat(pem.emissionSpeed,
-                                             inst.animTime, inst.globalSequenceTime,
-                                             inst.currentSequenceIndex, gpu.globalSequenceDurations);
-                pull.z = (std::abs(emSpeed) > 0.1f) ? 4.0f : 1.5f;
             }
+            // None where none is authored, flames included. Upstream pulled
+            // every such emitter down (5f1c4dae: without it flames were not
+            // seen, before the floors on colour and size), and a candle's
+            // flame, which rises at a twentieth of a yard a second, rained
+            // from the wick.
             emitterGrav[e] = pull;
         }
     }
