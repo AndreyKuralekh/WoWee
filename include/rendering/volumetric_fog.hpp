@@ -86,6 +86,7 @@ public:
         /// a torch's reach is a dozen yards, and that little air scatters
         /// little of it.
         float localLightScatter = 8.0f;
+        float historyWeight = 0.9f;  ///< of last frame's cells in this frame's
     };
 
     VolumetricFog() = default;

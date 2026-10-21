@@ -420,9 +420,13 @@ void VolumetricFog::record(VkCommandBuffer cmd, uint32_t frame, VkDescriptorSet 
     // turn into the same volume - so "just before" is the frame before, and
     // the history is reprojected by whatever was built into it last.
     const uint32_t other = (frame + 1) % MAX_FRAMES;
+    // The jitter steps once a frame, not once a build: the eyes of a frame
+    // take the same, or the sixteen steps went round twice as fast and the
+    // two eyes saw different ones - a shimmer at ten hertz.
     if (currentSlot_ != static_cast<int>(frame)) {
         lastRecordedFrame_ = currentSlot_;
         currentSlot_ = static_cast<int>(frame);
+        frameCounter_++;
     }
     bool history = historyValid_ && lastRecordedFrame_ == static_cast<int>(other) &&
                    glm::length(in.cameraPos - slotCameraPos_[other]) < 30.0f;
@@ -435,7 +439,8 @@ void VolumetricFog::record(VkCommandBuffer cmd, uint32_t frame, VkDescriptorSet 
     const float t = in.time;
     p.drift = glm::vec4(t * 0.9f, t * 0.45f, t * 0.12f, glm::clamp(in.noiseAmount, 0.0f, 1.0f));
     const uint32_t seq = (frameCounter_ % 16) + 1;
-    p.jitter = glm::vec4(halton(seq, 2), halton(seq, 3), halton(seq, 5), history ? 0.9f : 0.0f);
+    p.jitter = glm::vec4(halton(seq, 2), halton(seq, 3), halton(seq, 5),
+                         history ? glm::clamp(in.historyWeight, 0.0f, 0.98f) : 0.0f);
     p.dims = glm::ivec4(size_, 0);
 
     // Into the buffer in the command stream rather than through its mapping:
@@ -507,7 +512,6 @@ void VolumetricFog::record(VkCommandBuffer cmd, uint32_t frame, VkDescriptorSet 
     slotViewProj_[frame] = in.projection * in.view;
     slotCameraPos_[frame] = in.cameraPos;
     historyValid_ = true;
-    frameCounter_++;
 }
 
 void VolumetricFog::shutdown() {

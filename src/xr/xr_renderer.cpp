@@ -604,6 +604,9 @@ void Renderer::vrBuildFogForEye(uint32_t eye) {
     in.time = globalTime;
     in.density = vrFogDensity_;
     in.layerBase = vrFogLayerBase_;
+    // More of the frame before: what is left of the jitter shimmers in a
+    // headset, and an eye's history is the other eye's air.
+    in.historyWeight = 0.95f;
     const uint32_t frame = vkCtx->getCurrentFrame();
     volumetricFog_->record(currentCmd, frame, perFrameDescSets[frame], in);
 }
