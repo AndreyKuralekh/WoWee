@@ -271,7 +271,8 @@ bool VolumetricFog::createPipelines(VkDescriptorSetLayout perFrameLayout,
     for (uint32_t i = 0; i < MAX_FRAMES; i++) {
         VkBufferCreateInfo bufCI{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         bufCI.size = sizeof(VolumeParamsGPU);
-        bufCI.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        // Written from the command buffer, so a frame can build more than once.
+        bufCI.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         VmaAllocationCreateInfo allocCI{};
         allocCI.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
         allocCI.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
@@ -385,6 +386,7 @@ bool VolumetricFog::applyPendingQuality() {
     volumesReady_ = true;
     historyValid_ = false;
     lastRecordedFrame_ = -1;
+    currentSlot_ = -1;
     LOG_WARNING("VolumetricFog: on, ", size.x, "x", size.y, "x", size.z, " cells over ",
                 kNear, "-", kFar, " yards");
     return true;
@@ -414,10 +416,17 @@ void VolumetricFog::record(VkCommandBuffer cmd, uint32_t frame, VkDescriptorSet 
     // Last frame's cells only when they are last frame's and of this place:
     // the other slot has to be the one built just before, and the camera
     // cannot have jumped. A teleport reprojects into nonsense.
+    // A frame may build more than once - a headset builds for each eye in
+    // turn into the same volume - so "just before" is the frame before, and
+    // the history is reprojected by whatever was built into it last.
     const uint32_t other = (frame + 1) % MAX_FRAMES;
+    if (currentSlot_ != static_cast<int>(frame)) {
+        lastRecordedFrame_ = currentSlot_;
+        currentSlot_ = static_cast<int>(frame);
+    }
     bool history = historyValid_ && lastRecordedFrame_ == static_cast<int>(other) &&
-                   glm::length(in.cameraPos - prevCameraPos_) < 30.0f;
-    p.prevViewProj = prevViewProj_;
+                   glm::length(in.cameraPos - slotCameraPos_[other]) < 30.0f;
+    p.prevViewProj = slotViewProj_[other];
 
     p.medium = glm::vec4(in.density, in.layerBase, 1.0f / std::max(in.layerHeight, 1.0f),
                          glm::clamp(in.layerFloor, 0.0f, 1.0f));
@@ -428,7 +437,27 @@ void VolumetricFog::record(VkCommandBuffer cmd, uint32_t frame, VkDescriptorSet 
     const uint32_t seq = (frameCounter_ % 16) + 1;
     p.jitter = glm::vec4(halton(seq, 2), halton(seq, 3), halton(seq, 5), history ? 0.9f : 0.0f);
     p.dims = glm::ivec4(size_, 0);
-    std::memcpy(paramsMapped_[frame], &p, sizeof(p));
+
+    // Into the buffer in the command stream rather than through its mapping:
+    // a second build in the frame would otherwise rewrite the first one's
+    // parameters before either has run. After the last build read them.
+    VkMemoryBarrier2 paramsFree{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    paramsFree.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    paramsFree.srcAccessMask = VK_ACCESS_2_UNIFORM_READ_BIT;
+    paramsFree.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    paramsFree.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    VkDependencyInfo paramsDep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    paramsDep.memoryBarrierCount = 1;
+    paramsDep.pMemoryBarriers = &paramsFree;
+    cmdPipelineBarrier2(cmd, paramsDep);
+    vkCmdUpdateBuffer(cmd, paramsUBO_[frame], 0, sizeof(p), &p);
+    VkMemoryBarrier2 paramsSet{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    paramsSet.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    paramsSet.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    paramsSet.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    paramsSet.dstAccessMask = VK_ACCESS_2_UNIFORM_READ_BIT;
+    paramsDep.pMemoryBarriers = &paramsSet;
+    cmdPipelineBarrier2(cmd, paramsDep);
 
     // Everything that last touched these volumes: last frame's inject and
     // integrate, which wrote the history this frame reads, and the shaders of
@@ -475,10 +504,9 @@ void VolumetricFog::record(VkCommandBuffer cmd, uint32_t frame, VkDescriptorSet 
     dep.pMemoryBarriers = &after;
     cmdPipelineBarrier2(cmd, dep);
 
-    prevViewProj_ = in.projection * in.view;
-    prevCameraPos_ = in.cameraPos;
+    slotViewProj_[frame] = in.projection * in.view;
+    slotCameraPos_[frame] = in.cameraPos;
     historyValid_ = true;
-    lastRecordedFrame_ = static_cast<int>(frame);
     frameCounter_++;
 }
 

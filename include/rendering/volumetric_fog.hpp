@@ -178,12 +178,14 @@ private:
     VmaAllocation paramsAlloc_[MAX_FRAMES] = {};
     void* paramsMapped_[MAX_FRAMES] = {};
 
-    // Reprojection state.
-    glm::mat4 prevViewProj_{1.0f};
-    glm::vec3 prevCameraPos_{0.0f};
+    // Reprojection state: what each slot was last built from, the slot this
+    // frame builds into and the one the frame before built into.
+    glm::mat4 slotViewProj_[MAX_FRAMES] = {glm::mat4(1.0f), glm::mat4(1.0f)};
+    glm::vec3 slotCameraPos_[MAX_FRAMES] = {glm::vec3(0.0f), glm::vec3(0.0f)};
     bool historyValid_ = false;
     uint32_t frameCounter_ = 0;
     int lastRecordedFrame_ = -1;
+    int currentSlot_ = -1;
 };
 
 } // namespace rendering

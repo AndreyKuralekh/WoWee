@@ -4939,6 +4939,10 @@ void Renderer::renderVolumetricFog() {
     const float target = volumetricFogExtinction();
     if (fogExtinction_ < 0.0f) fogExtinction_ = target;
     fogExtinction_ += (target - fogExtinction_) * (1.0f - std::exp(-dt / 1.0f));
+#ifdef WOWEE_VR
+    // A headset's eyes build it each for themselves; the window has no world.
+    if (vrFogForEyes(fogExtinction_, fogLayerBase_)) return;
+#endif
 
     VolumetricFog::FrameInputs in;
     in.view = currentFrameData.view;

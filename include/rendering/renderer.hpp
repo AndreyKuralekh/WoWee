@@ -486,6 +486,8 @@ private:
     bool vrBodyShift(glm::vec2& by) const;
     static glm::vec2 vrBodyOffsetWithin(glm::vec2 offset);
     void vrSettleBody();
+    bool vrFogForEyes(float density, float layerBase);
+    void vrBuildFogForEye(uint32_t eye);
     void vrRenderWindowMinimap(game::GameHandler* gameHandler);
     VrEyes* vrEyes_ = nullptr;
     game::GameHandler* vrGameHandler_ = nullptr;
@@ -509,6 +511,10 @@ private:
     glm::vec2 vrHeadOffset_{0.0f};
     glm::vec2 vrHeadForward_{1.0f, 0.0f};
     glm::vec2 vrBodyOffset_{0.0f};                    // where the body stands from the character
+    // The fog of this frame, built for each eye as it is drawn: its air.
+    bool vrFogWanted_ = false;
+    float vrFogDensity_ = 0.0f;
+    float vrFogLayerBase_ = 0.0f;
     bool vrWristSeen_[2] = {false, false};           // and the wrists, from those eyes' reference
     glm::vec3 vrWristOffset_[2] = {glm::vec3(0.0f), glm::vec3(0.0f)};
     glm::mat3 vrWristTurn_[2] = {glm::mat3(1.0f), glm::mat3(1.0f)};

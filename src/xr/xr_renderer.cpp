@@ -12,6 +12,7 @@
 #include "rendering/camera.hpp"
 #include "rendering/camera_controller.hpp"
 #include "rendering/character_renderer.hpp"
+#include "rendering/volumetric_fog.hpp"
 #include "rendering/m2_renderer.hpp"
 #include "rendering/overlay_system.hpp"
 #include "rendering/terrain_manager.hpp"
@@ -579,6 +580,34 @@ void Renderer::vrReplayWorldForEye(uint32_t eye) {
     xr::system().recordEyeCopy(currentCmd, eye, vrEyes_->color[eye].image);
 }
 
+// The fog volume is a grid over one camera's frustum, and every world shader
+// reads it through the matrices of set 0 - an eye's, in its pass. So it is
+// built for each eye in turn, into the same volume, just before that eye's
+// pass: the first eye's pass has read it by the time the second build
+// overwrites it, and the second eye then reads its own. The window draws no
+// world meanwhile and builds none. True when the eyes will.
+bool Renderer::vrFogForEyes(float density, float layerBase) {
+    if (!vrEyes_ || !vrEyes_->viewsValid) return false;
+    vrFogWanted_ = true;
+    vrFogDensity_ = density;
+    vrFogLayerBase_ = layerBase;
+    return true;
+}
+
+void Renderer::vrBuildFogForEye(uint32_t eye) {
+    if (!volumetricFog_) return;
+    const xr::EyeView& view = vrEyes_->views.eye[eye];
+    VolumetricFog::FrameInputs in;
+    in.view = view.view;
+    in.projection = view.projection;
+    in.cameraPos = view.position;
+    in.time = globalTime;
+    in.density = vrFogDensity_;
+    in.layerBase = vrFogLayerBase_;
+    const uint32_t frame = vkCtx->getCurrentFrame();
+    volumetricFog_->record(currentCmd, frame, perFrameDescSets[frame], in);
+}
+
 // The hands, last in an eye's pass, against the depth the world left: into a
 // buffer of their own where the pass takes only secondaries, or straight in.
 void Renderer::vrRecordHands(uint32_t eye, bool secondaryOnly) {
@@ -657,12 +686,14 @@ void Renderer::vrRenderEyes() {
         data.view = view.view;
         data.projection = view.projection;
         data.viewPos = glm::vec4(view.position, 1.0f);
-        // Both are built for one camera, the window's.
-        data.volumetricParams = glm::vec4(0.0f);
+        // The fog is built for this eye just before its pass; the ray traced
+        // light is built for one camera, the window's.
+        data.volumetricParams = vrFogWanted_ ? volumetricFog_->frameParams() : glm::vec4(0.0f);
         data.rtParams = glm::vec4(0.0f);
         std::memcpy(vrEyes_->uboMapped[eye][frame], &data, sizeof(GPUPerFrameData));
         if (shared && eye == 0) std::memcpy(vrEyes_->sharedUboMapped[frame], &data, sizeof(GPUPerFrameData));
 
+        if (vrFogWanted_) vrBuildFogForEye(eye);
         if (shared && eye == 1) {
             vrReplayWorldForEye(eye);
             continue;
@@ -762,6 +793,7 @@ void Renderer::vrRenderEyes() {
     }
 
     vrWorldShared_ = false;
+    vrFogWanted_ = false;
     vrPerFrameSet_ = VK_NULL_HANDLE;
     vrEyeView_ = nullptr;
     vrEyeProjection_ = nullptr;
