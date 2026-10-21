@@ -702,7 +702,9 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
     int barHit = -1;
     float barDistance = 0.0f;
     int windowHit = -1;
+    const char* surface = "none";  // what the pointer is on, for the log
     if (menuTaken) {
+        surface = in.menuRay ? "menu by the other ray" : "menu by the finger";
         onPanel = true;
         at = in.menuRay ? rayAt : fingerAt;
         in.beamLength = in.menuRay ? menuDistance : 0.0f;
@@ -725,6 +727,7 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
             if (handPanelQuad(which, space, quad, size, crop) && aimRay(space, frameTime(), origin, direction) &&
                 meet(quad, size, distance, uv) && distance < nearest) {
                 take(distance, handPanelRect_[which], handPanelWindow_, uv);
+                surface = which == 0 ? "action bar" : "target";
             }
         }
         if (aimRay(localSpace_, frameTime(), origin, direction)) {
@@ -735,6 +738,7 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
                 if (windowQuad(which, quad, size, crop) && meet(quad, size, distance, uv) && distance < nearest) {
                     take(distance, windowRect_[which], windowPixels_, uv);
                     windowHit = static_cast<int>(which);
+                    surface = which == 0 ? "spell book" : "bags";
                 }
                 if (windowBarQuad(which, quad, size) && meet(quad, size, distance, uv) && distance < nearest) {
                     nearest = distance;
@@ -782,6 +786,7 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
             onPanel = true;
             if (overUi || !inWorld) in.beamLength = distance;
             at = uv * (pixels - 1.0f);
+            surface = "big panel";
         }
     }
 
@@ -797,6 +802,12 @@ void XrSystem::updatePointer(SDL_Window* window, bool inWorld) {
         // half the way each frame, and anything under a pixel is let be.
         constexpr float kSteadyWithin = 40.0f;
         const float moved = glm::distance(at, in.mouseAt);
+        // A jump is the pointer changing what it is on, or a surface mapped
+        // wrong: which, and from where to where.
+        if (debug_ && moved > 100.0f && in.mouseAt.x > -500.0f) {
+            LOG_WARNING("VR: pointer jumped from ", in.mouseAt.x, ",", in.mouseAt.y, " to ", at.x, ",", at.y,
+                        " on the ", surface, anyHeld ? ", a button held" : "");
+        }
         if (moved < kSteadyWithin) at = in.mouseAt + (at - in.mouseAt) * 0.5f;
         if (moved > 1.0f) {
             in.mouseAt = at;
