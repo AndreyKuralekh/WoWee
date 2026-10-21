@@ -1738,6 +1738,12 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                             if (!model.particleEmitters.empty() && model.isLanternLike) {
                                 constexpr float kMaxHaloRadius = 0.75f;
                                 gs.size = std::min(gs.size, kMaxHaloRadius * inst.scale);
+                                // An elven lamp holds wisps, not candles: no
+                                // flame to swallow, and its glow is the lamp.
+                                if (model.isElvenLike) {
+                                    constexpr float kElvenGlow = 1.7f;
+                                    gs.size *= kElvenGlow;
+                                }
                             }
 
                             // Fire burning inside a hearth. The sprite is a point
