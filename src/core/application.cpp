@@ -3316,12 +3316,19 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
             // above a tunnel cannot move the model into/onto the WMO shell.
             const bool groundCreature = !_creatureFlyingState.count(guid) &&
                                         !_creatureSwimmingState.count(guid);
+            // A rider sits on its mount: the floor is the mount's, the rider
+            // is drawn the saddle's height over it - as in the players' loop.
+            const auto* creatureMount = entitySpawner_->getRemotePlayerMount(guid);
+            std::optional<glm::vec3> previousFloorPos = previousRenderPos;
+            if (creatureMount && previousFloorPos) previousFloorPos->z -= creatureMount->riderHeight;
             if (entity->isActivelyMoving() && groundCreature) {
                 if (auto floorZ = movingEntityFloor(renderer.get(), renderPos,
-                                                    previousRenderPos)) {
+                                                    previousFloorPos)) {
                     renderPos.z = *floorZ;
                 }
             }
+            const glm::vec3 creatureMountPos = renderPos;
+            if (creatureMount) renderPos.z += creatureMount->riderHeight;
 
             // No visual collision guard here any more.
             //
@@ -3336,6 +3343,7 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
 
             if (posIt == _creatureRenderPosCache.end()) {
                 charRenderer->setInstancePosition(instanceId, renderPos);
+                if (creatureMount) charRenderer->setInstancePosition(creatureMount->instanceId, creatureMountPos);
                 _creatureRenderPosCache[guid] = renderPos;
             } else {
                 const glm::vec3 prevPos = posIt->second;
@@ -3370,6 +3378,7 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
                     !deadOrCorpse && (entityIsMoving || positionOnlyLocomotion);
                 if (deadOrCorpse || largeCorrection) {
                     charRenderer->setInstancePosition(instanceId, renderPos);
+                    if (creatureMount) charRenderer->setInstancePosition(creatureMount->instanceId, creatureMountPos);
                 } else if (planarDistSq > kMoveThreshSq || dz > 0.08f) {
                     // Entity::updateMovement already evaluates the server spline for
                     // this frame. Starting another renderer interpolation here resets
@@ -3377,6 +3386,7 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
                     // authoritative entity position. Copy the evaluated position
                     // directly; animation transitions remain driven below.
                     charRenderer->setInstancePosition(instanceId, renderPos);
+                    if (creatureMount) charRenderer->setInstancePosition(creatureMount->instanceId, creatureMountPos);
                 }
                 // When entity is moving but getX/Y/Z is stale (distance-culled),
                 // don't call moveInstanceTo - creatureMoveCallback_ already drove
@@ -3411,7 +3421,22 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
                     bool gotState = charRenderer->getAnimationState(instanceId, curAnimId, curT, curDur);
                     if (!gotState || curAnimId != rendering::anim::DEATH) {
                         uint32_t targetAnim;
-                        if (isMovingNow) {
+                        if (creatureMount) {
+                            // The rider keeps its seat; the mount walks.
+                            targetAnim = rendering::anim::MOUNT;
+                            uint32_t mountAnim = rendering::anim::STAND;
+                            if (isMovingNow) {
+                                if (isFlyingNow) mountAnim = rendering::anim::FLY_FORWARD;
+                                else if (isWalkingNow) mountAnim = rendering::anim::WALK;
+                                else mountAnim = rendering::anim::RUN;
+                            } else if (isFlyingNow) {
+                                mountAnim = rendering::anim::FLY_IDLE;
+                            }
+                            if (!charRenderer->hasAnimation(creatureMount->instanceId, mountAnim)) {
+                                mountAnim = isMovingNow ? rendering::anim::RUN : rendering::anim::STAND;
+                            }
+                            charRenderer->playAnimation(creatureMount->instanceId, mountAnim, true);
+                        } else if (isMovingNow) {
                             if (isFlyingNow)        targetAnim = rendering::anim::FLY_FORWARD;
                             else if (isSwimmingNow) targetAnim = rendering::anim::SWIM;
                             else if (isWalkingNow)  targetAnim = rendering::anim::WALK;
@@ -3435,9 +3460,23 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
                         charRenderer->playAnimation(instanceId, targetAnim, /*loop=*/true);
                     }
                 }
+                // A spawn pose or an emote may have replaced the seat.
+                if (creatureMount) {
+                    uint32_t riderAnim = 0;
+                    float riderTime = 0.0f, riderDuration = 0.0f;
+                    const bool haveRiderState =
+                        charRenderer->getAnimationState(instanceId, riderAnim, riderTime, riderDuration);
+                    if ((!haveRiderState || riderAnim != rendering::anim::MOUNT) &&
+                        riderAnim != rendering::anim::DEATH) {
+                        charRenderer->playAnimation(instanceId, rendering::anim::MOUNT, /*loop=*/true);
+                    }
+                }
             }
             float renderYaw = entity->getOrientation() + glm::radians(90.0f);
             charRenderer->setInstanceRotation(instanceId, glm::vec3(0.0f, 0.0f, renderYaw));
+            if (creatureMount) {
+                charRenderer->setInstanceRotation(creatureMount->instanceId, glm::vec3(0.0f, 0.0f, renderYaw));
+            }
         }
     }
     {

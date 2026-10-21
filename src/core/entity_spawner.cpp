@@ -244,9 +244,10 @@ void EntitySpawner::removeRemotePlayerMount(uint64_t guid) {
     if (renderer_) {
         if (auto* cr = renderer_->getCharacterRenderer()) {
             if (it->second.instanceId != 0) cr->removeInstance(it->second.instanceId);
-            auto playerIt = playerInstances_.find(guid);
-            if (playerIt != playerInstances_.end()) {
-                cr->playAnimation(playerIt->second, rendering::anim::STAND, true);
+            if (auto rider = playerInstances_.find(guid); rider != playerInstances_.end()) {
+                cr->playAnimation(rider->second, rendering::anim::STAND, true);
+            } else if (auto creature = creatureInstances_.find(guid); creature != creatureInstances_.end()) {
+                cr->playAnimation(creature->second, rendering::anim::STAND, true);
             }
         }
     }
@@ -2342,6 +2343,12 @@ void EntitySpawner::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float
 
     // Track instance
     creatureInstances_[guid] = instanceId;
+    // Its mount field came with its first values, before this instance: it
+    // rides from the start, as a player does (see spawnOnlinePlayer).
+    if (gameHandler_) {
+        auto unit = std::dynamic_pointer_cast<game::Unit>(gameHandler_->getEntityManager().getEntity(guid));
+        if (unit && unit->getMountDisplayId() != 0) setRemotePlayerMountDisplayId(guid, unit->getMountDisplayId());
+    }
     creatureModelIds_[guid] = modelId;
     creatureDisplayIds_[guid] = displayId;
     creatureRenderPosCache_[guid] = renderPos;
