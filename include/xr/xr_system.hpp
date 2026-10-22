@@ -148,6 +148,10 @@ public:
     /// for them in the headset, setting by setting (VR comfort, Picture).
     [[nodiscard]] bool leanShadows() const { return leanFrame() && !headsetShadows_; }
     void setHeadsetShadows(bool on) { headsetShadows_ = on; }
+    /// How dark they are in the headset, 0 none to 1 black: its own, not the
+    /// monitor's, which follows the shadow distance and is faint at 160.
+    void setHeadsetShadowStrength(float strength) { headsetShadowStrength_ = strength; }
+    [[nodiscard]] float headsetShadowStrength() const { return headsetShadowStrength_; }
 
     // --- Frame ---
     //
@@ -516,6 +520,7 @@ private:
     bool leftHanded_ = false;
     bool drawByReach_ = true;
     bool headsetShadows_ = false;
+    float headsetShadowStrength_ = 0.7f;
     bool sheathToggle_ = false;
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;

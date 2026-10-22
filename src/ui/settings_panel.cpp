@@ -883,7 +883,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "daylight", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrdrawbyreach", "vraimwithhand", "vrbody", "vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrdrawbyreach", "vraimwithhand", "vrbody", "vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1092,6 +1092,7 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vreyeheight",       .asFloat = &SettingsPanel::pendingVrEyeHeight},
     {.key = "vrglow",            .asFloat = &SettingsPanel::pendingVrGlow},
     {.key = "vrshadows",         .asBool  = &SettingsPanel::pendingVrShadows},
+    {.key = "vrshadowstrength",  .asFloat = &SettingsPanel::pendingVrShadowStrength},
     {.key = "vrdrawbyreach",     .asBool  = &SettingsPanel::pendingVrDrawByReach},
     {.key = "vraimwithhand",     .asBool  = &SettingsPanel::pendingVrAimWithHand},
     {.key = "vrbody",            .asInt   = &SettingsPanel::pendingVrBody},
@@ -1332,6 +1333,10 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     }
     if (key == "vrshadows") {
         xr::system().setHeadsetShadows(pendingVrShadows);
+        return;
+    }
+    if (key == "vrshadowstrength") {
+        xr::system().setHeadsetShadowStrength(pendingVrShadowStrength);
         return;
     }
     if (key == "vrdrawbyreach") {

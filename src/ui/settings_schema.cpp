@@ -1004,6 +1004,10 @@ constexpr SettingDesc kSchema[] = {
      "monitor - and the sun's shafts through the mist with them. They\n"
      "draw the scene once more each frame, so the headset may lose\n"
      "frames for them: see the frame rate it shows.", "", 0},
+    {"vrshadowstrength", "Shadow darkness", SettingKind::Float, 0.0f, 1.0f, 0.05f, "VR view", "Picture",
+     "How dark the shadows are in the headset, its own setting: on a\n"
+     "monitor it follows the shadow distance, and at the usual distance\n"
+     "a shadow on the ground is hard to see. 0 none, 1 black.", "", 0.7f},
     {"vrdrawbyreach", "Draw weapons by reaching", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
      "Reach over your shoulder, or down to the far hip, and squeeze the\n"
      "grip of the hand that points: your character draws its weapon, or\n"

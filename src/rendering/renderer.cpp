@@ -122,9 +122,13 @@ namespace rendering {
 static bool vrLeanFrame() { return xr::system().leanFrame(); }
 static bool vrLeanShadows() { return xr::system().leanShadows(); }
 static bool vrHeadsetFrame() { return xr::system().sessionRunning() || xr::system().fakeHeadset(); }
+static float vrShadowStrength(float flat) {
+    return vrHeadsetFrame() ? glm::clamp(xr::system().headsetShadowStrength(), 0.0f, 1.0f) : flat;
+}
 #else
 static bool vrLeanFrame() { return false; }
 static bool vrLeanShadows() { return false; }
+static float vrShadowStrength(float flat) { return flat; }
 static bool vrHeadsetFrame() { return false; }
 #endif
 
@@ -614,7 +618,7 @@ void Renderer::updatePerFrameUBO() {
 
     currentFrameData.lightSpaceMatrix = lightSpaceMatrix;
     // Scale shadow bias proportionally to ortho extent to avoid acne at close range / gaps at far range
-    float shadowBias = glm::clamp(0.8f * (shadowDistance_ / 300.0f), 0.0f, 1.0f);
+    float shadowBias = vrShadowStrength(glm::clamp(0.8f * (shadowDistance_ / 300.0f), 0.0f, 1.0f));
     // z carries one texel of the shadow map. The shaders used to hold that as
     // a constant for 4096, and the map is 512 to 4096 by the quality level.
     currentFrameData.shadowParams = glm::vec4(shadowsEnabled && !vrLeanShadows() ? 1.0f : 0.0f, shadowBias,
