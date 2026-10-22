@@ -689,8 +689,8 @@ void SettingsPanel::renderSettingsWindow(ChatPanel& chatPanel,
                 drawSchemaCategory("VR", saveCallback);
                 ImGui::SeparatorText("Comfort");
                 drawSchemaCategory("VR comfort", saveCallback);
-                ImGui::SeparatorText("Picture");
-                drawSchemaCategory("VR picture", saveCallback);
+                ImGui::SeparatorText("View");
+                drawSchemaCategory("VR view", saveCallback);
                 ImGui::SeparatorText("Controller buttons");
                 drawSchemaCategory("VR buttons", saveCallback);
                 ImGui::SeparatorText("Controller buttons with the modifier held");

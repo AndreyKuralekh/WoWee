@@ -995,11 +995,11 @@ constexpr SettingDesc kSchema[] = {
      "height, in metres. For when the ground looks too near or too far.", "", 0.0f},
     // A page of their own: on VR comfort the right column ran under the
     // panel's Okay and Cancel.
-    {"vrglow", "Glow", SettingKind::Float, 0.0f, 1.0f, 0.05f, "VR picture", "Picture",
+    {"vrglow", "Glow", SettingKind::Float, 0.0f, 1.0f, 0.05f, "VR view", "Picture",
      "The original client's full-screen glow: what is bright bleeds\n"
      "softly into what is round it, and the picture reads warmer and\n"
      "less hard-edged. 0 turns it off.", "", 0.8f},
-    {"vrshadows", "Shadows", SettingKind::Bool, 0, 0, 0, "VR picture", "Picture",
+    {"vrshadows", "Shadows", SettingKind::Bool, 0, 0, 0, "VR view", "Picture",
      "Shadows in the headset too, as the Shadows setting draws them on a\n"
      "monitor - and the sun's shafts through the mist with them. They\n"
      "draw the scene once more each frame, so the headset may lose\n"
@@ -1027,23 +1027,23 @@ constexpr SettingDesc kSchema[] = {
      "headset's cameras take over, if hand tracking is on.", "", 1},
     {"vrhandtone", "Hand skin tone", SettingKind::Float, 0.0f, 1.0f, 0.05f, "VR comfort", "Hands",
      "The colour of your hands' skin, from pale (0) to dark (1).", "", 0.5f},
-    {"vrhandpanels", "Action bar on the wrist", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
+    {"vrhandpanels", "Action bar on the wrist", SettingKind::Bool, 0, 0, 0, "VR view", "On the wrist",
      "The action bar, and the target frame when you have a target,\n"
      "on the wrist of the hand that does not point, like a watch.\n"
      "Point at a button and pull the trigger. The menu and the bags\n"
      "go on the other wrist: press them with the other hand's ray\n"
      "or touch them with its finger.", "", 1},
-    {"vrhidebars", "Hide the bars on the big panel", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
+    {"vrhidebars", "Hide the bars on the big panel", SettingKind::Bool, 0, 0, 0, "VR view", "On the wrist",
      "While the bars are on the wrists, take them off the bottom of\n"
      "the big panel.", "", 1},
-    {"vrhandpanelsize", "Wrist panel size", SettingKind::Float, 0.5f, 2.0f, 0.05f, "VR comfort", "Hands",
+    {"vrhandpanelsize", "Wrist panel size", SettingKind::Float, 0.5f, 2.0f, 0.05f, "VR view", "On the wrist",
      "How big the panels on the wrist are. 1 is a hand's span wide.", "", 1.0f},
-    {"vrwindows", "Spell book and bags as windows", SettingKind::Bool, 0, 0, 0, "VR comfort", "Windows",
+    {"vrwindows", "Spell book and bags as windows", SettingKind::Bool, 0, 0, 0, "VR view", "Windows",
      "The spell book and the bags stand on their own when opened,\n"
      "nearer and larger than on the big panel: the book to the left,\n"
      "the bags to the right. Point at the blue bar under one and hold\n"
      "the trigger to move it; it is opened there from then on.", "", 1},
-    {"vrwindowsize", "Window size", SettingKind::Float, 0.5f, 2.0f, 0.05f, "VR comfort", "Windows",
+    {"vrwindowsize", "Window size", SettingKind::Float, 0.5f, 2.0f, 0.05f, "VR view", "Windows",
      "How big the spell book and the bags are when they stand on\n"
      "their own.", "", 1.0f},
 
