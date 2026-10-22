@@ -993,11 +993,13 @@ constexpr SettingDesc kSchema[] = {
     {"vreyeheight", "Eye height", SettingKind::Float, -1.0f, 1.0f, 0.05f, "VR comfort", "Size",
      "Raises or lowers your view from your character's own eye\n"
      "height, in metres. For when the ground looks too near or too far.", "", 0.0f},
-    {"vrglow", "Glow", SettingKind::Float, 0.0f, 1.0f, 0.05f, "VR comfort", "Picture",
+    // A page of their own: on VR comfort the right column ran under the
+    // panel's Okay and Cancel.
+    {"vrglow", "Glow", SettingKind::Float, 0.0f, 1.0f, 0.05f, "VR picture", "Picture",
      "The original client's full-screen glow: what is bright bleeds\n"
      "softly into what is round it, and the picture reads warmer and\n"
      "less hard-edged. 0 turns it off.", "", 0.8f},
-    {"vrshadows", "Shadows", SettingKind::Bool, 0, 0, 0, "VR comfort", "Picture",
+    {"vrshadows", "Shadows", SettingKind::Bool, 0, 0, 0, "VR picture", "Picture",
      "Shadows in the headset too, as the Shadows setting draws them on a\n"
      "monitor - and the sun's shafts through the mist with them. They\n"
      "draw the scene once more each frame, so the headset may lose\n"
