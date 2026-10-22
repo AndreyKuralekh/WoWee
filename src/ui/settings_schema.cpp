@@ -997,6 +997,11 @@ constexpr SettingDesc kSchema[] = {
      "The original client's full-screen glow: what is bright bleeds\n"
      "softly into what is round it, and the picture reads warmer and\n"
      "less hard-edged. 0 turns it off.", "", 0.8f},
+    {"vrshadows", "Shadows", SettingKind::Bool, 0, 0, 0, "VR comfort", "Picture",
+     "Shadows in the headset too, as the Shadows setting draws them on a\n"
+     "monitor - and the sun's shafts through the mist with them. They\n"
+     "draw the scene once more each frame, so the headset may lose\n"
+     "frames for them: see the frame rate it shows.", "", 0},
     {"vrdrawbyreach", "Draw weapons by reaching", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
      "Reach over your shoulder, or down to the far hip, and squeeze the\n"
      "grip of the hand that points: your character draws its weapon, or\n"

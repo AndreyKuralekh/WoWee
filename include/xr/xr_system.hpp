@@ -144,6 +144,10 @@ public:
     /// afford: the shadow pass and the water reflection, each of which draws
     /// the scene a second time. True while the session runs.
     [[nodiscard]] bool leanFrame() const { return leanForced_ || (running_ && !leanRefused_); }
+    /// Whether the lean frame leaves the shadows out: unless the player asked
+    /// for them in the headset, setting by setting (VR comfort, Picture).
+    [[nodiscard]] bool leanShadows() const { return leanFrame() && !headsetShadows_; }
+    void setHeadsetShadows(bool on) { headsetShadows_ = on; }
 
     // --- Frame ---
     //
@@ -511,6 +515,7 @@ private:
     bool moveByHand_ = false;
     bool leftHanded_ = false;
     bool drawByReach_ = true;
+    bool headsetShadows_ = false;
     bool sheathToggle_ = false;
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;

@@ -120,9 +120,11 @@ namespace rendering {
 // A headset frame leaves out the passes that draw the scene a second time.
 #ifdef WOWEE_VR
 static bool vrLeanFrame() { return xr::system().leanFrame(); }
+static bool vrLeanShadows() { return xr::system().leanShadows(); }
 static bool vrHeadsetFrame() { return xr::system().sessionRunning() || xr::system().fakeHeadset(); }
 #else
 static bool vrLeanFrame() { return false; }
+static bool vrLeanShadows() { return false; }
 static bool vrHeadsetFrame() { return false; }
 #endif
 
@@ -615,7 +617,7 @@ void Renderer::updatePerFrameUBO() {
     float shadowBias = glm::clamp(0.8f * (shadowDistance_ / 300.0f), 0.0f, 1.0f);
     // z carries one texel of the shadow map. The shaders used to hold that as
     // a constant for 4096, and the map is 512 to 4096 by the quality level.
-    currentFrameData.shadowParams = glm::vec4(shadowsEnabled && !vrLeanFrame() ? 1.0f : 0.0f, shadowBias,
+    currentFrameData.shadowParams = glm::vec4(shadowsEnabled && !vrLeanShadows() ? 1.0f : 0.0f, shadowBias,
                                               1.0f / static_cast<float>(SHADOW_MAP_SIZE),
                                               // w: the ground is lit by its own normals only. Its relief is
                                               // worked out from how a pixel differs from the next one, and a
@@ -4643,7 +4645,7 @@ void Renderer::renderShadowPass() {
     // into it. Returning here instead left the image untransitioned while it
     // stayed bound for sampling, which is the shape of fault that takes the
     // device down rather than drawing something wrong.
-    const bool drawCasters = shadowsEnabled && !vrLeanFrame();
+    const bool drawCasters = shadowsEnabled && !vrLeanShadows();
 
     // Shadows render every frame - throttling causes visible flicker on player/NPCs
 
