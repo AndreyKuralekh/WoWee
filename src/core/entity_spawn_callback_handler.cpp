@@ -162,7 +162,15 @@ void EntitySpawnCallbackHandler::setupCallbacks() {
                     auto* cr = renderer_.getCharacterRenderer();
                     bool gotState = cr->getAnimationState(instanceId, curAnimId, curT, curDur);
                     const bool walking = entitySpawner_.getCreatureWalkingState().count(guid) > 0;
-                    const uint32_t targetAnim = walking ? rendering::anim::WALK : rendering::anim::RUN;
+                    uint32_t targetAnim = walking ? rendering::anim::WALK : rendering::anim::RUN;
+                    // A rider keeps its seat and its mount does the walking:
+                    // marked as moving here, the frame loop sees no change
+                    // and would never set the mount going.
+                    if (const auto* mount = entitySpawner_.getRemotePlayerMount(guid)) {
+                        instanceId = mount->instanceId;
+                        gotState = cr->getAnimationState(instanceId, curAnimId, curT, curDur);
+                        if (!cr->hasAnimation(instanceId, targetAnim)) targetAnim = rendering::anim::RUN;
+                    }
                     // Only restart when the selected locomotion animation changed.
                     if (!gotState || (curAnimId != rendering::anim::DEATH && curAnimId != targetAnim)) {
                         cr->playAnimation(instanceId, targetAnim, /*loop=*/true);
