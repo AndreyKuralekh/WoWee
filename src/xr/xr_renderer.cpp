@@ -607,6 +607,11 @@ void Renderer::vrBuildFogForEye(uint32_t eye) {
     // More of the frame before: what is left of the jitter shimmers in a
     // headset, and an eye's history is the other eye's air.
     in.historyWeight = 0.95f;
+    // Less of the sun's light thrown on toward it. Looked at through four
+    // hundred yards of mist, the forward lobe put a blot round the sun
+    // eighteen times the brightness beside it, and the headset's glow spread
+    // it wider still; the shafts are seen from the side and keep most of it.
+    in.forwardScatter = 0.15f;
     const uint32_t frame = vkCtx->getCurrentFrame();
     volumetricFog_->record(currentCmd, frame, perFrameDescSets[frame], in);
 }

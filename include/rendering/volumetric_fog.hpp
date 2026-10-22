@@ -87,6 +87,7 @@ public:
         /// little of it.
         float localLightScatter = 8.0f;
         float historyWeight = 0.9f;  ///< of last frame's cells in this frame's
+        float forwardScatter = 0.65f;  ///< of the sun's light, the share scattered on toward the sun
     };
 
     VolumetricFog() = default;

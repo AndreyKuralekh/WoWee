@@ -35,7 +35,8 @@ layout(set = 1, binding = 0) uniform VolumeParams {
     vec4 rayCorner[4];   // rays one yard deep through uv (0,0), (1,0), (0,1), (1,1)
     mat4 prevViewProj;
     vec4 medium;         // x = density, y = layer base, z = 1 / layer height, w = floor
-    vec4 lighting;       // x = sun scatter, y = local light scatter, z = ambient scatter
+    vec4 lighting;       // x = sun scatter, y = local light scatter, z = ambient scatter,
+                         // w = how much of the sun's goes forward, toward the sun
     vec4 drift;          // xyz = how far the mist has blown, w = noise amount
     vec4 jitter;         // xyz = sample point inside the cell, w = history weight
     ivec4 dims;
@@ -148,7 +149,7 @@ void main() {
     vec3 travel = normalize(lightDir.xyz);
     float sunUp = smoothstep(0.0, 0.08, -travel.z);
     vec3 toCamera = normalize(vol.rayOrigin.xyz - p);
-    float phase = mix(1.0, phaseHG(dot(travel, toCamera), 0.75), 0.65);
+    float phase = mix(1.0, phaseHG(dot(travel, toCamera), 0.75), vol.lighting.w);
     vec3 light = fogColor.rgb * vol.lighting.z;
     if (sunUp > 0.0) {
         light += lightColor.rgb * (sunVisibility(p) * phase * sunUp * vol.lighting.x);

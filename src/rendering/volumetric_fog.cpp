@@ -434,7 +434,8 @@ void VolumetricFog::record(VkCommandBuffer cmd, uint32_t frame, VkDescriptorSet 
 
     p.medium = glm::vec4(in.density, in.layerBase, 1.0f / std::max(in.layerHeight, 1.0f),
                          glm::clamp(in.layerFloor, 0.0f, 1.0f));
-    p.lighting = glm::vec4(in.sunScatter, in.localLightScatter, in.ambientScatter, 0.0f);
+    p.lighting = glm::vec4(in.sunScatter, in.localLightScatter, in.ambientScatter,
+                           glm::clamp(in.forwardScatter, 0.0f, 1.0f));
     // A slow breeze, a yard a second, so the mist drifts rather than sits.
     const float t = in.time;
     p.drift = glm::vec4(t * 0.9f, t * 0.45f, t * 0.12f, glm::clamp(in.noiseAmount, 0.0f, 1.0f));
