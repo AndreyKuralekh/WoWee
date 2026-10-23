@@ -17,6 +17,7 @@
 #include "rendering/vk_frame_data.hpp"
 #include "rendering/vk_utils.hpp"
 #include "rendering/sky_system.hpp"
+#include "rendering/sun_shafts.hpp"
 #include "core/screen_recorder.hpp"
 #include "pipeline/custom_zone_discovery.hpp"
 
@@ -481,6 +482,7 @@ private:
     void vrRenderEyes();
     void vrReplayWorldForEye(uint32_t eye);
     void vrRecordHands(uint32_t eye, bool secondaryOnly);
+    void vrFinishEye(uint32_t eye);
     bool vrLastHeadView(glm::vec3& position, glm::mat4& viewProjection) const;
     void vrPlaceBody(float torsoYawDeg);
     bool vrBodyShift(glm::vec2& by) const;
@@ -639,6 +641,7 @@ private:
     /// picture, and a login screen or a loading screen is not one.
     bool worldDrawnThisFrame_ = false;
     void recordSunShafts();
+    SunShafts::FrameInputs sunShaftInputs(const glm::mat4& view, const glm::mat4& projection) const;
 
     // GPU-driven grass: compute cull with atomic compaction feeding an
     // indirect draw, over a population generated from terrain suitability.

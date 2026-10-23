@@ -4979,14 +4979,27 @@ void Renderer::recordSunShafts() {
 #else
     const bool windowHasWorld = true;
 #endif
-    if (sunShaftsEnabled_ && windowHasWorld && worldDrawnThisFrame_ && camera && lightingManager &&
-        currentImageIndex < images.size() &&
+    if (windowHasWorld && worldDrawnThisFrame_ && camera && currentImageIndex < images.size()) {
+        in = sunShaftInputs(camera->getViewMatrix(), camera->getProjectionMatrix());
+    }
+    // Called every frame, strength zero included, so the composite knows
+    // there is nothing of this frame's to add.
+    sunShafts_->record(currentCmd, vkCtx->getCurrentFrame(),
+                       currentImageIndex < images.size() ? images[currentImageIndex] : VK_NULL_HANDLE,
+                       vkCtx->getSwapchainExtent(), in);
+}
+
+// Where the sun is in a picture seen through these matrices, and how strongly
+// its rays stream across it: nothing when they are off, the sun is behind the
+// view or down, or the pass is ablated. The window's picture, or an eye's.
+SunShafts::FrameInputs Renderer::sunShaftInputs(const glm::mat4& view, const glm::mat4& projection) const {
+    SunShafts::FrameInputs in;
+    if (sunShaftsEnabled_ && lightingManager &&
         !(passAblation_ && passAblation_->skip(AblationPass::SunShafts))) {
         const auto& lp = lightingManager->getLightingParams();
         // The sun the lens flare draws around, from the same rule.
         const glm::vec3 sunDir = sunDirectionFromLightDir(lp.directionalDir);
-        const SunOnScreen sun = sunScreenPosition(camera->getViewMatrix(),
-                                                  camera->getProjectionMatrix(), sunDir);
+        const SunOnScreen sun = sunScreenPosition(view, projection, sunDir);
         if (sun.inFront) {
             // Screen strength: 1 would be the sky's own colour over anything a
             // fully lit walk crosses. Less, because the sky around the sun is
@@ -5011,11 +5024,7 @@ void Renderer::recordSunShafts() {
             in.strength = strength;
         }
     }
-    // Called every frame, strength zero included, so the composite knows
-    // there is nothing of this frame's to add.
-    sunShafts_->record(currentCmd, vkCtx->getCurrentFrame(),
-                       currentImageIndex < images.size() ? images[currentImageIndex] : VK_NULL_HANDLE,
-                       vkCtx->getSwapchainExtent(), in);
+    return in;
 }
 
 // Build the per-frame render graph for off-screen pre-passes.

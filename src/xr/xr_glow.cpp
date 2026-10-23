@@ -268,7 +268,7 @@ void EyeGlow::destroy() {
 
 void EyeGlow::pass(VkCommandBuffer cmd, VkRenderPass rp, VkFramebuffer fb, VkExtent2D extent,
                    VkDescriptorSet source, VkExtent2D sourceExtent, int mode, float dirX, float dirY,
-                   float strength) const {
+                   float strength, const std::function<void(VkCommandBuffer)>& onto) const {
     VkRenderPassBeginInfo begin{};
     begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin.renderPass = rp;
@@ -285,20 +285,22 @@ void EyeGlow::pass(VkCommandBuffer cmd, VkRenderPass rp, VkFramebuffer fb, VkExt
                         dirX, dirY, mode, kThreshold, strength, 0.0f};
     vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
     vkCmdDraw(cmd, 3, 1, 0, 0);
+    if (onto) onto(cmd);
     vkCmdEndRenderPass(cmd);
 }
 
-void EyeGlow::record(VkCommandBuffer cmd, uint32_t eye, VkImage eyeImage, float strength, bool opaqueAlpha) const {
+void EyeGlow::record(VkCommandBuffer cmd, uint32_t eye, VkImage eyeImage, float strength, bool opaqueAlpha,
+                     const std::function<void(VkCommandBuffer)>& onto) const {
     if (!ready() || eye >= kEyeCount) return;
     if (strength <= 0.0f) {
-        if (!opaqueAlpha) return;
+        if (!opaqueAlpha && !onto) return;
         // No glow, only the alpha: the composite adds nothing to the colour.
         layoutBarrier(cmd, eyeImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                       VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT,
                       VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
                       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-        pass(cmd, ontoEye_, eyeFb_[eye], eyeExtent_, aSet_[eye], glowExtent_, 2, 0.0f, 0.0f, 0.0f);
+        pass(cmd, ontoEye_, eyeFb_[eye], eyeExtent_, aSet_[eye], glowExtent_, 2, 0.0f, 0.0f, 0.0f, onto);
         return;
     }
 
@@ -315,7 +317,7 @@ void EyeGlow::record(VkCommandBuffer cmd, uint32_t eye, VkImage eyeImage, float 
     layoutBarrier(cmd, eyeImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                   VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    pass(cmd, ontoEye_, eyeFb_[eye], eyeExtent_, aSet_[eye], glowExtent_, 2, 0.0f, 0.0f, strength);
+    pass(cmd, ontoEye_, eyeFb_[eye], eyeExtent_, aSet_[eye], glowExtent_, 2, 0.0f, 0.0f, strength, onto);
 }
 
 }  // namespace wowee::xr

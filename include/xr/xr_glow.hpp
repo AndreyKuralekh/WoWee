@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <functional>
 
 #include "rendering/vk_utils.hpp"
 
@@ -35,12 +36,17 @@ public:
     /// Strength 0 records nothing, unless `opaqueAlpha`. Either way the eye
     /// leaves with alpha 1 everywhere: the hands' pass used it as their mask,
     /// and the runtime blends even the world's layer by it.
-    void record(VkCommandBuffer cmd, uint32_t eye, VkImage eyeImage, float strength, bool opaqueAlpha = false) const;
+    /// `onto`, if given, draws more into the pass that lays the glow onto the
+    /// eye - a full-screen pipeline built for the window's overlay pass, which
+    /// this one matches: the eye has the swapchain's format, one sample, no
+    /// depth. With it the pass runs even when there is no glow.
+    void record(VkCommandBuffer cmd, uint32_t eye, VkImage eyeImage, float strength, bool opaqueAlpha = false,
+                const std::function<void(VkCommandBuffer)>& onto = {}) const;
 
 private:
     void pass(VkCommandBuffer cmd, VkRenderPass rp, VkFramebuffer fb, VkExtent2D extent,
               VkDescriptorSet source, VkExtent2D sourceExtent, int mode, float dirX, float dirY,
-              float strength) const;
+              float strength, const std::function<void(VkCommandBuffer)>& onto = {}) const;
 
     rendering::VkContext* ctx_ = nullptr;
     VkExtent2D eyeExtent_{};

@@ -13,6 +13,7 @@
 #include "rendering/camera_controller.hpp"
 #include "rendering/character_renderer.hpp"
 #include "rendering/volumetric_fog.hpp"
+#include "rendering/sun_shafts.hpp"
 #include "rendering/m2_renderer.hpp"
 #include "rendering/overlay_system.hpp"
 #include "rendering/terrain_manager.hpp"
@@ -69,6 +70,10 @@ struct Renderer::VrEyes {
 
     // The glow added onto each eye before it goes to the headset.
     xr::EyeGlow glow;
+    // The sun's rays across each eye's picture, as across the window's: each
+    // eye's own, from where the sun is in it.
+    SunShafts shafts[kEyeCount];
+    bool shaftsReady[kEyeCount] = {};
     // The player's hands, drawn at the end of each eye's pass.
     xr::HandRenderer hands;
     bool handsThisFrame = false;
@@ -86,6 +91,10 @@ void Renderer::vrDestroyEyes() {
         vkDeviceWaitIdle(device);
         vrEyes_->glow.destroy();
         vrEyes_->hands.destroy();
+        for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
+            vrEyes_->shafts[eye].shutdown();
+            vrEyes_->shaftsReady[eye] = false;
+        }
         for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
             if (vrEyes_->framebuffer[eye]) vkDestroyFramebuffer(device, vrEyes_->framebuffer[eye], nullptr);
             destroyImage(device, allocator, vrEyes_->color[eye]);
@@ -221,6 +230,9 @@ bool Renderer::vrEnsureEyes() {
     // Without it the eyes are drawn as before, so a failure is only said.
     const VkImageView eyeViews[VrEyes::kEyeCount] = {vrEyes_->color[0].imageView, vrEyes_->color[1].imageView};
     vrEyes_->glow.create(vkCtx, wanted, vkCtx->getSwapchainFormat(), eyeViews);
+    for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
+        if (!vrEyes_->shaftsReady[eye]) vrEyes_->shaftsReady[eye] = vrEyes_->shafts[eye].initialize(vkCtx);
+    }
     // Nor without these: the eyes are drawn without hands.
     vrEyes_->hands.create(vkCtx, vkCtx->getImGuiRenderPass());
     LOG_WARNING("VR: eye targets ", wanted.width, "x", wanted.height);
@@ -576,8 +588,25 @@ void Renderer::vrReplayWorldForEye(uint32_t eye) {
     vrRecordHands(eye, true);
     vkCmdEndRenderPass(currentCmd);
     if (vrEyes_->handsThisFrame) xr::system().recordHandsCopy(currentCmd, eye, vrEyes_->color[eye].image);
-    vrEyes_->glow.record(currentCmd, eye, vrEyes_->color[eye].image, xr::system().glow(), vrEyes_->handsThisFrame);
-    xr::system().recordEyeCopy(currentCmd, eye, vrEyes_->color[eye].image);
+    vrFinishEye(eye);
+}
+
+// An eye's picture is drawn: the sun's rays are read off it, then laid on with
+// the glow, and it goes to the headset.
+void Renderer::vrFinishEye(uint32_t eye) {
+    const uint32_t frame = vkCtx->getCurrentFrame();
+    VkImage image = vrEyes_->color[eye].image;
+    bool shafts = false;
+    if (vrEyes_->shaftsReady[eye]) {
+        const xr::EyeView& view = vrEyes_->views.eye[eye];
+        shafts = vrEyes_->shafts[eye].record(currentCmd, frame, image, vrEyes_->extent,
+                                             sunShaftInputs(view.view, view.projection));
+    }
+    SunShafts& eyeShafts = vrEyes_->shafts[eye];
+    const auto onto = [&eyeShafts, frame](VkCommandBuffer cmd) { eyeShafts.composite(cmd, frame); };
+    vrEyes_->glow.record(currentCmd, eye, image, xr::system().glow(), vrEyes_->handsThisFrame,
+                         shafts ? std::function<void(VkCommandBuffer)>(onto) : std::function<void(VkCommandBuffer)>());
+    xr::system().recordEyeCopy(currentCmd, eye, image);
 }
 
 // The fog volume is a grid over one camera's frustum, and every world shader
@@ -774,9 +803,7 @@ void Renderer::vrRenderEyes() {
         vkCmdEndRenderPass(currentCmd);
         if (threaded) swapSecondaries();
         if (vrEyes_->handsThisFrame) xr::system().recordHandsCopy(currentCmd, eye, vrEyes_->color[eye].image);
-        vrEyes_->glow.record(currentCmd, eye, vrEyes_->color[eye].image, xr::system().glow(),
-                             vrEyes_->handsThisFrame);
-        xr::system().recordEyeCopy(currentCmd, eye, vrEyes_->color[eye].image);
+        vrFinishEye(eye);
     }
 
     // WOWEE_FRAME_PROFILE: what the two eyes cost the main thread together.
