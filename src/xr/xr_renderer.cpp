@@ -231,7 +231,9 @@ bool Renderer::vrEnsureEyes() {
     const VkImageView eyeViews[VrEyes::kEyeCount] = {vrEyes_->color[0].imageView, vrEyes_->color[1].imageView};
     vrEyes_->glow.create(vkCtx, wanted, vkCtx->getSwapchainFormat(), eyeViews);
     for (uint32_t eye = 0; eye < VrEyes::kEyeCount; ++eye) {
-        if (!vrEyes_->shaftsReady[eye]) vrEyes_->shaftsReady[eye] = vrEyes_->shafts[eye].initialize(vkCtx);
+        if (vrEyes_->shaftsReady[eye] || !vrEyes_->glow.ready()) continue;
+        vrEyes_->shafts[eye].setCompositeRenderPass(vrEyes_->glow.ontoEyePass());
+        vrEyes_->shaftsReady[eye] = vrEyes_->shafts[eye].initialize(vkCtx);
     }
     // Nor without these: the eyes are drawn without hands.
     vrEyes_->hands.create(vkCtx, vkCtx->getImGuiRenderPass());

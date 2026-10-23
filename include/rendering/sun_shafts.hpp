@@ -65,6 +65,11 @@ public:
     /// something this frame.
     void composite(VkCommandBuffer cmd, uint32_t frame);
 
+    /// The pass composite() is drawn in, when it is not the window's overlay
+    /// pass: a headset eye's, which has one attachment where the overlay has
+    /// two. Before the first record().
+    void setCompositeRenderPass(VkRenderPass pass) { compositePass_ = pass; }
+
 private:
     static constexpr uint32_t MAX_FRAMES = 2;
 
@@ -104,6 +109,7 @@ private:
     /// pass is rebuilt with the swapchain, and a pipeline stays valid for any
     /// pass with the same attachment - so only a format change rebuilds it.
     VkFormat compositeFormat_ = VK_FORMAT_UNDEFINED;
+    VkRenderPass compositePass_ = VK_NULL_HANDLE;  // none: the overlay pass
 
     VkDescriptorPool descPool_ = VK_NULL_HANDLE;
     VkDescriptorSet marchSets_[MAX_FRAMES] = {};

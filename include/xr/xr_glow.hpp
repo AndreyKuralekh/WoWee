@@ -32,14 +32,16 @@ public:
                 const VkImageView eyeViews[kEyeCount]);
     void destroy();
     [[nodiscard]] bool ready() const { return composite_ != VK_NULL_HANDLE; }
+    /// The pass the glow is laid onto the eye in, which record()'s `onto`
+    /// draws into: pipelines for that are built against it.
+    [[nodiscard]] VkRenderPass ontoEyePass() const { return ontoEye_; }
 
     /// Strength 0 records nothing, unless `opaqueAlpha`. Either way the eye
     /// leaves with alpha 1 everywhere: the hands' pass used it as their mask,
     /// and the runtime blends even the world's layer by it.
     /// `onto`, if given, draws more into the pass that lays the glow onto the
-    /// eye - a full-screen pipeline built for the window's overlay pass, which
-    /// this one matches: the eye has the swapchain's format, one sample, no
-    /// depth. With it the pass runs even when there is no glow.
+    /// eye, with pipelines built against ontoEyePass(). With it the pass runs
+    /// even when there is no glow.
     void record(VkCommandBuffer cmd, uint32_t eye, VkImage eyeImage, float strength, bool opaqueAlpha = false,
                 const std::function<void(VkCommandBuffer)>& onto = {}) const;
 

@@ -167,7 +167,7 @@ bool SunShafts::ensureCompositePipeline() {
         .setColorBlendAttachment(add)
         .setMultisample(VK_SAMPLE_COUNT_1_BIT)
         .setLayout(compositeLayout_)
-        .setRenderPass(ctx_->getOverlayRenderPass())
+        .setRenderPass(compositePass_ != VK_NULL_HANDLE ? compositePass_ : ctx_->getOverlayRenderPass())
         .setDynamicStates({VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR})
         .build(device, ctx_->getPipelineCache());
     if (compositePipeline_ == VK_NULL_HANDLE) {
