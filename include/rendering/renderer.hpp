@@ -566,6 +566,14 @@ private:
     VkCommandPool mainSecondaryCmdPool_ = VK_NULL_HANDLE;
     // Pre-allocated secondary command buffers [secondaryIndex][frameInFlight]
     VkCommandBuffer secondaryCmds_[NUM_SECONDARIES][MAX_FRAMES] = {};
+    // The shadow pass on the worker threads: the models in four slices, and
+    // the ground, the buildings and the characters in the fifth - one buffer
+    // from each worker's pool, recorded before that pool's world buffer is.
+    static constexpr uint32_t SHADOW_MODEL_SLICES = 4;
+    static constexpr uint32_t NUM_SHADOW_SECONDARIES = SHADOW_MODEL_SLICES + 1;
+    static_assert(NUM_SHADOW_SECONDARIES <= NUM_WORKERS, "one worker pool per shadow buffer");
+    VkCommandBuffer shadowCmds_[NUM_SHADOW_SECONDARIES][MAX_FRAMES] = {};
+    VkCommandBuffer beginShadowSecondary(uint32_t index, uint32_t frame);
 
     bool parallelRecordingEnabled_ = false;  // set true after pools/buffers created
     // WOWEE_PASS_ABLATION: switches one world pass off at a time and reports

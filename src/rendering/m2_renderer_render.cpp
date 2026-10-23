@@ -2393,8 +2393,16 @@ bool M2Renderer::initializeShadow(VkRenderPass shadowRenderPass) {
 
 void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMatrix, float globalTime,
                               const glm::vec3& /*shadowCenter*/, float shadowRadius) {
-    if (!shadowPipeline_ || !shadowParams_.set) return;
-    if (instances.empty() || models.empty()) return;
+    if (!prepareShadowCasters(lightSpaceMatrix, shadowRadius)) return;
+    recordShadowCasters(cmd, lightSpaceMatrix, globalTime, 0, 1);
+}
+
+// The casters of this frame's shadow, culled, sorted and given their texture
+// sets: everything that allocates or writes what the recording reads. On one
+// thread, before recordShadowCasters runs on as many as there are slices.
+bool M2Renderer::prepareShadowCasters(const glm::mat4& lightSpaceMatrix, float shadowRadius) {
+    if (!shadowPipeline_ || !shadowParams_.set) return false;
+    if (instances.empty() || models.empty()) return false;
 
     // Reset this frame slot's texture descriptor pool (safe: fence was waited on in beginFrame)
     const uint32_t frameIdx = vkCtx_->getCurrentFrame();
@@ -2447,10 +2455,6 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
         return set;
     };
 
-    // How many casters each pass drew, so a shadow that comes and goes can say
-    // whether its caster was culled or its texture was missing.
-    uint32_t castersDrawn[2] = {0, 0};
-
     // Cull once, into the two passes, grouped by model.
     //
     // This walked every instance in the world twice - once per pass - doing a
@@ -2462,7 +2466,18 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
     // this pass, and none of it is drawing.
     shadowCasters_[0].clear();
     shadowCasters_[1].clear();
-    for (uint32_t i = 0; i < instances.size(); ++i) {
+    // In parts on the worker threads: a light-space test of every instance in
+    // the world, some 27 thousand, cost the main thread 4 ms - most of it
+    // fetching the instances. Each part keeps its own two lists, joined after.
+    const uint32_t instanceCount = static_cast<uint32_t>(instances.size());
+    const uint32_t parts = instanceCount >= 4096 ? kShadowCullParts : 1;
+    const auto cullPart = [&](uint32_t part) {
+    auto& found = shadowCullParts_[part];
+    found[0].clear();
+    found[1].clear();
+    const uint32_t first = static_cast<uint32_t>(uint64_t(instanceCount) * part / parts);
+    const uint32_t last = static_cast<uint32_t>(uint64_t(instanceCount) * (part + 1) / parts);
+    for (uint32_t i = first; i < last; ++i) {
         const auto& instance = instances[i];
         if (!instance.cachedIsValid || instance.cachedIsSmoke ||
             instance.cachedIsInvisibleTrap) continue;
@@ -2483,12 +2498,78 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
         if (std::abs(clip.x) > 1.0f + margin || std::abs(clip.y) > 1.0f + margin) continue;
         if (clip.z < -margin || clip.z > 1.0f + margin) continue;
 
-        shadowCasters_[model.shadowWindFoliage ? 1 : 0].emplace_back(instance.modelId, i);
+        found[model.shadowWindFoliage ? 1 : 0].emplace_back(instance.modelId, i);
+    }
+    };
+    if (parts == 1) {
+        cullPart(0);
+    } else {
+        std::future<void> culled[kShadowCullParts];
+        for (uint32_t part = 1; part < parts; ++part) {
+            culled[part] = core::ThreadPool::frameWorkers().submit([&cullPart, part]() { cullPart(part); });
+        }
+        cullPart(0);
+        for (uint32_t part = 1; part < parts; ++part) culled[part].get();
+    }
+    for (uint32_t part = 0; part < parts; ++part) {
+        for (int b = 0; b < 2; ++b) {
+            const auto& found = shadowCullParts_[part][b];
+            shadowCasters_[b].insert(shadowCasters_[b].end(), found.begin(), found.end());
+        }
     }
     for (auto& bucket : shadowCasters_) {
         std::sort(bucket.begin(), bucket.end());
     }
 
+
+    // The texture of every alpha-tested foliage batch that will be drawn,
+    // allocated here: the slices only look them up. Once a model - the list
+    // is sorted by it - not once an instance.
+    const auto& foliage = shadowCasters_[1];
+    for (std::size_t c = 0; c < foliage.size(); ++c) {
+        if (c > 0 && foliage[c].first == foliage[c - 1].first) continue;
+        const auto& instance = instances[foliage[c].second];
+        if (!instance.cachedModel) continue;
+        for (const auto& batch : instance.cachedModel->batches) {
+            if (batch.submeshLevel == 0 && batch.hasAlpha && batch.texture) getTexDescSet(batch.texture);
+        }
+    }
+
+    const uint32_t castersDrawn[2] = {static_cast<uint32_t>(shadowCasters_[0].size()),
+                                      static_cast<uint32_t>(shadowCasters_[1].size())};
+    // A shadow that flickers is a caster that was drawn last frame and is not
+    // drawn this one. The cull is in light space and the light turns with the
+    // hour, so a tree on the boundary can cross it while the player stands
+    // still - and from the ground that reads as the shadow blinking. Said at
+    // most once a second, and only when the count actually swings, so an
+    // ordinary walk through a forest stays quiet.
+    {
+        const uint32_t foliageNow = castersDrawn[1];
+        const uint32_t foliageWas = lastFoliageCasters_;
+        lastFoliageCasters_ = foliageNow;
+        const uint32_t larger = std::max(foliageNow, foliageWas);
+        const uint32_t delta = larger - std::min(foliageNow, foliageWas);
+        if (foliageWas != 0 && larger >= 8 && delta * 10 > larger) {
+            static std::chrono::steady_clock::time_point lastLog{};
+            const auto now = std::chrono::steady_clock::now();
+            if (now - lastLog > std::chrono::seconds(1)) {
+                lastLog = now;
+                LOG_WARNING("Shadow casters swung ", foliageWas, " -> ", foliageNow,
+                            " foliage instances in one frame (", castersDrawn[0],
+                            " solid). A shadow that blinks with the player standing "
+                            "still is one of these crossing the light-space cull.");
+            }
+        }
+    }
+    return true;
+}
+
+// One slice of the casters prepareShadowCasters gathered - every sliceCount-th
+// model from the slice-th - into this command buffer. Reads only, so the
+// slices can be recorded on as many threads at once.
+void M2Renderer::recordShadowCasters(VkCommandBuffer cmd, const glm::mat4& lightSpaceMatrix, float globalTime,
+                                     uint32_t slice, uint32_t sliceCount) const {
+    if (sliceCount == 0) return;
     // Helper lambda to draw instances with a given foliageSway setting
     auto drawPass = [&](bool foliagePass) {
         // What this pass is, carried with each draw rather than written into a
@@ -2508,10 +2589,13 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
             0, 1, &shadowParams_.set, 0, nullptr);
 
         const auto& casters = shadowCasters_[foliagePass ? 1 : 0];
-        for (std::size_t g = 0; g < casters.size();) {
+        uint32_t group = 0;
+        for (std::size_t g = 0; g < casters.size(); ++group) {
             const uint32_t modelId = casters[g].first;
             std::size_t groupEnd = g;
             while (groupEnd < casters.size() && casters[groupEnd].first == modelId) ++groupEnd;
+            // Every slice-th model, so each thread gets trees and rocks alike.
+            if (group % sliceCount != slice) { g = groupEnd; continue; }
 
             const auto& firstInstance = instances[casters[g].second];
             if (!firstInstance.cachedModel) { g = groupEnd; continue; }
@@ -2539,8 +2623,7 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
                 // rectangle on the ground under a tree that looks fine, coming
                 // and going as the texture cache lets the sheet back in.
                 if (foliagePass && !batch.texture) {
-                    if (!warnedShadowNoTexture_) {
-                        warnedShadowNoTexture_ = true;
+                    if (!warnedShadowNoTexture_.exchange(true)) {
                         LOG_WARNING("Shadow pass: a foliage batch of ", model.name,
                                     " has no texture; skipping it rather than casting a "
                                     "solid quad. The texture cache is the usual reason.");
@@ -2551,7 +2634,8 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
                 // instance: the texture is the batch's, and every instance of
                 // this model shares it.
                 if (foliagePass && batch.hasAlpha && batch.texture) {
-                    VkDescriptorSet texSet = getTexDescSet(batch.texture);
+                    const auto found = shadowTexSetCache_.find(batch.texture->getImageView());
+                    VkDescriptorSet texSet = found != shadowTexSetCache_.end() ? found->second : shadowParams_.set;
                     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                         shadowPipelineLayout_, 0, 1, &texSet, 0, nullptr);
                 } else if (foliagePass) {
@@ -2575,7 +2659,6 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
                     vkCmdDrawIndexed(cmd, batch.indexCount, 1, batch.indexStart, 0, 0);
                 }
             }
-            castersDrawn[foliagePass ? 1 : 0] += static_cast<uint32_t>(groupEnd - g);
             g = groupEnd;
         }
     };
@@ -2584,32 +2667,6 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
     drawPass(false);
     // Pass 2: foliage (wind displacement enabled, per-batch alpha-tested textures)
     drawPass(true);
-
-    // A shadow that flickers is a caster that was drawn last frame and is not
-    // drawn this one. The cull is in light space and the light turns with the
-    // hour, so a tree on the boundary can cross it while the player stands
-    // still - and from the ground that reads as the shadow blinking. Said at
-    // most once a second, and only when the count actually swings, so an
-    // ordinary walk through a forest stays quiet.
-    {
-        const uint32_t foliageNow = castersDrawn[1];
-        const uint32_t foliageWas = lastFoliageCasters_;
-        lastFoliageCasters_ = foliageNow;
-        const uint32_t larger = std::max(foliageNow, foliageWas);
-        const uint32_t delta = larger - std::min(foliageNow, foliageWas);
-        if (foliageWas != 0 && larger >= 8 && delta * 10 > larger) {
-            static std::chrono::steady_clock::time_point lastLog{};
-            const auto now = std::chrono::steady_clock::now();
-            if (now - lastLog > std::chrono::seconds(1)) {
-                lastLog = now;
-                LOG_WARNING("Shadow casters swung ", foliageWas, " -> ", foliageNow,
-                            " foliage instances in one frame (", castersDrawn[0],
-                            " solid). A shadow that blinks with the player standing "
-                            "still is one of these crossing the light-space cull.");
-            }
-        }
-    }
 }
-
 } // namespace rendering
 } // namespace wowee

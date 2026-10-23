@@ -517,6 +517,12 @@ public:
      */
     void renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMatrix, float globalTime = 0.0f,
                       const glm::vec3& shadowCenter = glm::vec3(0), float shadowRadius = 1e9f);
+    /// The shadow in two steps, for recording it on several threads: the
+    /// casters gathered on one, then each slice of them recorded on its own.
+    /// renderShadow is the two in a row. False when there is nothing to cast.
+    bool prepareShadowCasters(const glm::mat4& lightSpaceMatrix, float shadowRadius);
+    void recordShadowCasters(VkCommandBuffer cmd, const glm::mat4& lightSpaceMatrix, float globalTime,
+                             uint32_t slice, uint32_t sliceCount) const;
 
     /**
      * Render M2 particle emitters (point sprites)
@@ -771,7 +777,7 @@ private:
     /// The ablation's far-doodad phase; see setDoodadDistanceCap.
     float doodadDistanceCapYards_ = 0.0f;
     /// Said once: a foliage batch reached the shadow pass with no texture.
-    bool warnedShadowNoTexture_ = false;
+    mutable std::atomic<bool> warnedShadowNoTexture_{false};  // said once, from whichever thread
     /// Foliage casters drawn into the shadow map last frame, for spotting a
     /// caster count that swings while nothing is moving.
     uint32_t lastFoliageCasters_ = 0;
@@ -1082,6 +1088,10 @@ private:
     ///
     /// Kept as members so a frame's worth of casters costs no allocation.
     std::vector<std::pair<uint32_t, uint32_t>> shadowCasters_[2];
+    // What each part of the shadow cull found, on its own thread; see
+    // prepareShadowCasters.
+    static constexpr uint32_t kShadowCullParts = 5;
+    std::vector<std::pair<uint32_t, uint32_t>> shadowCullParts_[kShadowCullParts][2];
 
     // Ribbon draw-call list (reused each frame)
     struct RibbonDrawCall {

@@ -4467,6 +4467,16 @@ bool Renderer::createSecondaryCommandResources() {
         }
     }
 
+    for (uint32_t w = 0; w < NUM_SHADOW_SECONDARIES; ++w) {
+        allocInfo.commandPool = workerCmdPools_[w];
+        for (uint32_t f = 0; f < MAX_FRAMES; ++f) {
+            if (vkAllocateCommandBuffers(device, &allocInfo, &shadowCmds_[w][f]) != VK_SUCCESS) {
+                LOG_ERROR("Failed to allocate shadow secondary buffer w=", w, " f=", f);
+                return false;
+            }
+        }
+    }
+
     const uint32_t mainSecondaries[] = { SEC_SKY, SEC_SELECTION, SEC_IMGUI };
     for (uint32_t idx : mainSecondaries) {
         allocInfo.commandPool = mainSecondaryCmdPool_;
@@ -4504,8 +4514,42 @@ void Renderer::destroySecondaryCommandResources() {
     for (auto& arr : secondaryCmds_)
         for (auto& cmd : arr)
             cmd = VK_NULL_HANDLE;
+    for (auto& arr : shadowCmds_)
+        for (auto& cmd : arr)
+            cmd = VK_NULL_HANDLE;
 
     parallelRecordingEnabled_ = false;
+}
+
+// A shadow secondary, for the pass renderShadowPass has begun: dynamic
+// rendering into the depth map, or the shadow render pass and its framebuffer.
+VkCommandBuffer Renderer::beginShadowSecondary(uint32_t index, uint32_t frame) {
+    VkCommandBuffer cmd = shadowCmds_[index][frame];
+    VkCommandBufferInheritanceRenderingInfo rendering{};
+    rendering.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
+    rendering.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
+    rendering.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkCommandBufferInheritanceInfo inherit{};
+    inherit.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+    if (vkCtx->useDynamicRendering()) {
+        inherit.pNext = &rendering;
+    } else {
+        inherit.renderPass = shadowRenderPass;
+        inherit.framebuffer = shadowFramebuffer[frame];
+    }
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+    begin.pInheritanceInfo = &inherit;
+    if (vkBeginCommandBuffer(cmd, &begin) != VK_SUCCESS) {
+        LOG_ERROR("vkBeginCommandBuffer failed for shadow secondary ", index);
+    }
+    const VkViewport vp{.x = 0, .y = 0, .width = static_cast<float>(SHADOW_MAP_SIZE),
+                        .height = static_cast<float>(SHADOW_MAP_SIZE), .minDepth = 0.0f, .maxDepth = 1.0f};
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+    const VkRect2D sc{.offset = {.x = 0, .y = 0}, .extent = {.width = SHADOW_MAP_SIZE, .height = SHADOW_MAP_SIZE}};
+    vkCmdSetScissor(cmd, 0, 1, &sc);
+    return cmd;
 }
 
 VkCommandBuffer Renderer::beginSecondary(uint32_t secondaryIndex) {
@@ -4694,6 +4738,12 @@ void Renderer::renderShadowPass() {
     // nothing is lost by dropping the implicit half - the layout it wants is
     // the layout b1 leaves it in.
     const bool dynamicRendering = vkCtx->useDynamicRendering();
+    // The casters recorded on the worker threads, as the world is: the main
+    // thread recorded them all in one, and the models alone cost it 5-6 ms.
+    // WOWEE_SHADOW_THREADS=0 records them on the main thread as before.
+    static const bool shadowThreads = core::envFlagEnabled("WOWEE_SHADOW_THREADS", true);
+    const bool parallelCasters = drawCasters && parallelRecordingEnabled_ && shadowThreads &&
+                                 shadowCmds_[NUM_SHADOW_SECONDARIES - 1][frame] != VK_NULL_HANDLE;
     // Said once, at warning level, because a bug report arrives with a
     // warnings-only log and "are the shadows drawn the new way" is the first
     // question this change makes anyone ask. A line here answers it without
@@ -4718,6 +4768,7 @@ void Renderer::renderShadowPass() {
         renderInfo.renderArea = {.offset = {.x = 0, .y = 0}, .extent = {.width = SHADOW_MAP_SIZE, .height = SHADOW_MAP_SIZE}};
         renderInfo.layerCount = 1;
         renderInfo.pDepthAttachment = &depthAttach;
+        if (parallelCasters) renderInfo.flags = VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT;
         vkCmdBeginRendering(currentCmd, &renderInfo);
     } else {
         VkRenderPassBeginInfo rpInfo{};
@@ -4729,31 +4780,104 @@ void Renderer::renderShadowPass() {
         clear.depthStencil = {.depth = 1.0f, .stencil = 0};
         rpInfo.clearValueCount = 1;
         rpInfo.pClearValues = &clear;
-        vkCmdBeginRenderPass(currentCmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBeginRenderPass(currentCmd, &rpInfo,
+                             parallelCasters ? VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS
+                                             : VK_SUBPASS_CONTENTS_INLINE);
     }
 
-    VkViewport vp{.x = 0, .y = 0, .width = static_cast<float>(SHADOW_MAP_SIZE), .height = static_cast<float>(SHADOW_MAP_SIZE), .minDepth = 0.0f, .maxDepth = 1.0f};
-    vkCmdSetViewport(currentCmd, 0, 1, &vp);
-    VkRect2D sc{.offset = {.x = 0, .y = 0}, .extent = {.width = SHADOW_MAP_SIZE, .height = SHADOW_MAP_SIZE}};
-    vkCmdSetScissor(currentCmd, 0, 1, &sc);
+    if (!parallelCasters) {
+        VkViewport vp{.x = 0, .y = 0, .width = static_cast<float>(SHADOW_MAP_SIZE), .height = static_cast<float>(SHADOW_MAP_SIZE), .minDepth = 0.0f, .maxDepth = 1.0f};
+        vkCmdSetViewport(currentCmd, 0, 1, &vp);
+        VkRect2D sc{.offset = {.x = 0, .y = 0}, .extent = {.width = SHADOW_MAP_SIZE, .height = SHADOW_MAP_SIZE}};
+        vkCmdSetScissor(currentCmd, 0, 1, &sc);
+    }
 
     // Phase 7/8: render shadow casters
     const float shadowCullRadius = shadowDistance_ * 1.35f;
     // With shadows off the pass still begins and ends, so the map is cleared
     // and left where its readers expect it; only the casters are skipped.
     if (drawCasters) {
+    // WOWEE_FRAME_PROFILE: what each kind of caster costs to record, every
+    // ten seconds - which says how much spreading them over threads can save.
+    static const bool prof = core::envFlagEnabled("WOWEE_FRAME_PROFILE", false);
+    using ShadowClock = std::chrono::steady_clock;
+    if (parallelCasters) {
+        const auto start = ShadowClock::now();
+        // The models' casters gathered here, where their texture sets are
+        // allocated; each slice is then only recorded.
+        const bool models = m2Renderer && m2Renderer->prepareShadowCasters(lightSpaceMatrix, shadowCullRadius);
+        const auto prepared = ShadowClock::now();
+        std::future<void> recorded[NUM_SHADOW_SECONDARIES];
+        for (uint32_t slice = 0; slice < SHADOW_MODEL_SLICES; ++slice) {
+            recorded[slice] = core::ThreadPool::frameWorkers().submit([this, slice, frame, models]() {
+                VkCommandBuffer cmd = beginShadowSecondary(slice, frame);
+                if (models) m2Renderer->recordShadowCasters(cmd, lightSpaceMatrix, globalTime, slice, SHADOW_MODEL_SLICES);
+                vkEndCommandBuffer(cmd);
+            });
+        }
+        recorded[SHADOW_MODEL_SLICES] = core::ThreadPool::frameWorkers().submit([this, frame, shadowCullRadius]() {
+            VkCommandBuffer cmd = beginShadowSecondary(SHADOW_MODEL_SLICES, frame);
+            if (terrainRenderer) terrainRenderer->renderShadow(cmd, lightSpaceMatrix, shadowCenter, shadowCullRadius);
+            if (wmoRenderer) wmoRenderer->renderShadow(cmd, lightSpaceMatrix, shadowCenter, shadowCullRadius);
+            if (characterRenderer) characterRenderer->renderShadow(cmd, lightSpaceMatrix, shadowCenter, shadowCullRadius);
+            vkEndCommandBuffer(cmd);
+        });
+        VkCommandBuffer buffers[NUM_SHADOW_SECONDARIES];
+        for (uint32_t i = 0; i < NUM_SHADOW_SECONDARIES; ++i) {
+            recorded[i].get();
+            buffers[i] = shadowCmds_[i][frame];
+        }
+        vkCmdExecuteCommands(currentCmd, NUM_SHADOW_SECONDARIES, buffers);
+        if (prof) {
+            const auto done = ShadowClock::now();
+            static double sums[2] = {};
+            static uint32_t frames = 0;
+            static auto lastSaid = done;
+            sums[0] += std::chrono::duration<double, std::milli>(prepared - start).count();
+            sums[1] += std::chrono::duration<double, std::milli>(done - prepared).count();
+            ++frames;
+            if (done - lastSaid > std::chrono::seconds(10)) {
+                LOG_WARNING("  shadow casters on ", NUM_SHADOW_SECONDARIES, " threads, ms a frame: models gathered ",
+                            sums[0] / frames, ", recorded and waited for ", sums[1] / frames);
+                sums[0] = sums[1] = 0.0;
+                frames = 0;
+                lastSaid = done;
+            }
+        }
+    } else {
+    const auto t0 = ShadowClock::now();
     if (terrainRenderer) {
         terrainRenderer->renderShadow(currentCmd, lightSpaceMatrix, shadowCenter, shadowCullRadius);
     }
+    const auto t1 = ShadowClock::now();
     if (wmoRenderer) {
         wmoRenderer->renderShadow(currentCmd, lightSpaceMatrix, shadowCenter, shadowCullRadius);
     }
+    const auto t2 = ShadowClock::now();
     if (m2Renderer) {
         m2Renderer->renderShadow(currentCmd, lightSpaceMatrix, globalTime, shadowCenter, shadowCullRadius);
     }
+    const auto t3 = ShadowClock::now();
     if (characterRenderer) {
         characterRenderer->renderShadow(currentCmd, lightSpaceMatrix, shadowCenter, shadowCullRadius);
     }
+    if (prof) {
+        const auto t4 = ShadowClock::now();
+        static double sums[4] = {};
+        static uint32_t frames = 0;
+        static auto lastSaid = t4;
+        const auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+        sums[0] += ms(t0, t1); sums[1] += ms(t1, t2); sums[2] += ms(t2, t3); sums[3] += ms(t3, t4);
+        ++frames;
+        if (t4 - lastSaid > std::chrono::seconds(10)) {
+            LOG_WARNING("  shadow casters, ms a frame: terrain ", sums[0] / frames, ", buildings ", sums[1] / frames,
+                        ", models ", sums[2] / frames, ", characters ", sums[3] / frames);
+            for (double& s : sums) s = 0.0;
+            frames = 0;
+            lastSaid = t4;
+        }
+    }
+    }  // parallelCasters
     }  // drawCasters
 
     if (dynamicRendering) {
