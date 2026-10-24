@@ -414,7 +414,11 @@ public:
     /// Rays streaming from the sun across the finished picture. See SunShafts.
     void setSunShaftsEnabled(bool enabled) { sunShaftsEnabled_ = enabled; }
     int getTerrainLoadRadius() const;
-    int getTerrainUnloadRadius() const { return getTerrainLoadRadius() + 3; }
+    // Two tiles past the load radius is the least that never unloads a tile a
+    // step back to any neighbouring tile would load again (a diagonal step
+    // moves the centre by 1.41 tiles). Anything kept further out is never
+    // drawn but is still culled and animated every frame.
+    int getTerrainUnloadRadius() const { return getTerrainLoadRadius() + 2; }
     void setMsaaSamples(VkSampleCountFlagBits samples);
 
     // Post-process pipeline API - delegates to PostProcessPipeline (§4.3)
