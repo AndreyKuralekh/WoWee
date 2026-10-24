@@ -590,7 +590,19 @@ void Renderer::vrReplayWorldForEye(uint32_t eye) {
     vrRecordHands(eye, true);
     vkCmdEndRenderPass(currentCmd);
     if (vrEyes_->handsThisFrame) xr::system().recordHandsCopy(currentCmd, eye, vrEyes_->color[eye].image);
+    vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkWorld));
     vrFinishEye(eye);
+}
+
+// GPU marks of an eye's stages, outside its pass so that they read true: this
+// driver resolves a mark inside a render pass to the pass. The window's own
+// "post-process" mark otherwise took in the second eye's world.
+const char* Renderer::vrEyeMark(uint32_t eye, uint32_t stage) {
+    static constexpr const char* kMarks[VrEyes::kEyeCount][kEyeMarkCount] = {
+        {"eye 0 fog", "eye 0 world", "eye 0 shafts", "eye 0 glow", "eye 0 to headset"},
+        {"eye 1 fog", "eye 1 world", "eye 1 shafts", "eye 1 glow", "eye 1 to headset"},
+    };
+    return kMarks[eye][stage];
 }
 
 // An eye's picture is drawn: the sun's rays are read off it, then laid on with
@@ -604,11 +616,14 @@ void Renderer::vrFinishEye(uint32_t eye) {
         shafts = vrEyes_->shafts[eye].record(currentCmd, frame, image, vrEyes_->extent,
                                              sunShaftInputs(view.view, view.projection));
     }
+    vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkShafts));
     SunShafts& eyeShafts = vrEyes_->shafts[eye];
     const auto onto = [&eyeShafts, frame](VkCommandBuffer cmd) { eyeShafts.composite(cmd, frame); };
     vrEyes_->glow.record(currentCmd, eye, image, xr::system().glow(), vrEyes_->handsThisFrame,
                          shafts ? std::function<void(VkCommandBuffer)>(onto) : std::function<void(VkCommandBuffer)>());
+    vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkGlow));
     xr::system().recordEyeCopy(currentCmd, eye, image);
+    vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkCopy));
 }
 
 // The fog volume is a grid over one camera's frustum, and every world shader
@@ -733,6 +748,7 @@ void Renderer::vrRenderEyes() {
         if (shared && eye == 0) std::memcpy(vrEyes_->sharedUboMapped[frame], &data, sizeof(GPUPerFrameData));
 
         if (vrFogWanted_) vrBuildFogForEye(eye);
+        vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkFog));
         if (shared && eye == 1) {
             vrReplayWorldForEye(eye);
             continue;
@@ -805,6 +821,7 @@ void Renderer::vrRenderEyes() {
         vkCmdEndRenderPass(currentCmd);
         if (threaded) swapSecondaries();
         if (vrEyes_->handsThisFrame) xr::system().recordHandsCopy(currentCmd, eye, vrEyes_->color[eye].image);
+        vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkWorld));
         vrFinishEye(eye);
     }
 

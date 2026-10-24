@@ -483,6 +483,8 @@ private:
     void vrReplayWorldForEye(uint32_t eye);
     void vrRecordHands(uint32_t eye, bool secondaryOnly);
     void vrFinishEye(uint32_t eye);
+    enum : uint32_t { kEyeMarkFog, kEyeMarkWorld, kEyeMarkShafts, kEyeMarkGlow, kEyeMarkCopy, kEyeMarkCount };
+    static const char* vrEyeMark(uint32_t eye, uint32_t stage);
     bool vrLastHeadView(glm::vec3& position, glm::mat4& viewProjection) const;
     void vrPlaceBody(float torsoYawDeg);
     bool vrBodyShift(glm::vec2& by) const;
