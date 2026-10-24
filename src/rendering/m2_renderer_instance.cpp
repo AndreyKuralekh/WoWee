@@ -286,6 +286,19 @@ void M2Renderer::removeInstance(uint32_t instanceId) {
     rebuildAuxIndices();
 }
 
+bool M2Renderer::clockMatters(const M2Instance& instance) {
+    const M2ModelGPU* model = instance.cachedModel;
+    // Without its model nothing is known about it: keep it ticking, as before.
+    if (!model) return true;
+    // An instance with animation switched off has its bones posed once when
+    // it is placed and never stepped, so its clock is read only for the
+    // other reasons below.
+    const bool stepped = instance.cachedHasAnimation && !instance.cachedDisableAnimation;
+    return instance.cachedIsBoat || stepped || model->scrollsTexture ||
+           model->isSpellEffect || !model->particleEmitters.empty() ||
+           !model->ribbonEmitters.empty();
+}
+
 void M2Renderer::rebuildAuxIndices() {
     // Rebuild the lightweight auxiliary index vectors (smoke, portal, etc.)
     // These are small vectors of indices that are rebuilt cheaply.
@@ -294,12 +307,14 @@ void M2Renderer::rebuildAuxIndices() {
     animatedInstanceIndices_.clear();
     particleOnlyInstanceIndices_.clear();
     particleInstanceIndices_.clear();
+    timedInstanceIndices_.clear();
     lightInstanceIndices_.clear();
     for (size_t i = 0; i < instances.size(); i++) {
         auto& ri = instances[i];
         if (ri.cachedIsSmoke) smokeInstanceIndices_.push_back(i);
         if (ri.cachedIsInstancePortal) portalInstanceIndices_.push_back(i);
         if (ri.cachedHasParticleEmitters) particleInstanceIndices_.push_back(i);
+        if (clockMatters(ri)) timedInstanceIndices_.push_back(i);
         if (ri.cachedModel && givesLight(*ri.cachedModel)) lightInstanceIndices_.push_back(i);
         if (ri.cachedHasAnimation && !ri.cachedDisableAnimation)
             animatedInstanceIndices_.push_back(i);
@@ -486,6 +501,7 @@ void M2Renderer::clear() {
     animatedInstanceIndices_.clear();
     particleOnlyInstanceIndices_.clear();
     particleInstanceIndices_.clear();
+    timedInstanceIndices_.clear();
     lightInstanceIndices_.clear();
     smokeEmitAccum = 0.0f;
 
@@ -519,6 +535,7 @@ void M2Renderer::clearInstances() {
     animatedInstanceIndices_.clear();
     particleOnlyInstanceIndices_.clear();
     particleInstanceIndices_.clear();
+    timedInstanceIndices_.clear();
     lightInstanceIndices_.clear();
     smokeParticles.clear();
     smokeEmitAccum = 0.0f;
@@ -544,6 +561,7 @@ void M2Renderer::rebuildSpatialIndex() {
     animatedInstanceIndices_.clear();
     particleOnlyInstanceIndices_.clear();
     particleInstanceIndices_.clear();
+    timedInstanceIndices_.clear();
     lightInstanceIndices_.clear();
 
     for (size_t i = 0; i < instances.size(); i++) {
@@ -572,6 +590,7 @@ void M2Renderer::rebuildSpatialIndex() {
         if (inst.cachedHasParticleEmitters) {
             particleInstanceIndices_.push_back(i);
         }
+        if (clockMatters(inst)) timedInstanceIndices_.push_back(i);
         if (inst.cachedModel && givesLight(*inst.cachedModel)) {
             lightInstanceIndices_.push_back(i);
         }

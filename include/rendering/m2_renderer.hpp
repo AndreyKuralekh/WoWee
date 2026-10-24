@@ -216,6 +216,11 @@ struct M2ModelGPU {
     bool isTransportDoodad = false; // Animated ship sail/paddle child
     bool isBoat = false;            // Small boat; bobs if it turns out to be afloat
     bool hasTextureAnimation = false; // True if any batch has UV animation
+    // True if some batch's lookup reaches a transform with translation keys,
+    // the one thing a draw samples from it. hasTextureAnimation is set by any
+    // lookup index at all, and nearly every model carries index 0 pointing at
+    // an empty slot.
+    bool scrollsTexture = false;
     bool hasTransparentBatches = false; // True if any batch uses alpha-blend or additive (blendMode >= 2)
     uint8_t availableLODs = 0;  // Bitmask: bit N set if any batch has submeshLevel==N
 
@@ -1179,6 +1184,13 @@ private:
     std::vector<size_t> animatedInstanceIndices_;   // hasAnimation && !disableAnimation
     std::vector<size_t> particleOnlyInstanceIndices_; // !hasAnimation && hasParticleEmitters
     std::vector<size_t> particleInstanceIndices_;    // ALL instances with particle emitters
+    // Instances whose animation clock anything reads: bones, particles,
+    // ribbons, texture scrolling, a spell effect's fade, a boat. Advancing
+    // the clock of every instance took two milliseconds a frame in a forest
+    // of sixty thousand, nearly all of it trees and rocks whose clock nothing
+    // reads, and each step a cache miss on a large struct.
+    std::vector<size_t> timedInstanceIndices_;
+    static bool clockMatters(const M2Instance& instance);
     // Instances of models that can light their surroundings - lanterns,
     // torches, fires, forges, lava. gatherLocalLights is asked every frame and
     // walked all ninety thousand instances to find the few hundred of these.

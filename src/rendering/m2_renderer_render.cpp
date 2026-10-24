@@ -201,6 +201,7 @@ uint32_t M2Renderer::createInstance(uint32_t modelId, const glm::vec3& position,
     if (!mdlRef.particleEmitters.empty()) {
         particleInstanceIndices_.push_back(idx);
     }
+    if (clockMatters(instance)) timedInstanceIndices_.push_back(idx);
     if (givesLight(mdlRef)) lightInstanceIndices_.push_back(idx);
     if (mdlRef.hasAnimation && !mdlRef.disableAnimation) {
         animatedInstanceIndices_.push_back(idx);
@@ -306,6 +307,7 @@ uint32_t M2Renderer::createInstanceWithMatrix(uint32_t modelId, const glm::mat4&
     if (!mdl2.particleEmitters.empty()) {
         particleInstanceIndices_.push_back(idx);
     }
+    if (clockMatters(instance)) timedInstanceIndices_.push_back(idx);
     if (givesLight(mdl2)) lightInstanceIndices_.push_back(idx);
     if (mdl2.hasAnimation && !mdl2.disableAnimation) {
         animatedInstanceIndices_.push_back(idx);
@@ -432,8 +434,9 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
     }
 
     // --- Normal M2 animation update ---
-    // Advance animTime for ALL instances (needed for texture UV animation on static doodads).
-    // This is a tight loop touching only one float per instance - no hash lookups.
+    // Advance animTime for every instance whose clock is read (see
+    // timedInstanceIndices_): bones, texture UV animation on static doodads,
+    // particles and the rest. The clock of any other instance stands still.
     //
     // An instance the bone loop below does not step is wrapped here, at the
     // length of its own sequence. A texture track is sampled against this
@@ -441,7 +444,9 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
     // waterfall with no bones of its own scrolled once after it loaded and
     // then stood still, and one with emitters - wrapped at a fixed 3.3 s
     // below, whatever its sequence - stopped for the rest of each lap.
-    for (auto& instance : instances) {
+    for (size_t idx : timedInstanceIndices_) {
+        if (idx >= instances.size()) continue;
+        auto& instance = instances[idx];
         instance.animTime += dtMs;
         instance.globalSequenceTime += dtMs;
         // A boat asks once whether it is on water - the canal may stream in

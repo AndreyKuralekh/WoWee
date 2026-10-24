@@ -2068,6 +2068,15 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     gpuModel.textureTransforms = model.textureTransforms;
     gpuModel.textureTransformLookup = model.textureTransformLookup;
     gpuModel.hasTextureAnimation = false;
+    for (const auto& batch : model.batches) {
+        if (batch.textureAnimIndex >= model.textureTransformLookup.size()) continue;
+        const uint16_t transformIdx = model.textureTransformLookup[batch.textureAnimIndex];
+        if (transformIdx < model.textureTransforms.size() &&
+            model.textureTransforms[transformIdx].translation.hasData()) {
+            gpuModel.scrollsTexture = true;
+            break;
+        }
+    }
 
     // Build per-batch GPU entries
     if (!model.batches.empty()) {
