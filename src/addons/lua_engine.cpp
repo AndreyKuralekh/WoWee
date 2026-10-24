@@ -10223,8 +10223,15 @@ void LuaEngine::reportEventListenersOnce() {
 /// parent never goes near SetWidth.
 void LuaEngine::updateSizeChanges() {
     if (!L_) return;
-    for (size_t id = 1; id < widgets_.size(); ++id) {
-        const ui::Widget* wp = widgets_.get(static_cast<uint32_t>(id));
+    // Only the widgets the tree says may have changed size, in id order as
+    // the walk over every frame went - parents, created first, before their
+    // children. Taken before any handler runs: a size one of them changes is
+    // looked at next frame.
+    std::vector<uint32_t> changed = widgets_.takeSizeChanges();
+    std::sort(changed.begin(), changed.end());
+    changed.erase(std::unique(changed.begin(), changed.end()), changed.end());
+    for (uint32_t id : changed) {
+        const ui::Widget* wp = widgets_.get(id);
         if (!wp) continue;
         const ui::Widget& w = *wp;
         if (w.id == 0 || w.kind != ui::WidgetKind::Frame) continue;

@@ -102,6 +102,7 @@ void WidgetTree::reset() {
     linkRects_.clear();
     scrollFrames_.clear();
     messageFrames_.clear();
+    sizeChanges_.clear();
     ownedTooltips_.clear();
     portraitsByUnit_.clear();
     portraitUnitOf_.clear();
@@ -137,6 +138,9 @@ uint32_t WidgetTree::create(WidgetKind kind, uint32_t parent, const std::string&
     Widget& w = widgets_.back();
     w.id = id;
     w.kind = kind;
+    // Its first size is recorded rather than announced, as by the walk this
+    // list replaced, and from then on it is compared.
+    sizeChanges_.push_back(id);
     w.name = name;
     w.creationOrder = nextOrder_++;
     // Regions belong to the frame that made them; a widget with no parent
@@ -340,6 +344,7 @@ void WidgetTree::setWidth(uint32_t id, float width) {
         w->wrapsToWidth = false;
     }
     w->width = width;
+    sizeChanges_.push_back(id);
     // Provisional, so a read before the next layout sees what was just set.
     // The layout overwrites it from the anchors, which is the final answer
     // where anchors decide the size.
@@ -371,6 +376,7 @@ void WidgetTree::setHeight(uint32_t id, float height) {
     }
     w->height = height;
     w->rectH = height;
+    sizeChanges_.push_back(id);
 }
 
 void WidgetTree::pinToCurrentPosition(uint32_t id) {
@@ -731,7 +737,7 @@ void WidgetTree::resolveChain(uint32_t id, float screenW, float screenH, int& de
     if (parent != 0 && parent != id) resolveChain(parent, screenW, screenH, depth);
     for (uint32_t d : deps) resolveChain(d, screenW, screenH, depth);
     --depth;
-    layoutWidgetSelf(id, screenW, screenH);
+    layoutWidgetSelfNotingSize(id, screenW, screenH);
 }
 
 void WidgetTree::layout(float pixelW, float pixelH) {
@@ -765,6 +771,7 @@ void WidgetTree::layout(float pixelW, float pixelH) {
     hiddenMarksHold_ = true;
 
     Widget& rootW = widgets_[rootId_];
+    if (rootW.rectW != screenW || rootW.rectH != screenH) sizeChanges_.push_back(rootW.id);
     rootW.left = 0.0f;
     rootW.bottom = 0.0f;
     rootW.rectW = screenW;
@@ -780,6 +787,7 @@ void WidgetTree::layout(float pixelW, float pixelH) {
     // no anchors is not displayed. Its own shown flag still decides whether
     // anything under it is, which is the whole point of it being a frame.
     if (Widget* ui = get(uiParentId_); ui && ui != &rootW) {
+        if (ui->rectW != screenW || ui->rectH != screenH) sizeChanges_.push_back(ui->id);
         ui->left = 0.0f;
         ui->bottom = 0.0f;
         ui->rectW = screenW;
@@ -812,6 +820,12 @@ void WidgetTree::layout(float pixelW, float pixelH) {
     // for 3.6ms, whether or not anything changed. Skipping a clean frame is
     // only worth building if clean frames exist, so count them before
     // believing they do.
+    // Nothing takes the size list while no interface reads it, and SetWidth
+    // runs often: keep it to one entry a widget rather than letting it grow.
+    if (sizeChanges_.size() > 2 * widgets_.size()) {
+        std::sort(sizeChanges_.begin(), sizeChanges_.end());
+        sizeChanges_.erase(std::unique(sizeChanges_.begin(), sizeChanges_.end()), sizeChanges_.end());
+    }
     lastVisibleCount_ = visibleThisPass_;
     visibleThisPass_ = 0;
     if (layoutGeneration_ == generationAtLastPass_) ++cleanPasses_;
@@ -848,7 +862,7 @@ void WidgetTree::markSubtreeHidden(uint32_t id) {
 }
 
 void WidgetTree::layoutWidget(uint32_t id, float screenW, float screenH) {
-    layoutWidgetSelf(id, screenW, screenH);
+    layoutWidgetSelfNotingSize(id, screenW, screenH);
 
     // A hidden frame's descendants are hidden too - visibleChain is `shown`
     // and every ancestor shown - so placing them is arithmetic for something
@@ -876,6 +890,17 @@ void WidgetTree::layoutWidget(uint32_t id, float screenW, float screenH) {
         w = get(id);
         if (!w || i >= w->children.size()) return;
         layoutWidget(w->children[i], screenW, screenH);
+    }
+}
+
+void WidgetTree::layoutWidgetSelfNotingSize(uint32_t id, float screenW, float screenH) {
+    const Widget* before = get(id);
+    if (!before) return;
+    const float oldW = before->rectW, oldH = before->rectH;
+    layoutWidgetSelf(id, screenW, screenH);
+    // Fetched again, as everywhere else here: placing it can create widgets.
+    if (const Widget* after = get(id); after && (after->rectW != oldW || after->rectH != oldH)) {
+        sizeChanges_.push_back(id);
     }
 }
 

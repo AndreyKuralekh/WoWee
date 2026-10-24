@@ -23,6 +23,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace wowee {
@@ -973,6 +974,12 @@ public:
     /// these by walking every widget cost 0.8ms of it.
     void markMessageFrame(uint32_t id);
     [[nodiscard]] const std::vector<uint32_t>& messageFrames() const { return messageFrames_; }
+    /// The widgets whose rect size may have changed since this was last
+    /// taken: every new widget, every SetWidth and SetHeight, and every one
+    /// a layout gave a different size. OnSizeChanged is fired from these
+    /// rather than from a walk of every frame, which cost 0.6ms a frame.
+    /// May repeat an id; the caller compares against what it last reported.
+    [[nodiscard]] std::vector<uint32_t> takeSizeChanges() { return std::exchange(sizeChanges_, {}); }
     [[nodiscard]] const std::vector<uint32_t>& playerPortraits() const { return portraitsFor("player"); }
 
     /// The widget published under this name, or null. Names are unique in
@@ -1086,6 +1093,8 @@ private:
     float userScale_ = 1.0f;
     std::vector<uint32_t> scrollFrames_;
     std::vector<uint32_t> messageFrames_;
+    std::vector<uint32_t> sizeChanges_;
+    void layoutWidgetSelfNotingSize(uint32_t id, float screenW, float screenH);
     /// Which unit each portrait texture is showing, and the reverse. Two maps
     /// rather than one because both questions are asked every frame: the draw
     /// loop wants every texture for a unit, and a claim wants the unit a
