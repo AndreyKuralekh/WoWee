@@ -103,6 +103,7 @@ void WidgetTree::reset() {
     scrollFrames_.clear();
     messageFrames_.clear();
     sizeChanges_.clear();
+    visibilityChanges_.clear();
     ownedTooltips_.clear();
     portraitsByUnit_.clear();
     portraitUnitOf_.clear();
@@ -234,7 +235,7 @@ void WidgetTree::hideOrphanedTooltips() {
         // own right after LootFrame hides above it.
         if (owner && owner->visibleChain) continue;
         tip->shown = false;
-        tip->visible = false;
+        setVisible(*tip, false);
         tip->visibleChain = false;
         // Its lines are still marked shown under it, so the next pass may
         // not stop on it as already hidden.
@@ -777,7 +778,7 @@ void WidgetTree::layout(float pixelW, float pixelH) {
     rootW.rectW = screenW;
     rootW.rectH = screenH;
     rootW.visibleChain = rootW.shown;
-    rootW.visible = rootW.shown;
+    setVisible(rootW, rootW.shown);
     rootW.effStrata = rootW.strata;
     rootW.effLevel = 0;
     rootW.effScale = 1.0f;
@@ -793,7 +794,7 @@ void WidgetTree::layout(float pixelW, float pixelH) {
         ui->rectW = screenW;
         ui->rectH = screenH;
         ui->visibleChain = rootW.visible && ui->shown;
-        ui->visible = ui->visibleChain;
+        setVisible(*ui, ui->visibleChain);
         ui->effStrata = ui->strata;
         ui->effLevel = 0;
         ui->effScale = 1.0f;
@@ -822,9 +823,10 @@ void WidgetTree::layout(float pixelW, float pixelH) {
     // believing they do.
     // Nothing takes the size list while no interface reads it, and SetWidth
     // runs often: keep it to one entry a widget rather than letting it grow.
-    if (sizeChanges_.size() > 2 * widgets_.size()) {
-        std::sort(sizeChanges_.begin(), sizeChanges_.end());
-        sizeChanges_.erase(std::unique(sizeChanges_.begin(), sizeChanges_.end()), sizeChanges_.end());
+    for (auto* list : {&sizeChanges_, &visibilityChanges_}) {
+        if (list->size() <= 2 * widgets_.size()) continue;
+        std::sort(list->begin(), list->end());
+        list->erase(std::unique(list->begin(), list->end()), list->end());
     }
     lastVisibleCount_ = visibleThisPass_;
     visibleThisPass_ = 0;
@@ -855,7 +857,7 @@ void WidgetTree::markSubtreeHidden(uint32_t id) {
             // answer, because resolveWidget re-derives whatever the last full
             // pass did not claim.
             c->visibleChain = false;
-            c->visible = false;
+            setVisible(*c, false);
         }
         markSubtreeHidden(child);
     }
@@ -947,7 +949,7 @@ void WidgetTree::layoutWidgetSelf(uint32_t id, float screenW, float screenH) {
     // anchored child of an unanchored frame has nowhere to be either, because
     // the thing it is anchored to has no position. Deriving this from the
     // chain instead put those children back on screen.
-    w->visible = w->shown && (!parent || parent->visible) && !unanchoredFrame;
+    setVisible(*w, w->shown && (!parent || parent->visible) && !unanchoredFrame);
     // Clipping is inherited: anything under a scroll frame is bounded by it,
     // however deep, because a scroll child holds frames of its own.
     //

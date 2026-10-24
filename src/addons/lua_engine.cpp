@@ -3459,7 +3459,10 @@ int lua_Region_Show(lua_State* L) {
         // flag where it started, and the pass that fires OnShow works by
         // comparing against the last state it reported - so the rebuild the
         // interface asked for is invisible to it. See Widget::shownToggles.
-        if (!w->shown && w->shownToggles < 200) ++w->shownToggles;
+        if (!w->shown && w->shownToggles < 200) {
+            ++w->shownToggles;
+            if (auto* tree = wowee::addons::getWidgetTree(L)) tree->noteVisibilityChange(w->id);
+        }
         becameShown = !w->shown;
         w->shown = true;
     }
@@ -3520,6 +3523,7 @@ int lua_Region_Hide(lua_State* L) {
         // the startTime its OnShow was going to set. Reported in #132.
         if (w->shown && frameScriptSet(L, 1, "OnHide") && w->shownToggles < 200) {
             ++w->shownToggles;
+            if (auto* tree = wowee::addons::getWidgetTree(L)) tree->noteVisibilityChange(w->id);
         }
         // A hidden tooltip belongs to nobody.
         //
@@ -10295,7 +10299,15 @@ void LuaEngine::updateVisibility() {
     // handlers is worth the risk of waking the rest.
     //
     // (UIParent looks like a seventh and is not: it carries setAllPoints.)
-    for (uint32_t id = 1; id < widgets_.size(); ++id) {
+    //
+    // Only the widgets the tree says changed, in id order as the walk over
+    // every widget went, so a parent's OnShow still runs before its
+    // children's. Taken before any handler runs: a frame a handler hides and
+    // shows again is answered next frame.
+    std::vector<uint32_t> changed = widgets_.takeVisibilityChanges();
+    std::sort(changed.begin(), changed.end());
+    changed.erase(std::unique(changed.begin(), changed.end()), changed.end());
+    for (uint32_t id : changed) {
         auto* w = widgets_.get(id);
         if (!w || w->id == 0) continue;
         const uint8_t toggles = w->shownToggles;

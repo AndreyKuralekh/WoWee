@@ -980,6 +980,11 @@ public:
     /// rather than from a walk of every frame, which cost 0.6ms a frame.
     /// May repeat an id; the caller compares against what it last reported.
     [[nodiscard]] std::vector<uint32_t> takeSizeChanges() { return std::exchange(sizeChanges_, {}); }
+    /// The same for OnShow and OnHide: every widget whose `visible` a layout
+    /// changed, and every one Lua hid and showed again (shownToggles). The
+    /// walk of every widget this replaced cost 0.7ms a frame.
+    void noteVisibilityChange(uint32_t id) { visibilityChanges_.push_back(id); }
+    [[nodiscard]] std::vector<uint32_t> takeVisibilityChanges() { return std::exchange(visibilityChanges_, {}); }
     [[nodiscard]] const std::vector<uint32_t>& playerPortraits() const { return portraitsFor("player"); }
 
     /// The widget published under this name, or null. Names are unique in
@@ -1094,6 +1099,12 @@ private:
     std::vector<uint32_t> scrollFrames_;
     std::vector<uint32_t> messageFrames_;
     std::vector<uint32_t> sizeChanges_;
+    std::vector<uint32_t> visibilityChanges_;
+    void setVisible(Widget& w, bool visible) {
+        if (w.visible == visible) return;
+        w.visible = visible;
+        visibilityChanges_.push_back(w.id);
+    }
     void layoutWidgetSelfNotingSize(uint32_t id, float screenW, float screenH);
     /// Which unit each portrait texture is showing, and the reverse. Two maps
     /// rather than one because both questions are asked every frame: the draw
