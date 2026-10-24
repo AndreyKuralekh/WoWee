@@ -968,6 +968,11 @@ public:
     /// same omission and new ones would arrive with the same bug.
     void hideOrphanedTooltips();
     [[nodiscard]] const std::vector<uint32_t>& scrollFrames() const { return scrollFrames_; }
+    /// A frame that has been given a message, so its lines age. Kept as a
+    /// list because the ageing runs every frame, and finding the dozen of
+    /// these by walking every widget cost 0.8ms of it.
+    void markMessageFrame(uint32_t id);
+    [[nodiscard]] const std::vector<uint32_t>& messageFrames() const { return messageFrames_; }
     [[nodiscard]] const std::vector<uint32_t>& playerPortraits() const { return portraitsFor("player"); }
 
     /// The widget published under this name, or null. Names are unique in
@@ -1080,6 +1085,7 @@ private:
     float uiScale_ = 1.0f;
     float userScale_ = 1.0f;
     std::vector<uint32_t> scrollFrames_;
+    std::vector<uint32_t> messageFrames_;
     /// Which unit each portrait texture is showing, and the reverse. Two maps
     /// rather than one because both questions are asked every frame: the draw
     /// loop wants every texture for a unit, and a claim wants the unit a

@@ -101,6 +101,7 @@ void WidgetTree::reset() {
     drawOrder_.clear();
     linkRects_.clear();
     scrollFrames_.clear();
+    messageFrames_.clear();
     ownedTooltips_.clear();
     portraitsByUnit_.clear();
     portraitUnitOf_.clear();
@@ -195,6 +196,13 @@ void WidgetTree::markScrollFrame(uint32_t id) {
     if (!w || w->isScrollFrame) return;
     w->isScrollFrame = true;
     scrollFrames_.push_back(id);
+}
+
+void WidgetTree::markMessageFrame(uint32_t id) {
+    Widget* w = get(id);
+    if (!w || w->isMessageFrame) return;
+    w->isMessageFrame = true;
+    messageFrames_.push_back(id);
 }
 
 void WidgetTree::setTooltipOwner(uint32_t tooltipId, uint32_t ownerId) {

@@ -1469,7 +1469,10 @@ int lua_MessageFrame_AddMessage(lua_State* L) {
         m.hasExtra = true;
         m.extra = lua_tostring(L, 9);
     }
-    w->isMessageFrame = true;
+    if (!w->isMessageFrame) {
+        if (auto* tree = wowee::addons::getWidgetTree(L)) tree->markMessageFrame(w->id);
+        else w->isMessageFrame = true;
+    }
     // UIErrorsFrame asks for insertMode="TOP", which puts a new line above the
     // ones already there rather than below them.
     if (w->messagesInsertTop) w->messages.push_front(std::move(m));
@@ -11369,8 +11372,8 @@ void LuaEngine::runInterfaceProbe() {
 /// erased here and why scrolling lights everything again - the player reading
 /// back wants what was said, not what is still fresh.
 void LuaEngine::expireMessages(float elapsed) {
-    for (size_t id = 1; id < widgets_.size(); ++id) {
-        auto* w = widgets_.get(static_cast<uint32_t>(id));
+    for (uint32_t id : widgets_.messageFrames()) {
+        auto* w = widgets_.get(id);
         if (!w || !w->isMessageFrame || w->messageDuration <= 0.0f) continue;
         const bool readingBack = w->messageScroll > 0;
         const float life = w->messageDuration;
