@@ -1014,6 +1014,13 @@ private:
     /// Bumped whenever anything moves. A widget resolved in this generation
     /// needs no further work; one from an older generation is stale.
     uint64_t layoutGeneration_ = 1;
+    /// Whether a hidden widget's descendants are known to be marked hidden
+    /// too, so that the walk can stop on it. True from the first full pass
+    /// until a widget changes parent or a tooltip is hidden outside a pass:
+    /// either leaves widgets marked shown under a frame marked hidden, and
+    /// the next pass marks all.
+    bool hiddenMarksHold_ = false;
+    bool hiddenMarksHoldThisPass_ = false;
     // What the last full pass cost and whether it needed to run. Read by the
     // frame profile; see WidgetTree::layout.
     double lastWalkMs_ = 0.0;
