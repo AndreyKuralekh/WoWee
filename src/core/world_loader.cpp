@@ -595,7 +595,9 @@ void WorldLoader::loadMapGeometry(uint32_t mapId, const std::string& mapName,
             // Use a small radius for the initial load (just immediate tiles),
             // then restore the full radius after entering the game.
             // This matches WoW's behavior: load quickly, stream the rest in-game.
-            const int savedLoadRadius = 6;
+            // The radius the view distance asks for: a fixed 6 here outlived the
+            // frame that resets it often enough to stream 113 tiles instead of 49.
+            const int savedLoadRadius = renderer_->getTerrainLoadRadius();
             terrainMgr->setLoadRadius(4);   // 9x9=81 tiles - prevents hitches on spawn
             terrainMgr->setUnloadRadius(9);
 
