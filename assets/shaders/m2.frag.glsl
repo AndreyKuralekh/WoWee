@@ -55,6 +55,7 @@ layout(location = 4) in float ModelHeight;
 layout(location = 5) in float vFadeAlpha;
 layout(location = 6) flat in int vSkyMode;
 layout(location = 7) flat in float vHighlight;
+layout(location = 8) flat in uvec2 vLightMask;
 
 layout(location = 0) out vec4 outColor;
 
@@ -79,12 +80,25 @@ float sampleShadowPCF(sampler2DShadow smap, vec3 coords) {
 
 vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo) {
     vec3 sum = vec3(0.0);
-    for (int i = 0; i < min(localLightMeta.x, 64); ++i) {
+    // Only the lights that reach this instance, as the renderer marked them:
+    // a tree in the forest has none and skips the loop altogether.
+    uvec2 mask = vLightMask;
+    int count = min(localLightMeta.x, 64);
+    while (mask.x != 0u || mask.y != 0u) {
+        int i;
+        if (mask.x != 0u) {
+            i = findLSB(mask.x);
+            mask.x &= mask.x - 1u;
+        } else {
+            i = 32 + findLSB(mask.y);
+            mask.y &= mask.y - 1u;
+        }
+        if (i >= count) break;
         vec3 toLight = localLightPosRadius[i].xyz - pos;
         float radius = localLightPosRadius[i].w;
         // Rejected on the squared distance, before the square root and the
-        // divide: most of the sixty-four are out of range of any one pixel,
-        // and this is what each of them costs.
+        // divide: a light that reaches the instance still misses most of its
+        // pixels.
         float distSq = dot(toLight, toLight);
         if (radius <= 0.0 || distSq >= radius * radius) continue;
         float dist = sqrt(distSq);

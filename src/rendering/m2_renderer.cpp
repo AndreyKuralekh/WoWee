@@ -103,6 +103,39 @@ M2Renderer::~M2Renderer() {
     shutdown();
 }
 
+void M2Renderer::setLocalLights(const glm::vec4* posRadius, uint32_t count) {
+    localLightCount_ = posRadius ? std::min<uint32_t>(count, MAX_LOCAL_LIGHTS) : 0;
+    for (uint32_t i = 0; i < localLightCount_; ++i) localLights_[i] = posRadius[i];
+}
+
+// The lights whose sphere meets the instance's. The centre comes from the
+// model matrix as it stands, not the cached cull centre, which is set when an
+// instance is placed and so trails anything that moves. The radius is the
+// padded cull radius - half again the bounds plus three yards - because
+// swaying foliage and animated parts reach past the bounds the file gives,
+// and a light left out of the mask is a light that stops at the bound.
+std::array<uint32_t, 2> M2Renderer::localLightMask(const M2Instance& instance) const {
+    std::array<uint32_t, 2> mask{0u, 0u};
+    if (localLightCount_ == 0) return mask;
+    const float radius = instance.cachedPaddedRadius;
+    if (!(radius > 0.0f)) {
+        for (uint32_t i = 0; i < localLightCount_; ++i) mask[i >> 5] |= 1u << (i & 31u);
+        return mask;
+    }
+    const glm::vec3 center = instance.cachedModel
+        ? glm::vec3(instance.modelMatrix *
+                    glm::vec4((instance.cachedModel->boundMin + instance.cachedModel->boundMax) * 0.5f, 1.0f))
+        : instance.position;
+    for (uint32_t i = 0; i < localLightCount_; ++i) {
+        const glm::vec4& light = localLights_[i];
+        if (light.w <= 0.0f) continue;
+        const glm::vec3 d = glm::vec3(light) - center;
+        const float reach = light.w + radius;
+        if (glm::dot(d, d) < reach * reach) mask[i >> 5] |= 1u << (i & 31u);
+    }
+    return mask;
+}
+
 uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                                        glm::vec4* outPosRadius,
                                        glm::vec4* outColorIntensity,
@@ -686,7 +719,7 @@ bool M2Renderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayout
     // Instance data SSBO - per-frame buffer holding per-instance transforms, fade, bones.
     // Shader reads instanceData[push.instanceDataOffset + gl_InstanceIndex].
     {
-        static_assert(sizeof(M2InstanceGPU) == 96, "M2InstanceGPU must be 96 bytes (std430)");
+        static_assert(sizeof(M2InstanceGPU) == 112, "M2InstanceGPU must be 112 bytes (std430)");
         const VkDeviceSize instBufSize = MAX_INSTANCE_DATA * sizeof(M2InstanceGPU);
 
         // Descriptor pool for 2 sets (double-buffered)

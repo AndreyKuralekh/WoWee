@@ -1562,6 +1562,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 e.boneCount = static_cast<int32_t>(inst.boneMatrices.size());
                 e.highlight = inst.highlight;
                 e.flags = inst.afloat > 0 ? 1 : 0;
+                const auto lightMask = localLightMask(inst);
+                e.lightMask[0] = lightMask[0];
+                e.lightMask[1] = lightMask[1];
                 instanceDataCount_++;
                 ++writtenInstances;
             }
@@ -1857,6 +1860,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                             e.boneCount = static_cast<int32_t>(inst.boneMatrices.size());
                             e.highlight = inst.highlight;
                             e.flags = inst.afloat > 0 ? 1 : 0;
+                            const auto lightMask = localLightMask(inst);
+                            e.lightMask[0] = lightMask[0];
+                            e.lightMask[1] = lightMask[1];
                             instanceDataCount_++;
                         }
                     }
@@ -2159,6 +2165,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             e.boneCount = static_cast<int32_t>(instance.boneMatrices.size());
             e.highlight = instance.highlight;
             e.flags = instance.afloat > 0 ? 1 : 0;
+            const auto lightMask = localLightMask(instance);
+            e.lightMask[0] = lightMask[0];
+            e.lightMask[1] = lightMask[1];
             instanceDataCount_++;
 
             // Pipeline selection

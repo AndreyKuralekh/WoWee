@@ -42,6 +42,10 @@ struct InstanceData {
     float highlight;
     // Bit 0: a boat afloat, which rides the water. Also in what was padding.
     int flags;
+    // The local lights whose sphere meets this instance's, one bit each.
+    uvec2 lightMask;
+    int pad0;
+    int pad1;
 };
 layout(set = 3, binding = 0) readonly buffer InstanceSSBO {
     InstanceData instanceData[];
@@ -62,10 +66,12 @@ layout(location = 4) out float ModelHeight;
 layout(location = 5) out float vFadeAlpha;
 layout(location = 6) flat out int vSkyMode;
 layout(location = 7) flat out float vHighlight;
+layout(location = 8) flat out uvec2 vLightMask;
 
 void main() {
     // Fetch per-instance data from SSBO
     int instIdx = push.instanceDataOffset + gl_InstanceIndex;
+    vLightMask = instanceData[instIdx].lightMask;
     mat4 model = instanceData[instIdx].model;
     vec2 uvOff = instanceData[instIdx].uvOffset;
     float fade = instanceData[instIdx].fadeAlpha;

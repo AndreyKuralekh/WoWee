@@ -654,6 +654,7 @@ void Renderer::updatePerFrameUBO() {
             MAX_LOCAL_LIGHTS - localLightCount);
     }
     currentFrameData.localLightMeta = glm::ivec4(static_cast<int32_t>(localLightCount), 0, 0, 0);
+    if (m2Renderer) m2Renderer->setLocalLights(currentFrameData.localLightPosRadius, localLightCount);
 
     if (rtLighting_) {
         const RtLighting::ConsumerData rt = rtLighting_->consumerData();

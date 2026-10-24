@@ -8,9 +8,11 @@
 #include "pipeline/blp_loader.hpp"
 #include "pipeline/grass_clearing.hpp"
 #include "rendering/m2_model_classifier.hpp"
+#include "rendering/vk_frame_data.hpp"
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 #include <glm/glm.hpp>
+#include <array>
 #include <atomic>
 #include <memory>
 #include <unordered_map>
@@ -487,6 +489,9 @@ public:
                                glm::vec4* outPosRadius,
                                glm::vec4* outColorIntensity,
                                uint32_t maxLights) const;
+    /** The point lights this frame's shaders read, in their order. Each
+     *  instance drawn is then given the bits of the ones that reach it. */
+    void setLocalLights(const glm::vec4* posRadius, uint32_t count);
 
     /** Set the HiZ system for occlusion culling (Phase 6.3). nullptr disables HiZ. */
     void setHiZSystem(HiZSystem* hiz) { hizSystem_ = hiz; }
@@ -855,13 +860,15 @@ private:
         int32_t boneCount;         //  4 bytes @ offset 84 - clamps skinning reads
         float highlight = 0.0f;    //  4 bytes @ offset 88 - pressed-on lift
         int32_t flags = {};        //  4 bytes @ offset 92 - bit 0: afloat (bobs on the water)
+        uint32_t lightMask[2] = {};//  8 bytes @ offset 96 - local lights that reach it
+        int32_t pad[2] = {};       //  8 bytes @ offset 104 - std430 rounds to the mat4's 16
     };
     // How many instances one frame may hand the GPU, not how many exist. Ground
     // clutter is what fills it: it is drawn by the thousand and every tuft
     // takes a slot of its own, so at 16384 a dwarf standing in Dun Morogh
     // grass was already losing whole models for a frame at a time - which reads
     // as clutter blinking rather than as anything being over budget. Two
-    // buffers of 96 bytes a slot, so this costs 6 MB rather than 3.
+    // buffers of 112 bytes a slot, so this costs 7 MB rather than 3.5.
     static constexpr uint32_t MAX_INSTANCE_DATA = 32768;
     VkDescriptorSetLayout instanceSetLayout_ = VK_NULL_HANDLE;
     VkDescriptorPool instanceDescPool_ = VK_NULL_HANDLE;
@@ -870,6 +877,16 @@ private:
     void* instanceMapped_[2] = {};
     VkDescriptorSet instanceSet_[2] = {};
     uint32_t instanceDataCount_ = 0; // reset each frame in render()
+
+    // Every pixel used to test every local light, sixty-three of them in
+    // Northshire, though a torch reaches eight yards and most pixels are lit
+    // by none: that loop was most of what models cost the GPU. So each
+    // instance carries a mask of the lights whose sphere touches its own, and
+    // the shader walks only those. Set once a frame before recording, read
+    // by the worker that records the models.
+    std::array<glm::vec4, MAX_LOCAL_LIGHTS> localLights_{};
+    uint32_t localLightCount_ = 0;
+    std::array<uint32_t, 2> localLightMask(const M2Instance& instance) const;
 
     // GPU Frustum Culling via Compute Shader
     // Compute shader tests each M2 instance against frustum planes + distance, writes visibility[].
