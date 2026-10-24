@@ -1,5 +1,6 @@
 #include "xr/xr_system.hpp"
 
+#include "core/config_paths.hpp"
 #include "core/env_flag.hpp"
 #include "core/logger.hpp"
 #include "xr/xr_platform.hpp"
@@ -7,6 +8,9 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <string>
 
 namespace wowee::xr {
 
@@ -21,6 +25,23 @@ constexpr const char* kVulkanExtension = "XR_KHR_vulkan_enable";
 std::string versionString(XrVersion v) {
     return std::to_string(XR_VERSION_MAJOR(v)) + "." + std::to_string(XR_VERSION_MINOR(v)) + "." +
            std::to_string(XR_VERSION_PATCH(v));
+}
+
+// The Eye resolution setting, read from settings.cfg here: the eye images are
+// made before the client loads its settings.
+int eyeScaleSetting() {
+    constexpr int kDefault = 100;
+    std::ifstream in(std::filesystem::path(core::getConfigRoot()) / "settings.cfg");
+    const std::string key = "vr_eye_scale=";
+    for (std::string line; std::getline(in, line);) {
+        if (line.rfind(key, 0) != 0) continue;
+        try {
+            return std::clamp(std::stoi(line.substr(key.size())), 70, 150);
+        } catch (...) {
+            return kDefault;
+        }
+    }
+    return kDefault;
 }
 
 }  // namespace
@@ -211,16 +232,16 @@ bool XrSystem::findHeadset() {
     LOG_WARNING("VR: recommended eye image ", eyeWidth_, "x", eyeHeight_, ", up to ",
                 views[0].maxSwapchainSampleCount, " samples");
 
-    // WOWEE_VR_EYE_SCALE, in percent of the recommended size along each side.
-    // The eye images are most of what the GPU fills in VR, so this is the
-    // first thing to turn down when a frame does not fit.
+    // The eye size in percent of the recommended one along each side: the
+    // Eye resolution setting, or WOWEE_VR_EYE_SCALE over it. The eye images
+    // are most of what the GPU fills in VR, so this is the first thing to
+    // turn down when a frame does not fit.
     //
-    // Larger than recommended unless told otherwise: nothing else smooths an
-    // edge here - multisampling is off and no post-process pass runs on an
-    // eye - and the frame is held up by the processor, with the GPU idle for
-    // most of it. The compositor scales the picture down to the display.
-    constexpr int kDefaultScalePercent = 130;
-    const int scalePercent = core::envIntClamped("WOWEE_VR_EYE_SCALE", kDefaultScalePercent, 25, 200);
+    // The recommended size by default. 130 was the default while the frame
+    // waited on the processor, but at 130 the eyes' world took the GPU 15 of
+    // a 19 ms frame in Northshire, and at 100 it took 8.
+    const int scalePercent =
+        core::envIntClamped("WOWEE_VR_EYE_SCALE", eyeScaleSetting(), 25, 200);
     if (scalePercent != 100) {
         eyeWidth_ = std::min(views[0].maxImageRectWidth, eyeWidth_ * static_cast<uint32_t>(scalePercent) / 100u);
         eyeHeight_ = std::min(views[0].maxImageRectHeight, eyeHeight_ * static_cast<uint32_t>(scalePercent) / 100u);

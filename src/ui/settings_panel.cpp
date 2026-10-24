@@ -1093,6 +1093,7 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrglow",            .asFloat = &SettingsPanel::pendingVrGlow},
     {.key = "vrshadows",         .asBool  = &SettingsPanel::pendingVrShadows},
     {.key = "vrshadowstrength",  .asFloat = &SettingsPanel::pendingVrShadowStrength},
+    {.key = "vreyescale",        .asInt   = &SettingsPanel::pendingVrEyeScale},
     {.key = "vrdrawbyreach",     .asBool  = &SettingsPanel::pendingVrDrawByReach},
     {.key = "vraimwithhand",     .asBool  = &SettingsPanel::pendingVrAimWithHand},
     {.key = "vrbody",            .asInt   = &SettingsPanel::pendingVrBody},
@@ -1339,6 +1340,9 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
         xr::system().setHeadsetShadowStrength(pendingVrShadowStrength);
         return;
     }
+    // The eye images are made before the settings are read; XrSystem reads
+    // this one from the file itself, at the next start.
+    if (key == "vreyescale") return;
     if (key == "vrdrawbyreach") {
         xr::system().setDrawByReach(pendingVrDrawByReach);
         return;

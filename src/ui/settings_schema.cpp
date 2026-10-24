@@ -1008,6 +1008,11 @@ constexpr SettingDesc kSchema[] = {
      "How dark the shadows are in the headset, its own setting: on a\n"
      "monitor it follows the shadow distance, and at the usual distance\n"
      "a shadow on the ground is hard to see. 0 none, 1 black.", "", 0.7f},
+    {"vreyescale", "Eye resolution", SettingKind::Int, 70, 150, 5, "VR view", "Picture",
+     "How many pixels each eye's picture has, in percent of what the\n"
+     "headset asks for along each side. Above 100 the edges are smoother\n"
+     "and the frame costs the graphics card more - at 130 nearly twice\n"
+     "as much. Takes effect the next time the game starts.", "", 100},
     {"vrdrawbyreach", "Draw weapons by reaching", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
      "Reach over your shoulder, or down to the far hip, and squeeze the\n"
      "grip of the hand that points: your character draws its weapon, or\n"

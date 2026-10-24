@@ -251,6 +251,7 @@ public:
     float pendingVrGlow = 0.8f;             // glow over the eyes, 0 none - see xr::EyeGlow
     bool pendingVrShadows = false;          // shadows in the headset as well, which the lean frame leaves out
     float pendingVrShadowStrength = 0.7f;   // how dark they are there, 0 none to 1 black
+    int pendingVrEyeScale = 100;            // eye picture size in percent of the headset's; read at start - see xr::XrSystem
     bool pendingVrDrawByReach = true;       // a reach to the sheath and the grip draws the weapon
     bool pendingVrAimWithHand = false;      // the loaded spell's trigger targets what its hand points at
     int pendingVrBody = 0;                  // 0 the whole body, 1 arms only, 2 the stock hands - see xr::XrSystem::setBodyMode

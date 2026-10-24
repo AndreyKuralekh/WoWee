@@ -1839,6 +1839,7 @@ void GameScreen::saveSettings() {
     out << "vr_glow=" << settingsPanel_.pendingVrGlow << "\n";
     out << "vr_shadows=" << (settingsPanel_.pendingVrShadows ? 1 : 0) << "\n";
     out << "vr_shadow_strength=" << settingsPanel_.pendingVrShadowStrength << "\n";
+    out << "vr_eye_scale=" << settingsPanel_.pendingVrEyeScale << "\n";
     out << "vr_draw_by_reach=" << (settingsPanel_.pendingVrDrawByReach ? 1 : 0) << "\n";
     out << "vr_aim_with_hand=" << (settingsPanel_.pendingVrAimWithHand ? 1 : 0) << "\n";
     out << "vr_body=" << settingsPanel_.pendingVrBody << "\n";
@@ -2136,6 +2137,7 @@ void GameScreen::loadSettings() {
             else if (key == "vr_glow") settingsPanel_.pendingVrGlow = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "vr_shadows") settingsPanel_.pendingVrShadows = (val == "1");
             else if (key == "vr_shadow_strength") settingsPanel_.pendingVrShadowStrength = std::clamp(std::stof(val), 0.0f, 1.0f);
+            else if (key == "vr_eye_scale") settingsPanel_.pendingVrEyeScale = std::clamp(std::stoi(val), 70, 150);
             else if (key == "vr_draw_by_reach") settingsPanel_.pendingVrDrawByReach = (val == "1");
             else if (key == "vr_aim_with_hand") settingsPanel_.pendingVrAimWithHand = (val == "1");
             else if (key == "vr_body") settingsPanel_.pendingVrBody = std::clamp(std::stoi(val), 0, 2);
