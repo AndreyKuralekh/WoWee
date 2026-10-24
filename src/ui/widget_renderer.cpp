@@ -219,6 +219,10 @@ bool WidgetRenderer::textureSize(const std::string& path, float& w, float& h) {
 void WidgetRenderer::sizeTextureWidget(Widget* w) {
     if (!assets_) return;
     if (w->texturePath.empty()) return;
+    // Already sized on both axes: everything below would answer the same,
+    // after reading its anchors by name. Asked first because that is nearly
+    // all of the 15709 textures this is called for, every pass.
+    if (w->width > 0.0f && w->height > 0.0f) return;
     // A texture with no anchors at all fills its parent, and that rule is
     // older and stronger than this one. Sizing it from its image instead
     // takes every portrait ring, action button icon and bag slot off the
@@ -255,27 +259,11 @@ void WidgetRenderer::sizeTextureWidget(Widget* w) {
 /// One label, sized from its own text. See sizeArtAndText.
 void WidgetRenderer::sizeFontStringWidget(Widget* w, ImFont* font) {
     if (w->text.empty()) return;
-    // Anchors that span an axis give the size on that axis, and the string
-    // does not get a say about it. Asked per axis, the way the texture
-    // sizing above asks it - anchorsSpanAxis exists for exactly this and
-    // this loop was counting instead.
-    //
-    // Counting is wrong whenever two anchors pin the same axis, or pin one
-    // axis twice and the other not at all. Every options category button
-    // is that: OptionsList_DisplayButton does
-    // `button.text:SetPoint("LEFT", 8, 2)` on a ButtonText that already
-    // carries one, so the label had two anchors, neither of which says how
-    // tall it is - and the measure that would have said was skipped. The
-    // label kept height 0 and drew nothing.
-    //
-    // That emptied the category list of every options frame at once:
-    // Video, Interface and Audio all list their categories with this
-    // button. The entries were there and the buttons were there; the names
-    // were invisible, so nothing could be read or clicked, and no setting
-    // added to the schema could be reached however correctly it registered.
-    const bool spansX = anchorsSpanAxis(w->anchors, true);
-    const bool spansY = anchorsSpanAxis(w->anchors, false);
-    if (spansX && spansY) return;
+    // The questions that only return are asked cheapest first. This runs
+    // for every one of the 7064 labels each pass and nearly all of them were
+    // measured long ago; finding the face is a lowercased copy of its name
+    // and a map lookup, and the anchor test compares point names, so both
+    // wait until a label might actually be measured.
 
     // A width with no height is a paragraph, not a request to be measured.
     //
@@ -301,15 +289,7 @@ void WidgetRenderer::sizeFontStringWidget(Widget* w, ImFont* font) {
     // of its right edge. The money frame is where it shows: the number is
     // anchored to end exactly where the coin icon begins, so the overspill
     // lands on top of the coin.
-    //
-    // Same face too - the widget's own, then the interface default -
-    // rather than whichever face this measure happened to be handed.
-    ImFont* runFont = interfaceFaceOrDefault(w->fontFace);
-    if (!runFont) runFont = font;
     const float size = interfaceFontSize(w->fontHeight);
-    const auto measureRun = [&](const std::string& piece) {
-        return runFont->CalcTextSizeA(size, FLT_MAX, 0.0f, piece.c_str()).x;
-    };
 
     // Already the right size for this text, measured the way it would be
     // measured now. A label that has changed what it says is measured
@@ -332,6 +312,36 @@ void WidgetRenderer::sizeFontStringWidget(Widget* w, ImFont* font) {
         if (w->autoSized && sameMeasurement) return;
         if (!w->autoSized && w->width > 0.0f && w->height > 0.0f) return;
     }
+
+    // Anchors that span an axis give the size on that axis, and the string
+    // does not get a say about it. Asked per axis, the way the texture
+    // sizing above asks it - anchorsSpanAxis exists for exactly this and
+    // this loop was counting instead.
+    //
+    // Counting is wrong whenever two anchors pin the same axis, or pin one
+    // axis twice and the other not at all. Every options category button
+    // is that: OptionsList_DisplayButton does
+    // `button.text:SetPoint("LEFT", 8, 2)` on a ButtonText that already
+    // carries one, so the label had two anchors, neither of which says how
+    // tall it is - and the measure that would have said was skipped. The
+    // label kept height 0 and drew nothing.
+    //
+    // That emptied the category list of every options frame at once:
+    // Video, Interface and Audio all list their categories with this
+    // button. The entries were there and the buttons were there; the names
+    // were invisible, so nothing could be read or clicked, and no setting
+    // added to the schema could be reached however correctly it registered.
+    const bool spansX = anchorsSpanAxis(w->anchors, true);
+    const bool spansY = anchorsSpanAxis(w->anchors, false);
+    if (spansX && spansY) return;
+
+    // The widget's own face, then the interface default - rather than
+    // whichever face this measure happened to be handed.
+    ImFont* runFont = interfaceFaceOrDefault(w->fontFace);
+    if (!runFont) runFont = font;
+    const auto measureRun = [&](const std::string& piece) {
+        return runFont->CalcTextSizeA(size, FLT_MAX, 0.0f, piece.c_str()).x;
+    };
 
     if (paragraph) {
         // The width stays as declared and the height follows the wrap.
