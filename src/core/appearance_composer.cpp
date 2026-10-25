@@ -422,6 +422,27 @@ void AppearanceComposer::loadEquippedHelm(game::Inventory& inventory) {
     }
 }
 
+// Shoulders, which like the helm were missing from this side: other players
+// and NPCs wore theirs and the local character did not.
+void AppearanceComposer::loadEquippedShoulders(game::Inventory& inventory) {
+    const uint32_t charInstanceId = renderer_ ? renderer_->getCharacterInstanceId() : 0;
+    if (charInstanceId == 0 || !entitySpawner_ || !gameHandler_) return;
+
+    uint32_t displayId = 0;
+    const auto& slot = inventory.getEquipSlot(game::EquipSlot::SHOULDERS);
+    if (!slot.empty()) {
+        const auto* info = gameHandler_->getItemInfo(slot.item.itemId);
+        displayId = info && info->valid ? info->displayInfoId : slot.item.displayInfoId;
+    }
+    uint8_t raceId = 0;
+    uint8_t genderId = 0;
+    if (const auto* ch = gameHandler_->getActiveCharacter()) {
+        raceId = static_cast<uint8_t>(ch->race);
+        genderId = static_cast<uint8_t>(ch->gender);
+    }
+    entitySpawner_->attachShoulderModels(charInstanceId, displayId, raceId, genderId);
+}
+
 rendering::SheathSpot AppearanceComposer::sheathSpot(game::EquipSlot slot) const {
     if (!gameHandler_) return rendering::SheathSpot::NONE;
     const auto& equipped = gameHandler_->getInventory().getEquipSlot(slot);
@@ -458,6 +479,7 @@ void AppearanceComposer::loadEquippedWeapons() {
     auto& inventory = gameHandler_->getInventory();
 
     loadEquippedHelm(inventory);
+    loadEquippedShoulders(inventory);
 
     // Load ItemDisplayInfo.dbc
     auto displayInfoDbc = assetManager_->loadDBC("ItemDisplayInfo.dbc");

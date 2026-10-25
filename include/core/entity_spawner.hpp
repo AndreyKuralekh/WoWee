@@ -207,6 +207,10 @@ public:
     // Weapon model IDs (shared counter for creature weapons + equipment helm/weapon models)
     uint32_t allocateWeaponModelId() { return nextWeaponModelId_++; }
 
+    // Shoulder models of an item display, on any character instance - other
+    // players, humanoid NPCs and the local character. A zero display removes them.
+    void attachShoulderModels(uint32_t instanceId, uint32_t displayId, uint8_t raceId, uint8_t genderId);
+
     // Maximum weapon attachment operations per tick (used by Application update loop)
     static constexpr int MAX_WEAPON_ATTACHES_PER_TICK = 2;
 
@@ -397,9 +401,8 @@ private:
     // Weapon M2 loading helper
     bool loadWeaponM2(const std::string& m2Path, pipeline::M2Model& outModel);
 
-    // Helm and shoulder models of an item display, for players and humanoid NPCs
+    // Helm model of an item display, for players and humanoid NPCs
     void attachHelmModel(uint32_t instanceId, uint32_t displayId, uint8_t raceId, uint8_t genderId);
-    void attachShoulderModels(uint32_t instanceId, uint32_t displayId, uint8_t raceId, uint8_t genderId);
 
     // GameObject display lookups
     std::unordered_map<uint32_t, std::string> gameObjectDisplayIdToPath_;
