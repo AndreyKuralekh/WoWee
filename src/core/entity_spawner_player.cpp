@@ -1211,8 +1211,8 @@ void EntitySpawner::attachHelmModel(uint32_t instanceId, uint32_t displayId, uin
     }
 }
 
-// The two shoulder models an item display names - LeftModel at attachment 5,
-// RightModel at 6 - each in its race and sex cut when there is one. A zero
+// The two shoulder models an item display names - LeftModel on the left
+// shoulder, RightModel on the right - each in its race and sex cut when there is one. A zero
 // display takes them off.
 void EntitySpawner::attachShoulderModels(uint32_t instanceId, uint32_t displayId, uint8_t raceId,
                                          uint8_t genderId) {
@@ -1239,9 +1239,11 @@ void EntitySpawner::attachShoulderModels(uint32_t instanceId, uint32_t displayId
         const char* textureField;
         uint32_t textureFallback;
     };
+    // M2 attachment 5 is the right shoulder and 6 the left. The left model on
+    // 5 wore each pad on the other shoulder, mirrored and splayed out.
     static constexpr Side kSides[] = {
-        {5, "LeftModel", 1u, "LeftModelTexture", 3u},
-        {6, "RightModel", 2u, "RightModelTexture", 4u},
+        {6, "LeftModel", 1u, "LeftModelTexture", 3u},
+        {5, "RightModel", 2u, "RightModelTexture", 4u},
     };
     for (const Side& side : kSides) {
         const uint32_t modelField = idiL ? (*idiL)[side.modelField] : side.modelFallback;
