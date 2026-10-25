@@ -3290,7 +3290,13 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
                 // inferring a cutout from "the texture has alpha" discards the whole
                 // building and leaves the sky showing through it. Only an alpha-key
                 // material (blendMode 1) cuts out here.
-                const bool blendNeedsCutout = instance.isSceneModel
+                // An attached item - a sword, a shield, a helm - likewise. Item
+                // art ported from later clients keeps a specular mask in the
+                // alpha of an opaque material's texture, and cutting by it
+                // opened holes through a guard's shield, the inside showing
+                // through its rim.
+                const bool itemModel = instance.hasOverrideModelMatrix && !instance.isEffectModel;
+                const bool blendNeedsCutout = (instance.isSceneModel || itemModel)
                     ? (blendMode == 1)
                     : ((blendMode == 1) ||
                        (blendMode == 0 && alphaCutout) ||
