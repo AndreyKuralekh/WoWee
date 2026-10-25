@@ -1742,6 +1742,11 @@ VkTexture* CharacterRenderer::compositeWithRegions(const std::string& basePath,
     return texPtr;
 }
 
+std::vector<VkTexture*> CharacterRenderer::getModelTextures(uint32_t modelId) const {
+    auto it = models.find(modelId);
+    return it != models.end() ? it->second.textureIds : std::vector<VkTexture*>{};
+}
+
 void CharacterRenderer::setModelTexture(uint32_t modelId, uint32_t textureSlot, VkTexture* texture) {
     auto it = models.find(modelId);
     if (it == models.end()) {

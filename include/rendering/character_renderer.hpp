@@ -406,6 +406,8 @@ public:
 
     /** Replace a loaded model's texture at the given slot. */
     void setModelTexture(uint32_t modelId, uint32_t textureSlot, VkTexture* texture);
+    /** The texture in each of a model's slots, as setModelTexture last left them. */
+    [[nodiscard]] std::vector<VkTexture*> getModelTextures(uint32_t modelId) const;
 
 
 

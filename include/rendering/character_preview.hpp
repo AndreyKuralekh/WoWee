@@ -98,7 +98,7 @@ public:
 
     CharacterRenderer* getCharacterRenderer() { return charRenderer_.get(); }
     [[nodiscard]] uint32_t getInstanceId() const { return instanceId_; }
-    [[nodiscard]] uint32_t getModelId() const { return PREVIEW_MODEL_ID; }
+    [[nodiscard]] uint32_t getModelId() const { return modelId_; }
     [[nodiscard]] bool isModelLoaded() const { return modelLoaded_; }
 
 private:
@@ -163,6 +163,28 @@ private:
     // is actually being loaded instead: same weapon reuses the model, different
     // weapon gets its own.
     uint32_t previewModelIdFor(const std::string& assetKey);
+
+    // The body models this preview has loaded, kept by path. A target portrait
+    // rebuilt itself from the files on every change of target - read, parse,
+    // the external animations, the upload - 130 of the 220ms it took, and in a
+    // city most targets are the same few models. Each keeps the textures its
+    // slots held as it was uploaded, so a model taken back is put back exactly
+    // as a fresh load would leave it before the per-character textures go on.
+    struct CachedModel {
+        uint32_t id = 0;
+        std::vector<VkTexture*> uploadedTextures;
+        uint64_t lastUse = 0;
+    };
+    static constexpr size_t kCachedModels = 16;
+    static constexpr uint32_t kFirstCachedModelId = 10000;
+    std::unordered_map<std::string, CachedModel> modelCache_;
+    uint64_t modelUseClock_ = 0;
+    uint32_t modelId_ = PREVIEW_MODEL_ID;  // the body model the instance draws
+    /// Makes the cached model for this path current; false if there is none.
+    bool selectCachedModel(const std::string& path);
+    /// Uploads a model under an id of its own and makes it current, evicting
+    /// the least recently used one when the cache is full.
+    bool uploadCachedModel(const std::string& path, const pipeline::M2Model& model);
     std::unordered_map<std::string, uint32_t> previewModelIds_;
     uint32_t nextPreviewModelId_ = 20000;
     uint32_t backdropInstanceId_ = 0;

@@ -242,6 +242,8 @@ void CharacterPreview::shutdown() {
         charRenderer_->shutdown();
         charRenderer_.reset();
     }
+    modelCache_.clear();
+    modelId_ = PREVIEW_MODEL_ID;
     camera_.reset();
     destroyFBO();
     modelLoaded_ = false;
@@ -518,27 +520,36 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
 
     std::string m2Path = game::getPlayerModelPath(race, gender, useFemaleModel);
 
-    auto m2Data = assetManager_->readFile(m2Path);
-    if (m2Data.empty()) {
-        LOG_WARNING("CharacterPreview: failed to read M2: ", m2Path);
-        return false;
-    }
+    // A model this preview has shown before is still uploaded, with what was
+    // read and parsed for it; only one met for the first time is read.
+    const bool cached = selectCachedModel(m2Path);
+    std::vector<uint8_t> m2Data;
+    pipeline::M2Model parsed;
+    if (!cached) {
+        m2Data = assetManager_->readFile(m2Path);
+        if (m2Data.empty()) {
+            LOG_WARNING("CharacterPreview: failed to read M2: ", m2Path);
+            return false;
+        }
 
-    auto model = pipeline::M2Loader::load(m2Data);
-    if (model.name.empty()) model.name = m2Path;
+        parsed = pipeline::M2Loader::load(m2Data);
+        auto& model = parsed;
+        if (model.name.empty()) model.name = m2Path;
 
-    // M2 version 264+ (WotLK) stores submesh/bone data in external .skin files.
-    // Earlier versions (Classic ≤256, TBC ≤263) have skin data embedded in the M2.
-    std::string skinPath = pipeline::skinPathForM2(m2Path);
-    auto skinData = assetManager_->readFile(skinPath);
-    if (!skinData.empty() && model.version >= 264) {
-        pipeline::M2Loader::loadSkin(skinData, model);
-    }
+        // M2 version 264+ (WotLK) stores submesh/bone data in external .skin files.
+        // Earlier versions (Classic ≤256, TBC ≤263) have skin data embedded in the M2.
+        std::string skinPath = pipeline::skinPathForM2(m2Path);
+        auto skinData = assetManager_->readFile(skinPath);
+        if (!skinData.empty() && model.version >= 264) {
+            pipeline::M2Loader::loadSkin(skinData, model);
+        }
 
-    if (!model.isValid()) {
-        LOG_WARNING("CharacterPreview: invalid model: ", m2Path);
-        return false;
+        if (!model.isValid()) {
+            LOG_WARNING("CharacterPreview: invalid model: ", m2Path);
+            return false;
+        }
     }
+    const pipeline::M2Model& model = cached ? *charRenderer_->getModelData(modelId_) : parsed;
 
     if (camera_) {
         glm::vec3 frameMin = model.boundMin;
@@ -652,16 +663,17 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
                 raceFolder = m2Path.substr(first + 1, second - first - 1);
             }
         }
-        pipeline::applyCharacterTextures(model, resolved, raceFolder);
+        if (!cached) pipeline::applyCharacterTextures(parsed, resolved, raceFolder);
     }
 
     // Load external .anim files for sequences that store keyframes outside the M2.
     // Flag 0x20 = embedded data; when clear, animation lives in {ModelName}{SeqID}-{Var}.anim
-    pipeline::loadExternalAnimations(*assetManager_, m2Path, m2Data, model);
-
-    if (!charRenderer_->loadModel(model, PREVIEW_MODEL_ID)) {
-        LOG_WARNING("CharacterPreview: failed to load model to GPU");
-        return false;
+    if (!cached) {
+        pipeline::loadExternalAnimations(*assetManager_, m2Path, m2Data, parsed);
+        if (!uploadCachedModel(m2Path, parsed)) {
+            LOG_WARNING("CharacterPreview: failed to load model to GPU");
+            return false;
+        }
     }
     // Composite body skin + face + underwear overlays
     if (!bodySkinPath_.empty()) {
@@ -689,7 +701,7 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
             if (compositeTex != nullptr) {
                 for (size_t ti = 0; ti < model.textures.size(); ti++) {
                     if (model.textures[ti].type == 1) {
-                        charRenderer_->setModelTexture(PREVIEW_MODEL_ID, static_cast<uint32_t>(ti), compositeTex);
+                        charRenderer_->setModelTexture(modelId_, static_cast<uint32_t>(ti), compositeTex);
                         break;
                     }
                 }
@@ -700,7 +712,7 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
             if (skinTex != nullptr) {
                 for (size_t ti = 0; ti < model.textures.size(); ti++) {
                     if (model.textures[ti].type == 1) {
-                        charRenderer_->setModelTexture(PREVIEW_MODEL_ID, static_cast<uint32_t>(ti), skinTex);
+                        charRenderer_->setModelTexture(modelId_, static_cast<uint32_t>(ti), skinTex);
                         break;
                     }
                 }
@@ -714,7 +726,7 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
         if (hairTex != nullptr) {
             for (size_t ti = 0; ti < model.textures.size(); ti++) {
                 if (model.textures[ti].type == 6) {
-                    charRenderer_->setModelTexture(PREVIEW_MODEL_ID, static_cast<uint32_t>(ti), hairTex);
+                    charRenderer_->setModelTexture(modelId_, static_cast<uint32_t>(ti), hairTex);
                     break;
                 }
             }
@@ -722,7 +734,7 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
     }
 
     // Create instance at origin with current yaw
-    instanceId_ = charRenderer_->createInstance(PREVIEW_MODEL_ID,
+    instanceId_ = charRenderer_->createInstance(modelId_,
         glm::vec3(0.0f, 0.0f, 0.0f),
         glm::vec3(0.0f, 0.0f, modelYaw_),
         1.0f);
@@ -834,7 +846,7 @@ bool CharacterPreview::applyEquipment(const std::vector<game::EquipmentItem>& eq
 
     // CharGeosets: group 4=gloves(forearm), 5=boots(shin), 8=sleeves, 13=pants
     std::unordered_set<uint16_t> modelGeosets;
-    if (const auto* modelData = charRenderer_->getModelData(PREVIEW_MODEL_ID)) {
+    if (const auto* modelData = charRenderer_->getModelData(modelId_)) {
         for (const auto& batch : modelData->batches) {
             modelGeosets.insert(batch.submeshId);
         }
@@ -1006,7 +1018,7 @@ bool CharacterPreview::applyEquipment(const std::vector<game::EquipmentItem>& eq
                     VkTexture* capeTex = charRenderer_->loadTexture(c);
                     if (capeTex != nullptr && capeTex != whiteTex) {
                         charRenderer_->setGroupTextureOverride(instanceId_, 15, capeTex);
-                        if (const auto* md = charRenderer_->getModelData(PREVIEW_MODEL_ID)) {
+                        if (const auto* md = charRenderer_->getModelData(modelId_)) {
                             for (size_t ti = 0; ti < md->textures.size(); ti++) {
                                 if (md->textures[ti].type == 2) {
                                     charRenderer_->setTextureSlotOverride(instanceId_, static_cast<uint16_t>(ti), capeTex);
@@ -1019,7 +1031,7 @@ bool CharacterPreview::applyEquipment(const std::vector<game::EquipmentItem>& eq
             }
         }
     } else {
-        if (const auto* md = charRenderer_->getModelData(PREVIEW_MODEL_ID)) {
+        if (const auto* md = charRenderer_->getModelData(modelId_)) {
             for (size_t ti = 0; ti < md->textures.size(); ti++) {
                 if (md->textures[ti].type == 2) {
                     charRenderer_->clearTextureSlotOverride(instanceId_, static_cast<uint16_t>(ti));
@@ -1048,7 +1060,7 @@ bool CharacterPreview::setBakedSkin(const std::string& bakePath) {
     // about its face and the table is the better answer - the same rule, and
     // the same vertex ceiling, the world spawner applies.
     constexpr size_t kShippedCharacterVertexCeiling = 12000;
-    if (const auto* md = charRenderer_->getModelData(PREVIEW_MODEL_ID)) {
+    if (const auto* md = charRenderer_->getModelData(modelId_)) {
         if (md->vertices.size() > kShippedCharacterVertexCeiling) return false;
     }
     VkTexture* tex = charRenderer_->loadTexture(bakePath);
@@ -1071,11 +1083,13 @@ bool CharacterPreview::loadCreature(
         instanceId_ = 0;
     }
 
-    pipeline::M2Model model;
-    if (!loadPreviewM2(m2Path, model)) {
+    const bool cached = selectCachedModel(m2Path);
+    pipeline::M2Model parsed;
+    if (!cached && !loadPreviewM2(m2Path, parsed)) {
         LOG_WARNING("CharacterPreview: could not read creature model: ", m2Path);
         return false;
     }
+    const pipeline::M2Model& model = cached ? *charRenderer_->getModelData(modelId_) : parsed;
 
     if (camera_) {
         // The declared bounds where there are any, and the vertices where
@@ -1123,12 +1137,12 @@ bool CharacterPreview::loadCreature(
         break;
     }
 
-    if (!charRenderer_->loadModel(model, PREVIEW_MODEL_ID)) {
+    if (!cached && !uploadCachedModel(m2Path, parsed)) {
         LOG_WARNING("CharacterPreview: failed to upload creature model");
         return false;
     }
 
-    instanceId_ = charRenderer_->createInstance(PREVIEW_MODEL_ID,
+    instanceId_ = charRenderer_->createInstance(modelId_,
         glm::vec3(0.0f, 0.0f, 0.0f),
         glm::vec3(0.0f, 0.0f, modelYaw_),
         1.0f);
@@ -1140,12 +1154,12 @@ bool CharacterPreview::loadCreature(
     // The display's skins, into the slots the model declared for them. Without
     // this the geometry draws with no texture at all, which is what the target
     // frame's portrait showed: a white shape in the right silhouette.
-    if (const auto* data = charRenderer_->getModelData(PREVIEW_MODEL_ID)) {
+    if (const auto* data = charRenderer_->getModelData(modelId_)) {
         for (size_t ti = 0; ti < data->textures.size(); ++ti) {
             for (const auto& [texType, path] : skins) {
                 if (data->textures[ti].type != texType) continue;
                 if (VkTexture* tex = charRenderer_->loadTexture(path)) {
-                    charRenderer_->setModelTexture(PREVIEW_MODEL_ID,
+                    charRenderer_->setModelTexture(modelId_,
                                                    static_cast<uint32_t>(ti), tex);
                 }
                 break;
@@ -1157,6 +1171,45 @@ bool CharacterPreview::loadCreature(
     // which is what leaving the active set alone means.
     charRenderer_->playAnimation(instanceId_, rendering::anim::STAND, true);
     modelLoaded_ = true;
+    return true;
+}
+
+bool CharacterPreview::selectCachedModel(const std::string& path) {
+    auto it = modelCache_.find(path);
+    if (it == modelCache_.end()) return false;
+    if (!charRenderer_->getModelData(it->second.id)) {
+        modelCache_.erase(it);
+        return false;
+    }
+    // The slots back as the upload left them: whoever wore this model last
+    // had their skin, hair or creature skins put on it.
+    const auto& textures = it->second.uploadedTextures;
+    for (size_t slot = 0; slot < textures.size(); ++slot) {
+        charRenderer_->setModelTexture(it->second.id, static_cast<uint32_t>(slot), textures[slot]);
+    }
+    it->second.lastUse = ++modelUseClock_;
+    modelId_ = it->second.id;
+    return true;
+}
+
+bool CharacterPreview::uploadCachedModel(const std::string& path, const pipeline::M2Model& model) {
+    uint32_t id = kFirstCachedModelId + static_cast<uint32_t>(modelCache_.size());
+    if (modelCache_.size() >= kCachedModels) {
+        // The instance is already gone when this runs, so nothing draws the
+        // one evicted; its id is handed to the new model.
+        auto oldest = std::min_element(modelCache_.begin(), modelCache_.end(),
+            [](const auto& a, const auto& b) { return a.second.lastUse < b.second.lastUse; });
+        id = oldest->second.id;
+        charRenderer_->unloadModelIfUnused(id);
+        modelCache_.erase(oldest);
+    }
+    if (!charRenderer_->loadModel(model, id)) return false;
+    CachedModel entry;
+    entry.id = id;
+    entry.uploadedTextures = charRenderer_->getModelTextures(id);
+    entry.lastUse = ++modelUseClock_;
+    modelCache_[path] = std::move(entry);
+    modelId_ = id;
     return true;
 }
 
