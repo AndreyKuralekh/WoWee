@@ -462,8 +462,7 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
     const uint8_t sheathState = bytes2Index != 0xFFFF
         ? static_cast<uint8_t>(entity->getField(bytes2Index) & 0xFF) : uint8_t{1};
     const bool sheathed = sheathState != 1;
-    creatureWeaponSheath_[guid] = sheathState;
-    for (uint32_t point : {kAttachShield, kAttachRightHand, kAttachLeftHand, kAttachBack,
+    creatureWeaponSheath_[guid] = sheathState;    for (uint32_t point : {kAttachShield, kAttachRightHand, kAttachLeftHand, kAttachBack,
                            kAttachSheathShield, kAttachHipWeaponLeft, kAttachHipWeaponRight}) {
         charRenderer->detachWeapon(instanceId, point);
     }
@@ -1527,6 +1526,14 @@ if (const auto* md = charRenderer->getModelData(modelId)) {
         for (uint16_t sid : allGeosets) {
             const uint16_t group = static_cast<uint16_t>(sid / 100);
             if (group == 3 || group == 4 || group == 8 || group == 12 || group == 13 || group == 15) continue;
+            // One variant of each of these too, chosen below, as a player's
+            // are: boots (5), kneepads (9), and the shirt and trouser doublets
+            // (10, 11), which a player never shows. The models the game
+            // shipped carry few variants of them; a mod's HD human carries
+            // five boots, two kneepads and two short skirts, and kept all of
+            // them on at once - Marshal McBride wore a white skirt over his
+            // tabard.
+            if (group == 5 || group == 9 || group == 10 || group == 11) continue;
             // Group 17 = eye glow (DK/Night Elf "shining eyes" overlay), group 18 = related
             // glow geosets. NPCs are never DK/NE players opting into eye glow, so strip
             // these groups so creatures don't get unwanted glowing blue night-elf eyes.
@@ -1587,8 +1594,16 @@ if (const auto* md = charRenderer->getModelData(modelId)) {
                 ? equippedGeoset(equipment::kBootsBare, equipFeetGG)
                 : kGeosetBareShins;
             uint16_t shinSid = resolveGeoset(wantShins, allGeosets);
+            // Bare shins on a model with no 501 - races whose only shins are
+            // another variant - the group's lowest, as for a player.
+            if (shinSid == 0 && equipFeetGG == 0) {
+                for (uint16_t g : allGeosets) {
+                    if (g / 100 == 5 && (shinSid == 0 || g < shinSid)) shinSid = g;
+                }
+            }
             if (shinSid != 0) normalizedGeosets.insert(shinSid);
         }
+        if (allGeosets.count(kGeosetDefaultKneepads) > 0) normalizedGeosets.insert(kGeosetDefaultKneepads);
 
         // Add sleeve/wrist meshes when chest armor calls for them.
         if (hasGroup8 && equipChestGG > 0) {
