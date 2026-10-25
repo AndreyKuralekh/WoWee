@@ -384,16 +384,20 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
     auto unit = std::static_pointer_cast<game::Unit>(entity);
     if (!unit) return false;
 
-    // Virtual weapons are only appropriate for humanoid-style displays.
-    // Non-humanoids (wolves/boars/etc.) can expose non-zero virtual item fields
-    // and otherwise end up with comedic floating weapons.
+    // A humanoid-style display - one CreatureDisplayInfoExtra dresses - may
+    // also have its weapon found by scanning other fields, below. Any other
+    // model holds only what 3.3.5's own virtual item slots name, as the
+    // original client does: a sergeant on a mod's custom model holds his sword
+    // there, and a wolf, whose slots are empty, holds nothing. It was the
+    // scan's guesses that hung floating weapons on wolves and boars, and
+    // keeping every other model out of the slots too left such NPCs
+    // empty-handed.
     uint32_t displayId = unit->getDisplayId();
     auto dIt = displayDataMap_.find(displayId);
     if (dIt == displayDataMap_.end()) return false;
     uint32_t extraDisplayId = dIt->second.extraDisplayId;
-    if (extraDisplayId == 0 || humanoidExtraMap_.find(extraDisplayId) == humanoidExtraMap_.end()) {
-        return false;
-    }
+    const bool humanoidDisplay =
+        extraDisplayId != 0 && humanoidExtraMap_.find(extraDisplayId) != humanoidExtraMap_.end();
 
     auto itemDisplayDbc = assetManager_->loadDBC("ItemDisplayInfo.dbc");
     if (!itemDisplayDbc) return false;
@@ -496,6 +500,7 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
     const uint16_t candidateBases[] = {56, 57, 58, 70, 148, 149, 150, 151, 152};
     uint16_t mainBase = 0;
     for (uint16_t base : candidateBases) {
+        if (!humanoidDisplay && base != 56) break;
         uint32_t v0 = entity->getField(static_cast<uint16_t>(base + 0));
         if (v0 != 0) hadWeaponCandidate = true;
         if (!attachedMain && v0 != 0) attachedMain = attachNpcWeaponDisplay(v0, 1);
@@ -510,6 +515,7 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
     uint16_t scanHi = (unitEnd != 0xFFFF) ? static_cast<uint16_t>(unitEnd + 96) : 320;
     std::map<uint16_t, uint32_t> candidateByIndex;
     for (const auto& [idx, val] : entity->getFields()) {
+        if (!humanoidDisplay) break;
         if (idx < scanLo || idx > scanHi) continue;
         if (val == 0) continue;
         if (hasResolvableWeaponModel(val)) {
