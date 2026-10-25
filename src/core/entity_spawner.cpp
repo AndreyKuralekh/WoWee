@@ -432,7 +432,24 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
         return 0;
     };
 
-    auto attachNpcWeaponDisplay = [&](uint32_t itemDisplayId, uint32_t attachmentId) -> bool {
+    // The item's inventory type, which says where an off-hand item is held:
+    // a shield on the forearm's mount, anything else in the left hand.
+    auto inventoryTypeOf = [&](uint32_t rawId) -> uint32_t {
+        if (rawId == 0) return 0;
+        if (itemDbc) {
+            int32_t itemRec = itemDbc->findRecordById(rawId);
+            if (itemRec < 0) return 0;
+            const uint32_t invField = itemL ? (*itemL)["InventoryType"] : 6u;
+            return itemDbc->getUInt32(static_cast<uint32_t>(itemRec), invField);
+        }
+        const auto* info = gameHandler_->getItemInfo(rawId);
+        return info ? info->inventoryType : 0;
+    };
+
+    // A shield's model is in Shield rather than Weapon, and only a shield's:
+    // the main hand looks in Weapon alone and so holds only weapons.
+    auto attachNpcWeaponDisplay = [&](uint32_t itemDisplayId, uint32_t attachmentId,
+                                      bool shield = false) -> bool {
         uint32_t resolvedDisplayId = resolveDisplayInfoId(itemDisplayId);
         if (resolvedDisplayId == 0) return false;
         int32_t recIdx = itemDisplayDbc->findRecordById(resolvedDisplayId);
@@ -444,14 +461,14 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
         const std::string& modelFile = art.modelFile;
         const std::string& textureName = art.textureName;
 
-        // Main-hand NPC weapon path: only use actual weapon models.
-        std::string m2Path = "Item\\ObjectComponents\\Weapon\\" + modelFile;
+        const std::string dir = shield ? "Item\\ObjectComponents\\Shield\\" : "Item\\ObjectComponents\\Weapon\\";
+        std::string m2Path = dir + modelFile;
         pipeline::M2Model weaponModel;
         if (!loadWeaponM2(m2Path, weaponModel)) return false;
 
         std::string texturePath;
         if (!textureName.empty()) {
-            texturePath = "Item\\ObjectComponents\\Weapon\\" + textureName + ".blp";
+            texturePath = dir + textureName + ".blp";
             if (!assetManager_->fileExists(texturePath)) texturePath.clear();
         }
 
@@ -474,12 +491,18 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
     bool attachedMain = false;
     bool hadWeaponCandidate = false;
 
+    // 56 is where 3.3.5 keeps UNIT_VIRTUAL_ITEM_SLOT_ID: main hand, off hand,
+    // ranged. The others are guesses at other layouts.
     const uint16_t candidateBases[] = {56, 57, 58, 70, 148, 149, 150, 151, 152};
+    uint16_t mainBase = 0;
     for (uint16_t base : candidateBases) {
         uint32_t v0 = entity->getField(static_cast<uint16_t>(base + 0));
         if (v0 != 0) hadWeaponCandidate = true;
         if (!attachedMain && v0 != 0) attachedMain = attachNpcWeaponDisplay(v0, 1);
-        if (attachedMain) break;
+        if (attachedMain) {
+            mainBase = base;
+            break;
+        }
     }
 
     uint16_t unitEnd = game::fieldIndex(game::UF::UNIT_END);
@@ -499,8 +522,24 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
         if (attachedMain) break;
     }
 
-    // Force off-hand clear in NPC path to avoid incorrect shields/placeholder hilts.
+    // The off hand is the slot after the main hand's, and only when the main
+    // hand came from the 3.3.5 slots: a value found by scanning the fields has
+    // no known neighbour, and guessing one hung shields and hilts on NPCs that
+    // hold neither - which is why the off hand was always cleared, and every
+    // guard lost its shield. A shield goes on its mount, anything else in the
+    // left hand.
+    charRenderer->detachWeapon(instanceId, 0);
     charRenderer->detachWeapon(instanceId, 2);
+    if (mainBase == 56) {
+        const uint32_t offHand = entity->getField(57);
+        const uint32_t invType = inventoryTypeOf(offHand);
+        if (invType == game::InvType::SHIELD) {
+            attachNpcWeaponDisplay(offHand, 0, true);
+        } else if (invType == game::InvType::ONE_HAND || invType == game::InvType::OFF_HAND ||
+                   invType == game::InvType::MAIN_HAND || invType == game::InvType::HOLDABLE) {
+            attachNpcWeaponDisplay(offHand, 2);
+        }
+    }
     // Success if main-hand attached when there was at least one candidate.
     return hadWeaponCandidate && attachedMain;
 }
