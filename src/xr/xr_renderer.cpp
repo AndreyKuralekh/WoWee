@@ -423,18 +423,35 @@ void Renderer::vrBeginViews() {
             // The thumb by where it points rather than by how far it bends:
             // it bends and turns at its base at once, towards the fingers it
             // meets, and no one axis of bend follows that - a thumb on the X
-            // button was drawn at the little finger. Its proximal (3 to 4)
-            // and distal (4 to 5) phalanges, in the wrist's axes, which the
-            // model's hand is framed in.
+            // button was drawn at the little finger. Its bones' directions, in
+            // the wrist's axes, which the model's hand is framed in.
+            //
+            // The model's first thumb bone is the metacarpal, inside the
+            // palm, and the second is the thumb that shows: they follow the
+            // metacarpal (joint 2 to 3) and the proximal phalanx (3 to 4).
+            // Turning the first onto the proximal phalanx swung the whole
+            // thumb a right angle off - across to the other hand on X and
+            // behind the palm on Y.
             {
                 const glm::mat3 toWrist = glm::transpose(glm::mat3(joints[kWristJoint]));
                 const auto dirOf = [&](uint32_t from, uint32_t to) {
                     const glm::vec3 d = toWrist * (glm::vec3(joints[to][3]) - glm::vec3(joints[from][3]));
                     return glm::length(d) > 1e-5f ? glm::normalize(d) : glm::vec3(0.0f, 0.0f, -1.0f);
                 };
-                vrThumbAim_[hand][0] = dirOf(3, 4);
-                vrThumbAim_[hand][1] = dirOf(4, 5);
+                vrThumbAim_[hand][0] = dirOf(2, 3);
+                vrThumbAim_[hand][1] = dirOf(3, 4);
                 vrThumbAimed_[hand] = true;
+                // What the model's thumb is told, should it point wrong again.
+                static std::chrono::steady_clock::time_point thumbSaid[2];
+                const auto now = std::chrono::steady_clock::now();
+                if (xr::system().debugEnabled() && now - thumbSaid[hand] > std::chrono::seconds(10)) {
+                    thumbSaid[hand] = now;
+                    const glm::vec3& a = vrThumbAim_[hand][0];
+                    const glm::vec3& b = vrThumbAim_[hand][1];
+                    LOG_WARNING("VR: ", hand == 0 ? "left" : "right", " thumb in the wrist's axes (x, y back, z wrist): metacarpal ",
+                                a.x, " ", a.y, " ", a.z, ", proximal ", b.x, " ", b.y, " ", b.z,
+                                hands.onController[hand] ? " (on a controller)" : "");
+                }
             }
             constexpr uint32_t kMetacarpal[4] = {6, 11, 16, 21};  // index, middle, ring, little
             for (int f = 0; f < 4; ++f) {

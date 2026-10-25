@@ -140,7 +140,7 @@ public:
     /// in radians: thumb, index, middle, ring and little, at the knuckle and
     /// then beyond it - ten in all. The fingers keep their animation without.
     /// `thumbAim`, where there is one, is two directions in the wrist's own
-    /// axes - the thumb's proximal and distal phalanges - which the thumb's
+    /// axes - the thumb's metacarpal and proximal phalanx - which the thumb's
     /// two bones are turned to instead of being bent.
     void setInstanceArmReach(uint32_t instanceId, int arm, bool reach, const glm::vec3& wrist = glm::vec3(0.0f),
                              const glm::mat3& wristTurn = glm::mat3(1.0f), const float* fingerBend = nullptr,

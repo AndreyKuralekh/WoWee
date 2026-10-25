@@ -2700,8 +2700,8 @@ void CharacterRenderer::reachArms(CharacterInstance& instance) const {
                 glm::vec3 along = second >= 0 ? bones[second].pivot - pFirst : pFirst - pH;
                 along = glm::length(along) > 1e-5f ? glm::normalize(along) : -z;
                 // A tracked thumb is turned to where the player's points:
-                // each bone onto its phalanx, given in the wrist's axes, which
-                // are this hand's x, y and z.
+                // the metacarpal and the thumb onto the player's, given in the
+                // wrist's axes, which are this hand's x, y and z.
                 if (f == 0 && instance.armThumbAimed[arm]) {
                     const auto inHand = [&](const glm::vec3& d) {
                         return glm::normalize(d.x * x + d.y * y + d.z * z);

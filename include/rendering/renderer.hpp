@@ -527,7 +527,8 @@ private:
     glm::vec3 vrWristOffset_[2] = {glm::vec3(0.0f), glm::vec3(0.0f)};
     glm::mat3 vrWristTurn_[2] = {glm::mat3(1.0f), glm::mat3(1.0f)};
     float vrFingerBend_[2][10] = {};                  // see CharacterRenderer::setInstanceArmReach
-    // The tracked thumb's phalanges, in the wrist's axes; see setInstanceArmReach.
+    // The tracked thumb's metacarpal and proximal phalanx, in the wrist's
+    // axes; see setInstanceArmReach.
     bool vrThumbAimed_[2] = {false, false};
     glm::vec3 vrThumbAim_[2][2] = {};
 #endif
