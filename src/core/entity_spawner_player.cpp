@@ -563,141 +563,10 @@ void EntitySpawner::setOnlinePlayerEquipment(uint64_t guid,
 
     charRenderer->setActiveGeosets(st.instanceId, geosets);
 
-    // --- Helmet model attachment ---
-    // HEAD slot is index 0 in the 19-element equipment array.
-    // Helmet M2s are race/gender-specific (e.g. Helm_Plate_B_01_HuM.m2 for Human Male).
-    if (displayInfoIds[0] != 0) {
-        // Only the helm point - detaching 0 as well would drop the shield.
-        charRenderer->detachWeapon(st.instanceId, kAttachHelm);
-
-        const core::HelmVisual helm = core::resolveHelmVisual(
-            *assetManager_, displayInfoIds[0], st.raceId, st.genderId);
-        if (helm.valid()) {
-            pipeline::M2Model helmModel;
-            std::string helmPath;
-            if (!helm.racialModelPath.empty()) {
-                helmPath = helm.racialModelPath;
-                if (!loadWeaponM2(helmPath, helmModel)) helmModel = {};
-            }
-            if (!helmModel.isValid()) {
-                helmPath = helm.baseModelPath;
-                loadWeaponM2(helmPath, helmModel);
-            }
-
-            if (helmModel.isValid()) {
-                const uint32_t helmModelId = nextWeaponModelId_++;
-                // Attachment point 0 (head bone), fallback to 11 (explicit head).
-                const bool attached = charRenderer->attachWeapon(
-                    st.instanceId, kAttachHelm, helmModel, helmModelId, helm.texturePath);
-                if (attached) {
-                    LOG_DEBUG("Attached player helmet: ", helmPath, " tex: ", helm.texturePath);
-                }
-            }
-        }
-    } else {
-        // No helmet equipped - detach any existing helmet model
-        charRenderer->detachWeapon(st.instanceId, kAttachHelm);
-    }
-
-    // --- Shoulder model attachment ---
-    // SHOULDERS slot is index 2 in the 19-element equipment array.
-    // Shoulders have TWO M2 models (left + right) attached at points 5 and 6.
-    // ItemDisplayInfo.dbc: LeftModel → left shoulder, RightModel → right shoulder.
-    if (displayInfoIds[2] != 0) {
-        // Detach any previously attached shoulder models
-        charRenderer->detachWeapon(st.instanceId, 5);
-        charRenderer->detachWeapon(st.instanceId, 6);
-
-        int32_t shoulderIdx = displayInfoDbc->findRecordById(displayInfoIds[2]);
-        if (shoulderIdx >= 0) {
-            const uint32_t leftModelField = idiL ? (*idiL)["LeftModel"] : 1u;
-            const uint32_t rightModelField = idiL ? (*idiL)["RightModel"] : 2u;
-            const uint32_t leftTexField = idiL ? (*idiL)["LeftModelTexture"] : 3u;
-            const uint32_t rightTexField = idiL ? (*idiL)["RightModelTexture"] : 4u;
-
-            // The same suffix helmets use, and from the same place: this had
-            // its own copy of the ten race codes.
-            const std::string raceSuffix = raceGenderSuffix(st.raceId, st.genderId);
-
-            // Attach left shoulder (attachment point 5) using LeftModel
-            std::string leftModelName = displayInfoDbc->getString(static_cast<uint32_t>(shoulderIdx), leftModelField);
-            if (!leftModelName.empty()) {
-                size_t dotPos = leftModelName.rfind('.');
-                if (dotPos != std::string::npos) leftModelName = leftModelName.substr(0, dotPos);
-
-                std::string leftPath;
-                pipeline::M2Model leftModel;
-                if (!raceSuffix.empty()) {
-                    leftPath = "Item\\ObjectComponents\\Shoulder\\" + leftModelName + raceSuffix + ".m2";
-                    if (!loadWeaponM2(leftPath, leftModel)) leftModel = {};
-                }
-                if (!leftModel.isValid()) {
-                    leftPath = "Item\\ObjectComponents\\Shoulder\\" + leftModelName + ".m2";
-                    loadWeaponM2(leftPath, leftModel);
-                }
-
-                if (leftModel.isValid()) {
-                    uint32_t leftModelId = nextWeaponModelId_++;
-                    std::string leftTexName = displayInfoDbc->getString(static_cast<uint32_t>(shoulderIdx), leftTexField);
-                    std::string leftTexPath;
-                    if (!leftTexName.empty()) {
-                        if (!raceSuffix.empty()) {
-                            std::string suffixedTex = "Item\\ObjectComponents\\Shoulder\\" + leftTexName + raceSuffix + ".blp";
-                            if (assetManager_->fileExists(suffixedTex)) leftTexPath = suffixedTex;
-                        }
-                        if (leftTexPath.empty()) {
-                            leftTexPath = "Item\\ObjectComponents\\Shoulder\\" + leftTexName + ".blp";
-                        }
-                    }
-                    bool attached = charRenderer->attachWeapon(st.instanceId, 5, leftModel, leftModelId, leftTexPath);
-                    if (attached) {
-                        LOG_DEBUG("Attached left shoulder: ", leftPath, " tex: ", leftTexPath);
-                    }
-                }
-            }
-
-            // Attach right shoulder (attachment point 6) using RightModel
-            std::string rightModelName = displayInfoDbc->getString(static_cast<uint32_t>(shoulderIdx), rightModelField);
-            if (!rightModelName.empty()) {
-                size_t dotPos = rightModelName.rfind('.');
-                if (dotPos != std::string::npos) rightModelName = rightModelName.substr(0, dotPos);
-
-                std::string rightPath;
-                pipeline::M2Model rightModel;
-                if (!raceSuffix.empty()) {
-                    rightPath = "Item\\ObjectComponents\\Shoulder\\" + rightModelName + raceSuffix + ".m2";
-                    if (!loadWeaponM2(rightPath, rightModel)) rightModel = {};
-                }
-                if (!rightModel.isValid()) {
-                    rightPath = "Item\\ObjectComponents\\Shoulder\\" + rightModelName + ".m2";
-                    loadWeaponM2(rightPath, rightModel);
-                }
-
-                if (rightModel.isValid()) {
-                    uint32_t rightModelId = nextWeaponModelId_++;
-                    std::string rightTexName = displayInfoDbc->getString(static_cast<uint32_t>(shoulderIdx), rightTexField);
-                    std::string rightTexPath;
-                    if (!rightTexName.empty()) {
-                        if (!raceSuffix.empty()) {
-                            std::string suffixedTex = "Item\\ObjectComponents\\Shoulder\\" + rightTexName + raceSuffix + ".blp";
-                            if (assetManager_->fileExists(suffixedTex)) rightTexPath = suffixedTex;
-                        }
-                        if (rightTexPath.empty()) {
-                            rightTexPath = "Item\\ObjectComponents\\Shoulder\\" + rightTexName + ".blp";
-                        }
-                    }
-                    bool attached = charRenderer->attachWeapon(st.instanceId, 6, rightModel, rightModelId, rightTexPath);
-                    if (attached) {
-                        LOG_DEBUG("Attached right shoulder: ", rightPath, " tex: ", rightTexPath);
-                    }
-                }
-            }
-        }
-    } else {
-        // No shoulders equipped - detach any existing shoulder models
-        charRenderer->detachWeapon(st.instanceId, 5);
-        charRenderer->detachWeapon(st.instanceId, 6);
-    }
+    // --- Helmet and shoulder models ---
+    // HEAD is index 0 and SHOULDERS index 2 in the 19-element equipment array.
+    attachHelmModel(st.instanceId, displayInfoIds[0], st.raceId, st.genderId);
+    attachShoulderModels(st.instanceId, displayInfoIds[2], st.raceId, st.genderId);
 
     // --- Cape texture (group 15 / texture type 2) ---
     // The geoset above enables the cape mesh, but without a texture it renders blank.
@@ -1310,6 +1179,104 @@ void EntitySpawner::spawnOnlineGameObject(uint64_t guid, uint32_t entry, uint32_
 
     LOG_DEBUG("Spawned gameobject: guid=0x", std::hex, guid, std::dec,
              " displayId=", displayId, " at (", x, ", ", y, ", ", z, ")");
+}
+
+// The helm an item display names, at the head, in the cut made for this race
+// and sex when there is one. A zero display takes the helm off. Players and
+// humanoid NPCs both wear theirs this way: an NPC names its helm in
+// CreatureDisplayInfoExtra rather than in update fields.
+void EntitySpawner::attachHelmModel(uint32_t instanceId, uint32_t displayId, uint8_t raceId, uint8_t genderId) {
+    auto* charRenderer = renderer_ ? renderer_->getCharacterRenderer() : nullptr;
+    if (!charRenderer || !assetManager_) return;
+    // Only the helm point - detaching 0 as well would drop the shield.
+    charRenderer->detachWeapon(instanceId, kAttachHelm);
+    if (displayId == 0) return;
+
+    const core::HelmVisual helm = core::resolveHelmVisual(*assetManager_, displayId, raceId, genderId);
+    if (!helm.valid()) return;
+    pipeline::M2Model helmModel;
+    std::string helmPath;
+    if (!helm.racialModelPath.empty()) {
+        helmPath = helm.racialModelPath;
+        if (!loadWeaponM2(helmPath, helmModel)) helmModel = {};
+    }
+    if (!helmModel.isValid()) {
+        helmPath = helm.baseModelPath;
+        loadWeaponM2(helmPath, helmModel);
+    }
+    if (!helmModel.isValid()) return;
+    const uint32_t helmModelId = nextWeaponModelId_++;
+    if (charRenderer->attachWeapon(instanceId, kAttachHelm, helmModel, helmModelId, helm.texturePath)) {
+        LOG_DEBUG("Attached helmet: ", helmPath, " tex: ", helm.texturePath);
+    }
+}
+
+// The two shoulder models an item display names - LeftModel at attachment 5,
+// RightModel at 6 - each in its race and sex cut when there is one. A zero
+// display takes them off.
+void EntitySpawner::attachShoulderModels(uint32_t instanceId, uint32_t displayId, uint8_t raceId,
+                                         uint8_t genderId) {
+    auto* charRenderer = renderer_ ? renderer_->getCharacterRenderer() : nullptr;
+    if (!charRenderer || !assetManager_) return;
+    charRenderer->detachWeapon(instanceId, 5);
+    charRenderer->detachWeapon(instanceId, 6);
+    if (displayId == 0) return;
+
+    auto displayInfoDbc = assetManager_->loadDBC("ItemDisplayInfo.dbc");
+    if (!displayInfoDbc) return;
+    const int32_t shoulderIdx = displayInfoDbc->findRecordById(displayId);
+    if (shoulderIdx < 0) return;
+    const auto* idiL = pipeline::getActiveDBCLayout() ? pipeline::getActiveDBCLayout()->getLayout("ItemDisplayInfo") : nullptr;
+    // The same suffix helmets use, and from the same place: this had its own
+    // copy of the ten race codes.
+    const std::string raceSuffix = raceGenderSuffix(raceId, genderId);
+    const std::string dir = "Item\\ObjectComponents\\Shoulder\\";
+
+    struct Side {
+        uint32_t attachment;
+        const char* modelField;
+        uint32_t modelFallback;
+        const char* textureField;
+        uint32_t textureFallback;
+    };
+    static constexpr Side kSides[] = {
+        {5, "LeftModel", 1u, "LeftModelTexture", 3u},
+        {6, "RightModel", 2u, "RightModelTexture", 4u},
+    };
+    for (const Side& side : kSides) {
+        const uint32_t modelField = idiL ? (*idiL)[side.modelField] : side.modelFallback;
+        const uint32_t textureField = idiL ? (*idiL)[side.textureField] : side.textureFallback;
+        std::string modelName = displayInfoDbc->getString(static_cast<uint32_t>(shoulderIdx), modelField);
+        if (modelName.empty()) continue;
+        const size_t dotPos = modelName.rfind('.');
+        if (dotPos != std::string::npos) modelName = modelName.substr(0, dotPos);
+
+        std::string path;
+        pipeline::M2Model model;
+        if (!raceSuffix.empty()) {
+            path = dir + modelName + raceSuffix + ".m2";
+            if (!loadWeaponM2(path, model)) model = {};
+        }
+        if (!model.isValid()) {
+            path = dir + modelName + ".m2";
+            loadWeaponM2(path, model);
+        }
+        if (!model.isValid()) continue;
+
+        const std::string texName = displayInfoDbc->getString(static_cast<uint32_t>(shoulderIdx), textureField);
+        std::string texPath;
+        if (!texName.empty()) {
+            if (!raceSuffix.empty()) {
+                const std::string suffixedTex = dir + texName + raceSuffix + ".blp";
+                if (assetManager_->fileExists(suffixedTex)) texPath = suffixedTex;
+            }
+            if (texPath.empty()) texPath = dir + texName + ".blp";
+        }
+        const uint32_t modelId = nextWeaponModelId_++;
+        if (charRenderer->attachWeapon(instanceId, side.attachment, model, modelId, texPath)) {
+            LOG_DEBUG("Attached shoulder at ", side.attachment, ": ", path, " tex: ", texPath);
+        }
+    }
 }
 
 } // namespace core

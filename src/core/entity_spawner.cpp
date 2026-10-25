@@ -1366,6 +1366,11 @@ if (const auto* md = charRenderer->getModelData(modelId)) {
                 if (itHairGeo != hairGeosetMap_.end() && itHairGeo->second > 0) {
                     selectedHairScalp = itHairGeo->second;
                 }
+                // Under a helm that hides it, the bald cap, as on a player.
+                if (itExtra->second.equipDisplayId[0] != 0 &&
+                    core::helmHidesHair(*assetManager_, itExtra->second.equipDisplayId[0], extraSexId)) {
+                    selectedHairScalp = 1;
+                }
                 const uint32_t facialKey = appearanceKey(
                     extraRaceId, extraSexId, itExtra->second.facialHairId);
                 auto itFacial = facialHairGeosetMap_.find(facialKey);
@@ -2332,6 +2337,21 @@ void EntitySpawner::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float
     // at once - a cape and no cape, a robe skirt over trousers. Pick one per
     // clothing group and leave every other batch of the model alone.
     normalizeHumanoidClothingGeosets(instanceId, modelId, displayId);
+
+    // The helm and shoulders a humanoid NPC wears are models, not skin, and
+    // CreatureDisplayInfoExtra names them as it names the rest: slots 0 and 1.
+    // Nothing hung them on an NPC - every guard went bareheaded.
+    {
+        auto itDD = displayDataMap_.find(displayId);
+        if (itDD != displayDataMap_.end() && itDD->second.extraDisplayId != 0) {
+            auto itExtra = humanoidExtraMap_.find(itDD->second.extraDisplayId);
+            if (itExtra != humanoidExtraMap_.end()) {
+                const auto& extra = itExtra->second;
+                attachHelmModel(instanceId, extra.equipDisplayId[0], extra.raceId, extra.sexId);
+                attachShoulderModels(instanceId, extra.equipDisplayId[1], extra.raceId, extra.sexId);
+            }
+        }
+    }
 
     // Try attaching NPC held weapons; if update fields are not ready yet,
     // IN_GAME retry loop will attempt again shortly.
