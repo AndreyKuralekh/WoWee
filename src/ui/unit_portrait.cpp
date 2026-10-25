@@ -34,6 +34,9 @@ void UnitPortrait::update(game::GameHandler& gameHandler,
 
     if (!preview_) {
         preview_ = std::make_unique<rendering::CharacterPreview>();
+        // A model not shown before is read off the frame; until it is, the
+        // portrait keeps the face it has and asks again.
+        preview_->setAsyncModelLoads(true);
         // Small: this is drawn into a circle a few dozen pixels across, and the
         // cost of the pass scales with the target.
         initialized_ = preview_->initialize(assets, targetWidth_, targetHeight_);
@@ -98,6 +101,11 @@ void UnitPortrait::update(game::GameHandler& gameHandler,
                 preview_->resetView();
             }
         }
+        // Still being read: nothing is recorded, so the next frame asks again.
+        if (preview_->isLoadPending()) {
+            redraw(deltaTime);
+            return;
+        }
         // Logged because a portrait that rebuilds every frame looks like one
         // that flickers, and the two are indistinguishable from outside.
         redrawNow_ = true;
@@ -122,6 +130,9 @@ bool UnitPortrait::updatePlayer(uint8_t race, uint8_t gender,
 
     if (!preview_) {
         preview_ = std::make_unique<rendering::CharacterPreview>();
+        // A model not shown before is read off the frame; until it is, the
+        // portrait keeps the face it has and asks again.
+        preview_->setAsyncModelLoads(true);
         initialized_ = preview_->initialize(assets, targetWidth_, targetHeight_);
         if (!initialized_) {
             LOG_WARNING("UnitPortrait: could not build the offscreen view");
@@ -163,6 +174,10 @@ bool UnitPortrait::updatePlayer(uint8_t race, uint8_t gender,
             if (framing_ == Framing::Face) preview_->setPortraitFraming();
             else                           preview_->resetView();
         }
+        if (preview_->isLoadPending()) {
+            redraw(deltaTime);
+            return preview_->isModelLoaded();
+        }
         redrawNow_ = true;
         LOG_INFO("UnitPortrait: rebuilt for player race ", static_cast<int>(race),
                  " appearance ", appearanceBytes);
@@ -189,6 +204,9 @@ bool UnitPortrait::updateCreature(const std::string& m2Path,
 
     if (!preview_) {
         preview_ = std::make_unique<rendering::CharacterPreview>();
+        // A model not shown before is read off the frame; until it is, the
+        // portrait keeps the face it has and asks again.
+        preview_->setAsyncModelLoads(true);
         initialized_ = preview_->initialize(assets, targetWidth_, targetHeight_);
         if (!initialized_) {
             LOG_WARNING("UnitPortrait: could not build the offscreen view");
@@ -209,6 +227,10 @@ bool UnitPortrait::updateCreature(const std::string& m2Path,
             } else {
                 preview_->resetView();
             }
+        }
+        if (preview_->isLoadPending()) {
+            redraw(deltaTime);
+            return preview_->isModelLoaded();
         }
         redrawNow_ = true;
         LOG_INFO("UnitPortrait: rebuilt for creature ", m2Path);

@@ -19,10 +19,12 @@
 #include "pipeline/m2_asset_loader.hpp"
 #include "core/logger.hpp"
 #include "core/application.hpp"
+#include "core/thread_pool.hpp"
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <unordered_map>
@@ -508,6 +510,23 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
         return false;
     }
 
+    std::string m2Path = game::getPlayerModelPath(race, gender, useFemaleModel);
+
+    // A model this preview has shown before is still uploaded, with what was
+    // read and parsed for it; only one met for the first time is read - and
+    // read before the current one is taken down, so a portrait whose model is
+    // still being read keeps showing the last one.
+    loadPending_ = false;
+    const bool cached = hasCachedModel(m2Path);
+    std::shared_ptr<pipeline::M2Model> parsed;
+    if (!cached) {
+        if (!obtainParsedModel(m2Path, /*creature=*/false, parsed)) {
+            loadPending_ = true;
+            return false;
+        }
+        if (!parsed) return false;
+    }
+
     // Remove existing instance.
     // Must wait for GPU to finish - compositePass() may have recorded draw commands
     // referencing this instance's bone buffers earlier in the current frame.
@@ -517,39 +536,8 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
         instanceId_ = 0;
         modelLoaded_ = false;
     }
-
-    std::string m2Path = game::getPlayerModelPath(race, gender, useFemaleModel);
-
-    // A model this preview has shown before is still uploaded, with what was
-    // read and parsed for it; only one met for the first time is read.
-    const bool cached = selectCachedModel(m2Path);
-    std::vector<uint8_t> m2Data;
-    pipeline::M2Model parsed;
-    if (!cached) {
-        m2Data = assetManager_->readFile(m2Path);
-        if (m2Data.empty()) {
-            LOG_WARNING("CharacterPreview: failed to read M2: ", m2Path);
-            return false;
-        }
-
-        parsed = pipeline::M2Loader::load(m2Data);
-        auto& model = parsed;
-        if (model.name.empty()) model.name = m2Path;
-
-        // M2 version 264+ (WotLK) stores submesh/bone data in external .skin files.
-        // Earlier versions (Classic ≤256, TBC ≤263) have skin data embedded in the M2.
-        std::string skinPath = pipeline::skinPathForM2(m2Path);
-        auto skinData = assetManager_->readFile(skinPath);
-        if (!skinData.empty() && model.version >= 264) {
-            pipeline::M2Loader::loadSkin(skinData, model);
-        }
-
-        if (!model.isValid()) {
-            LOG_WARNING("CharacterPreview: invalid model: ", m2Path);
-            return false;
-        }
-    }
-    const pipeline::M2Model& model = cached ? *charRenderer_->getModelData(modelId_) : parsed;
+    if (cached) selectCachedModel(m2Path);
+    const pipeline::M2Model& model = cached ? *charRenderer_->getModelData(modelId_) : *parsed;
 
     if (camera_) {
         glm::vec3 frameMin = model.boundMin;
@@ -663,17 +651,12 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
                 raceFolder = m2Path.substr(first + 1, second - first - 1);
             }
         }
-        if (!cached) pipeline::applyCharacterTextures(parsed, resolved, raceFolder);
+        if (!cached) pipeline::applyCharacterTextures(*parsed, resolved, raceFolder);
     }
 
-    // Load external .anim files for sequences that store keyframes outside the M2.
-    // Flag 0x20 = embedded data; when clear, animation lives in {ModelName}{SeqID}-{Var}.anim
-    if (!cached) {
-        pipeline::loadExternalAnimations(*assetManager_, m2Path, m2Data, parsed);
-        if (!uploadCachedModel(m2Path, parsed)) {
-            LOG_WARNING("CharacterPreview: failed to load model to GPU");
-            return false;
-        }
+    if (!cached && !uploadCachedModel(m2Path, *parsed)) {
+        LOG_WARNING("CharacterPreview: failed to load model to GPU");
+        return false;
     }
     // Composite body skin + face + underwear overlays
     if (!bodySkinPath_.empty()) {
@@ -1078,18 +1061,23 @@ bool CharacterPreview::loadCreature(
     }
     if (m2Path.empty()) return false;
 
+    loadPending_ = false;
+    const bool cached = hasCachedModel(m2Path);
+    std::shared_ptr<pipeline::M2Model> parsed;
+    if (!cached) {
+        if (!obtainParsedModel(m2Path, /*creature=*/true, parsed)) {
+            loadPending_ = true;
+            return false;
+        }
+        if (!parsed) return false;
+    }
+
     if (instanceId_ > 0) {
         charRenderer_->removeInstance(instanceId_);
         instanceId_ = 0;
     }
-
-    const bool cached = selectCachedModel(m2Path);
-    pipeline::M2Model parsed;
-    if (!cached && !loadPreviewM2(m2Path, parsed)) {
-        LOG_WARNING("CharacterPreview: could not read creature model: ", m2Path);
-        return false;
-    }
-    const pipeline::M2Model& model = cached ? *charRenderer_->getModelData(modelId_) : parsed;
+    if (cached) selectCachedModel(m2Path);
+    const pipeline::M2Model& model = cached ? *charRenderer_->getModelData(modelId_) : *parsed;
 
     if (camera_) {
         // The declared bounds where there are any, and the vertices where
@@ -1137,7 +1125,7 @@ bool CharacterPreview::loadCreature(
         break;
     }
 
-    if (!cached && !uploadCachedModel(m2Path, parsed)) {
+    if (!cached && !uploadCachedModel(m2Path, *parsed)) {
         LOG_WARNING("CharacterPreview: failed to upload creature model");
         return false;
     }
@@ -1172,6 +1160,82 @@ bool CharacterPreview::loadCreature(
     charRenderer_->playAnimation(instanceId_, rendering::anim::STAND, true);
     modelLoaded_ = true;
     return true;
+}
+
+namespace {
+
+// What loadCharacter and loadCreature read for a model they have not shown
+// before. Touches only the asset manager, so it runs on an I/O worker as well
+// as in the call.
+std::shared_ptr<pipeline::M2Model> parsePreviewModel(pipeline::AssetManager& assets,
+                                                     const std::string& m2Path, bool creature) {
+    auto model = std::make_shared<pipeline::M2Model>();
+    if (creature) {
+        if (!pipeline::loadM2WithSkin(assets, m2Path, *model)) {  // m2_asset_loader.hpp
+            LOG_WARNING("CharacterPreview: could not read creature model: ", m2Path);
+            return nullptr;
+        }
+        return model;
+    }
+
+    auto m2Data = assets.readFile(m2Path);
+    if (m2Data.empty()) {
+        LOG_WARNING("CharacterPreview: failed to read M2: ", m2Path);
+        return nullptr;
+    }
+    *model = pipeline::M2Loader::load(m2Data);
+    if (model->name.empty()) model->name = m2Path;
+
+    // M2 version 264+ (WotLK) stores submesh/bone data in external .skin files.
+    // Earlier versions (Classic ≤256, TBC ≤263) have skin data embedded in the M2.
+    std::string skinPath = pipeline::skinPathForM2(m2Path);
+    auto skinData = assets.readFile(skinPath);
+    if (!skinData.empty() && model->version >= 264) {
+        pipeline::M2Loader::loadSkin(skinData, *model);
+    }
+    if (!model->isValid()) {
+        LOG_WARNING("CharacterPreview: invalid model: ", m2Path);
+        return nullptr;
+    }
+
+    // Load external .anim files for sequences that store keyframes outside the M2.
+    // Flag 0x20 = embedded data; when clear, animation lives in {ModelName}{SeqID}-{Var}.anim
+    pipeline::loadExternalAnimations(assets, m2Path, m2Data, *model);
+    return model;
+}
+
+} // namespace
+
+bool CharacterPreview::obtainParsedModel(const std::string& path, bool creature,
+                                         std::shared_ptr<pipeline::M2Model>& out) {
+    out.reset();
+    if (!asyncModelLoads_) {
+        out = parsePreviewModel(*assetManager_, path, creature);
+        return true;
+    }
+    auto it = pendingModels_.find(path);
+    if (it == pendingModels_.end()) {
+        pipeline::AssetManager* assets = assetManager_;
+        pendingModels_.emplace(path, core::ThreadPool::ioWorkers().submit(
+            [assets, path, creature] { return parsePreviewModel(*assets, path, creature); }));
+        return false;
+    }
+    if (it->second.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
+    try {
+        out = it->second.get();
+    } catch (const std::exception& e) {
+        LOG_WARNING("CharacterPreview: reading ", path, " failed: ", e.what());
+    }
+    pendingModels_.erase(it);
+    return true;
+}
+
+bool CharacterPreview::hasCachedModel(const std::string& path) {
+    auto it = modelCache_.find(path);
+    if (it == modelCache_.end()) return false;
+    if (charRenderer_->getModelData(it->second.id)) return true;
+    modelCache_.erase(it);
+    return false;
 }
 
 bool CharacterPreview::selectCachedModel(const std::string& path) {

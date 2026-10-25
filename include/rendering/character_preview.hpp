@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
+#include <future>
 #include <memory>
 #include <cstdint>
 #include <string>
@@ -99,6 +100,14 @@ public:
     CharacterRenderer* getCharacterRenderer() { return charRenderer_.get(); }
     [[nodiscard]] uint32_t getInstanceId() const { return instanceId_; }
     [[nodiscard]] uint32_t getModelId() const { return modelId_; }
+
+    /// A portrait asks for this. A model it has not shown before is then read
+    /// and parsed on an I/O worker: loadCharacter and loadCreature return
+    /// false with isLoadPending() true, the picture already there stays, and
+    /// the caller asks again on a later frame. Without it a load finishes in
+    /// the call, which the character screens rely on.
+    void setAsyncModelLoads(bool async) { asyncModelLoads_ = async; }
+    [[nodiscard]] bool isLoadPending() const { return loadPending_; }
     [[nodiscard]] bool isModelLoaded() const { return modelLoaded_; }
 
 private:
@@ -185,6 +194,17 @@ private:
     /// Uploads a model under an id of its own and makes it current, evicting
     /// the least recently used one when the cache is full.
     bool uploadCachedModel(const std::string& path, const pipeline::M2Model& model);
+    /// Whether a model for this path is uploaded, dropping an entry whose
+    /// model the renderer no longer has.
+    bool hasCachedModel(const std::string& path);
+    /// The parsed model for a path not in the cache: read here, or on a
+    /// worker when loads are asynchronous, in which case false means it is
+    /// still being read and true with nothing in `out` that it failed.
+    bool obtainParsedModel(const std::string& path, bool creature,
+                           std::shared_ptr<pipeline::M2Model>& out);
+    bool asyncModelLoads_ = false;
+    bool loadPending_ = false;
+    std::unordered_map<std::string, std::future<std::shared_ptr<pipeline::M2Model>>> pendingModels_;
     std::unordered_map<std::string, uint32_t> previewModelIds_;
     uint32_t nextPreviewModelId_ = 20000;
     uint32_t backdropInstanceId_ = 0;
