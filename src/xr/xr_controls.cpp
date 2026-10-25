@@ -54,6 +54,7 @@ constexpr ButtonName kFunctions[kControlFunctionCount] = {
     {"Escape / game menu", "escape"},
     {"Recenter view", "recenter"},
     {"Spell in the glowing frame", "loaded"},
+    {"Sit / stand", "sit"},
 };
 
 constexpr std::string_view kShiftedSuffix = ".modifier";
@@ -106,7 +107,7 @@ ControlBindings ControlBindings::defaults() {
     set(ControlButton::B, ControlFunction::Action2, ControlFunction::Action4);
     set(ControlButton::X, ControlFunction::TargetEnemy, ControlFunction::Action5);
     set(ControlButton::Y, ControlFunction::Interact, ControlFunction::Action6);
-    set(ControlButton::LeftStick, ControlFunction::Autorun, ControlFunction::None);
+    set(ControlButton::LeftStick, ControlFunction::Autorun, ControlFunction::SitStand);
     set(ControlButton::RightStick, ControlFunction::Recenter, ControlFunction::None);
     set(ControlButton::Menu, ControlFunction::Escape, ControlFunction::None);
     return b;

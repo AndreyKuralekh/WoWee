@@ -47,6 +47,7 @@ enum class ControlFunction : uint8_t {
     Escape,
     Recenter,
     LoadedAction,  // the action bar button in the glowing frame; see XrSystem::loadedSlot
+    SitStand,      // the X key: sit down, or stand up
     Count
 };
 

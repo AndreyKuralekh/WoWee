@@ -153,6 +153,7 @@ SDL_Scancode functionKey(ControlFunction function) {
         case ControlFunction::Action12: return SDL_SCANCODE_EQUALS;
         case ControlFunction::TargetEnemy: return SDL_SCANCODE_TAB;
         case ControlFunction::Autorun: return SDL_SCANCODE_NUMLOCKCLEAR;
+        case ControlFunction::SitStand: return SDL_SCANCODE_X;
         default: return SDL_SCANCODE_UNKNOWN;
     }
 }
