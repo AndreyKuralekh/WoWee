@@ -141,6 +141,9 @@ enum class UF : uint16_t {
     CONTAINER_FIELD_NUM_SLOTS,
     CONTAINER_FIELD_SLOT_1,
 
+    // byte0 = sheath state: 0 weapons put away, 1 melee drawn, 2 ranged drawn
+    UNIT_FIELD_BYTES_2,
+
     COUNT
 };
 

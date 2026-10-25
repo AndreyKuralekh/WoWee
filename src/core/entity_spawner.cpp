@@ -5,6 +5,7 @@
 #include "core/geoset_rules.hpp"
 #include "pipeline/item_textures.hpp"
 #include "core/helm_visual.hpp"
+#include "core/weapon_attachment.hpp"
 
 #include "core/coordinates.hpp"
 #include "core/logger.hpp"
@@ -139,6 +140,7 @@ void EntitySpawner::shutdown() {
     creatureWasStealthed_.clear();
     creatureWeaponsAttached_.clear();
     creatureWeaponAttachAttempts_.clear();
+    creatureWeaponSheath_.clear();
     playerInstances_.clear();
     onlinePlayerAppearance_.clear();
     remotePlayerMounts_.clear();
@@ -188,6 +190,7 @@ void EntitySpawner::resetAllState() {
     creatureWasStealthed_.clear();
     creatureWeaponsAttached_.clear();
     creatureWeaponAttachAttempts_.clear();
+    creatureWeaponSheath_.clear();
     modelIdIsWolfLike_.clear();
 
     // Clear display/spawn caches
@@ -450,10 +453,32 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
         return info ? info->inventoryType : 0;
     };
 
-    // A shield's model is in Shield rather than Weapon, and only a shield's:
-    // the main hand looks in Weapon alone and so holds only weapons.
-    auto attachNpcWeaponDisplay = [&](uint32_t itemDisplayId, uint32_t attachmentId,
-                                      bool shield = false) -> bool {
+    // Drawn or put away, as the unit's sheath state says (UNIT_FIELD_BYTES_2,
+    // byte 0: 0 put away, 1 melee drawn, 2 ranged drawn), and hung where the
+    // local character's would be: in the hands, or a one-hander on the hip, a
+    // two-hander and a shield on the back. Marshal McBride stands with his
+    // put away; every NPC used to hold its weapons whatever it said.
+    const uint16_t bytes2Index = game::fieldIndex(game::UF::UNIT_FIELD_BYTES_2);
+    const uint8_t sheathState = bytes2Index != 0xFFFF
+        ? static_cast<uint8_t>(entity->getField(bytes2Index) & 0xFF) : uint8_t{1};
+    const bool sheathed = sheathState != 1;
+    creatureWeaponSheath_[guid] = sheathState;
+    for (uint32_t point : {kAttachShield, kAttachRightHand, kAttachLeftHand, kAttachBack,
+                           kAttachSheathShield, kAttachHipWeaponLeft, kAttachHipWeaponRight}) {
+        charRenderer->detachWeapon(instanceId, point);
+    }
+
+    // The item in a hand slot, at the attachment its type and the sheath
+    // state give. A shield's model is in Shield rather than Weapon, and only
+    // a shield's. An item whose type is unknown - found by scanning, on an
+    // expansion without Item.dbc - is taken for a one-hander.
+    auto attachNpcWeaponDisplay = [&](uint32_t itemDisplayId, game::EquipSlot slot) -> bool {
+        uint32_t invType = inventoryTypeOf(itemDisplayId);
+        if (invType == 0) invType = game::InvType::ONE_HAND;
+        const bool shield = invType == game::InvType::SHIELD;
+        const uint32_t attachmentId = weaponAttachment(sheathed, slot, static_cast<uint8_t>(invType));
+        if (attachmentId == UINT32_MAX) return true;  // put away where nothing shows
+        const glm::mat4 localTransform = weaponLocalTransform(sheathed, slot, static_cast<uint8_t>(invType));
         uint32_t resolvedDisplayId = resolveDisplayInfoId(itemDisplayId);
         if (resolvedDisplayId == 0) return false;
         int32_t recIdx = itemDisplayDbc->findRecordById(resolvedDisplayId);
@@ -477,7 +502,8 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
         }
 
         uint32_t weaponModelId = nextWeaponModelId_++;
-        return charRenderer->attachWeapon(instanceId, attachmentId, weaponModel, weaponModelId, texturePath);
+        return charRenderer->attachWeapon(instanceId, attachmentId, weaponModel, weaponModelId, texturePath,
+                                          localTransform);
     };
 
     auto hasResolvableWeaponModel = [&](uint32_t itemDisplayId) -> bool {
@@ -503,7 +529,7 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
         if (!humanoidDisplay && base != 56) break;
         uint32_t v0 = entity->getField(static_cast<uint16_t>(base + 0));
         if (v0 != 0) hadWeaponCandidate = true;
-        if (!attachedMain && v0 != 0) attachedMain = attachNpcWeaponDisplay(v0, 1);
+        if (!attachedMain && v0 != 0) attachedMain = attachNpcWeaponDisplay(v0, game::EquipSlot::MAIN_HAND);
         if (attachedMain) {
             mainBase = base;
             break;
@@ -524,7 +550,7 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
         }
     }
     for (const auto& [idx, val] : candidateByIndex) {
-        if (!attachedMain) attachedMain = attachNpcWeaponDisplay(val, 1);
+        if (!attachedMain) attachedMain = attachNpcWeaponDisplay(val, game::EquipSlot::MAIN_HAND);
         if (attachedMain) break;
     }
 
@@ -532,18 +558,14 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
     // hand came from the 3.3.5 slots: a value found by scanning the fields has
     // no known neighbour, and guessing one hung shields and hilts on NPCs that
     // hold neither - which is why the off hand was always cleared, and every
-    // guard lost its shield. A shield goes on its mount, anything else in the
-    // left hand.
-    charRenderer->detachWeapon(instanceId, 0);
-    charRenderer->detachWeapon(instanceId, 2);
+    // guard lost its shield. Only what a hand can hold.
     if (mainBase == 56) {
         const uint32_t offHand = entity->getField(57);
         const uint32_t invType = inventoryTypeOf(offHand);
-        if (invType == game::InvType::SHIELD) {
-            attachNpcWeaponDisplay(offHand, 0, true);
-        } else if (invType == game::InvType::ONE_HAND || invType == game::InvType::OFF_HAND ||
-                   invType == game::InvType::MAIN_HAND || invType == game::InvType::HOLDABLE) {
-            attachNpcWeaponDisplay(offHand, 2);
+        if (invType == game::InvType::SHIELD || invType == game::InvType::ONE_HAND ||
+            invType == game::InvType::OFF_HAND || invType == game::InvType::MAIN_HAND ||
+            invType == game::InvType::HOLDABLE) {
+            attachNpcWeaponDisplay(offHand, game::EquipSlot::OFF_HAND);
         }
     }
     // Success if main-hand attached when there was at least one candidate.
@@ -552,7 +574,19 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
 
 bool EntitySpawner::retryCreatureVirtualWeapons(uint64_t guid, uint32_t instanceId,
                                                 uint8_t maxAttempts) {
-    if (creatureWeaponsAttached_.count(guid)) return false;
+    if (creatureWeaponsAttached_.count(guid)) {
+        // Hung already: again only when the sheath state has changed since -
+        // an NPC drawing its weapons to fight, or putting them away after.
+        const uint16_t bytes2Index = game::fieldIndex(game::UF::UNIT_FIELD_BYTES_2);
+        if (bytes2Index == 0xFFFF || !gameHandler_) return false;
+        auto entity = gameHandler_->getEntityManager().getEntity(guid);
+        if (!entity) return false;
+        const uint8_t now = static_cast<uint8_t>(entity->getField(bytes2Index) & 0xFF);
+        auto it = creatureWeaponSheath_.find(guid);
+        if (it == creatureWeaponSheath_.end() || it->second == now) return false;
+        tryAttachCreatureVirtualWeapons(guid, instanceId);
+        return true;
+    }
     const auto attemptIt = creatureWeaponAttachAttempts_.find(guid);
     const uint8_t attempts = attemptIt != creatureWeaponAttachAttempts_.end()
         ? attemptIt->second : 0;
