@@ -2712,7 +2712,19 @@ void CharacterRenderer::reachArms(CharacterInstance& instance) const {
                         atKnuckle -= std::atan2(glm::dot(along, towardsPalm), glm::dot(along, back));
                     }
                 }
+                // The four fingers curl towards the palm. A thumb does not: it
+                // bends across the palm, towards the little finger. The model's
+                // thumb lies along the fingers and half into the palm, and
+                // turning it towards the palm's face swung its tip back
+                // towards the wrist - a thumb reaching for the controller's
+                // buttons was drawn pulled back, and a tracked thumb moved
+                // against the player's. X is towards the thumb on a left hand
+                // and away from it on a right one.
                 glm::vec3 axis = glm::cross(along, palm);
+                if (f == 0) {
+                    const glm::vec3 across = arm == 0 ? -x : x;
+                    axis = glm::cross(along, across - along * glm::dot(across, along));
+                }
                 if (glm::length(axis) < 1e-4f) continue;
                 axis = glm::normalize(axis);
                 const auto curl = [&](const glm::vec3& pivot, float angle) {
