@@ -357,6 +357,13 @@ private:
         // needs its animation advanced even though its transform comes from the parent.
         bool isEffectModel = false;
 
+        // An attached item whose bones move: its transform still comes from the
+        // parent, and its own animation is played on top. Item models converted
+        // from later clients sit by their root bone's animation - a helm's
+        // stand sequence lowers it onto the head - and without it they hang
+        // where the attachment point is, a hand's width above.
+        bool animatesWhileAttached = false;
+
         // A scene rather than a character: the glue-screen backdrops. Two things
         // follow. Their origin can sit hundreds of units from their geometry, so
         // culling on it would drop them. And the material heuristics below exist to

@@ -2149,9 +2149,13 @@ void CharacterRenderer::update(float deltaTime, const glm::vec3& cameraPos) {
 
         // Skip weapon instances for animation - their transforms are set by parent
         // bones. Enchant visuals are the exception: they are pure animated FX.
-        if (inst.hasOverrideModelMatrix && !inst.isEffectModel) continue;
+        if (inst.hasOverrideModelMatrix && !inst.isEffectModel && !inst.animatesWhileAttached) continue;
 
-        float distSq = glm::distance2(inst.position, cameraPos);
+        // An attached item stands where its parent puts it, not at its own
+        // position, which stays at the origin.
+        const glm::vec3 where =
+            inst.animatesWhileAttached ? glm::vec3(inst.overrideModelMatrix[3]) : inst.position;
+        float distSq = glm::distance2(where, cameraPos);
         const bool isSkyBird = inst.cachedModel && inst.cachedModel->isSkyBird;
         const float updateRadiusSq = isSkyBird ? birdUpdateRadiusSq : animUpdateRadiusSq;
         if (distSq > updateRadiusSq && !inst.isSceneModel) continue;
@@ -4555,6 +4559,15 @@ bool CharacterRenderer::attachWeapon(uint32_t charInstanceId, uint32_t attachmen
     if (weapIt != instances.end()) {
         weapIt->second.hasOverrideModelMatrix = true;
         weapIt->second.opacity = charInstance.opacity;
+        // Most items name tracks with no keys in them, and those stay unanimated.
+        const auto keyed = [](const pipeline::M2AnimationTrack& t) {
+            return std::any_of(t.sequences.begin(), t.sequences.end(),
+                               [](const auto& s) { return !s.timestamps.empty(); });
+        };
+        weapIt->second.animatesWhileAttached =
+            std::any_of(weaponModel.bones.begin(), weaponModel.bones.end(), [&](const pipeline::M2Bone& b) {
+                return keyed(b.translation) || keyed(b.rotation) || keyed(b.scale);
+            });
     }
 
     // Store attachment on parent character instance
