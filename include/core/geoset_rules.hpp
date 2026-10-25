@@ -35,7 +35,10 @@ constexpr uint16_t kGeosetBareShins        = 501;   // Group  5: no boots
 constexpr uint16_t kGeosetDefaultEars      = 702;   // Group  7: ears
 constexpr uint16_t kGeosetBareSleeves      = 801;   // Group  8: no chest armor sleeves
 constexpr uint16_t kGeosetDefaultKneepads  = 902;   // Group  9: kneepads
-constexpr uint16_t kGeosetDefaultTabard    = 1201;  // Group 12: tabard base
+// Group 12: a worn tabard's skirt, below the belt. 1201 is no tabard, by the
+// rule above, and the character models carry only 1202 - asking for 1201 drew
+// every tabard cut off at the waist.
+constexpr uint16_t kGeosetDefaultTabard    = 1202;
 constexpr uint16_t kGeosetBarePants        = 1301;  // Group 13: no leggings
 constexpr uint16_t kGeosetNoCape           = 1501;  // Group 15: no cape
 constexpr uint16_t kGeosetWithCape         = 1502;  // Group 15: with cape
@@ -224,7 +227,7 @@ constexpr uint16_t kBootsBare  = kGeosetBareShins;     ///< group 5
 constexpr uint16_t kGlovesBare = kGeosetBareForearms;  ///< group 4
 constexpr uint16_t kWristBare  = kGeosetBareSleeves;   ///< group 8, same as chest
 constexpr uint16_t kBeltBase   = 1801;                 ///< group 18, the buckle
-constexpr uint16_t kTabardBase = 1200;                 ///< group 12
+constexpr uint16_t kTabardBase = 1201;                 ///< group 12, no tabard: G=1 is 1202
 
 /// A robe's chest piece also names the kilt over the legs, in its second geoset
 /// column rather than its first. Reading only the first is why an NPC in a robe
