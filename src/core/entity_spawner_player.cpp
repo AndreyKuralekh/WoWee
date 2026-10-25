@@ -155,7 +155,7 @@ void EntitySpawner::spawnOnlinePlayer(uint64_t guid,
             {rendering::anim::STAND, rendering::anim::WALK, rendering::anim::RUN});
 
         modelId = nextPlayerModelId_++;
-        if (!charRenderer->loadModel(model, modelId)) {
+        if (!charRenderer->loadModel(std::move(model), modelId)) {
             LOG_WARNING("spawnOnlinePlayer: failed to load model to GPU: ", m2Path);
             return;
         }

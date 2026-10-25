@@ -1764,7 +1764,11 @@ void CharacterRenderer::setModelTexture(uint32_t modelId, uint32_t textureSlot, 
     core::Logger::getInstance().debug("Replaced model ", modelId, " texture slot ", textureSlot, " with composited texture");
 }
 bool CharacterRenderer::loadModel(const pipeline::M2Model& model, uint32_t id) {
-    if (!model.isValid()) {
+    return loadModel(pipeline::M2Model(model), id);
+}
+
+bool CharacterRenderer::loadModel(pipeline::M2Model&& source, uint32_t id) {
+    if (!source.isValid()) {
         core::Logger::getInstance().error("Cannot load invalid M2 model");
         return false;
     }
@@ -1777,7 +1781,8 @@ bool CharacterRenderer::loadModel(const pipeline::M2Model& model, uint32_t id) {
     }
 
     M2ModelGPU gpuModel;
-    gpuModel.data = model;
+    gpuModel.data = std::move(source);
+    const pipeline::M2Model& model = gpuModel.data;
     if (!model.vertices.empty()) {
         gpuModel.visualBoundMin = glm::vec3(std::numeric_limits<float>::max());
         gpuModel.visualBoundMax = glm::vec3(-std::numeric_limits<float>::max());
@@ -1882,9 +1887,10 @@ bool CharacterRenderer::loadModel(const pipeline::M2Model& model, uint32_t id) {
 
     models[id] = std::move(gpuModel);
 
-    core::Logger::getInstance().debug("Loaded M2 model ", id, " (", model.vertices.size(),
-                       " verts, ", model.bones.size(), " bones, ", model.sequences.size(),
-                       " anims, ", model.textures.size(), " textures)");
+    const pipeline::M2Model& stored = models[id].data;
+    core::Logger::getInstance().debug("Loaded M2 model ", id, " (", stored.vertices.size(),
+                       " verts, ", stored.bones.size(), " bones, ", stored.sequences.size(),
+                       " anims, ", stored.textures.size(), " textures)");
 
     return true;
 }

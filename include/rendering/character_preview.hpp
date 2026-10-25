@@ -193,7 +193,7 @@ private:
     bool selectCachedModel(const std::string& path);
     /// Uploads a model under an id of its own and makes it current, evicting
     /// the least recently used one when the cache is full.
-    bool uploadCachedModel(const std::string& path, const pipeline::M2Model& model);
+    bool uploadCachedModel(const std::string& path, pipeline::M2Model&& model);
     /// Whether a model for this path is uploaded, dropping an entry whose
     /// model the renderer no longer has.
     bool hasCachedModel(const std::string& path);

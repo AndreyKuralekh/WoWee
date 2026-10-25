@@ -654,10 +654,13 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
         if (!cached) pipeline::applyCharacterTextures(*parsed, resolved, raceFolder);
     }
 
-    if (!cached && !uploadCachedModel(m2Path, *parsed)) {
+    if (!cached && !uploadCachedModel(m2Path, std::move(*parsed))) {
         LOG_WARNING("CharacterPreview: failed to load model to GPU");
         return false;
     }
+    // From here the model is the one the renderer holds: an uploaded model
+    // was moved into it.
+    const pipeline::M2Model& uploaded = *charRenderer_->getModelData(modelId_);
     // Composite body skin + face + underwear overlays
     if (!bodySkinPath_.empty()) {
         std::vector<std::string> layers;
@@ -682,8 +685,8 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
         if (layers.size() > 1) {
             VkTexture* compositeTex = charRenderer_->compositeTextures(layers);
             if (compositeTex != nullptr) {
-                for (size_t ti = 0; ti < model.textures.size(); ti++) {
-                    if (model.textures[ti].type == 1) {
+                for (size_t ti = 0; ti < uploaded.textures.size(); ti++) {
+                    if (uploaded.textures[ti].type == 1) {
                         charRenderer_->setModelTexture(modelId_, static_cast<uint32_t>(ti), compositeTex);
                         break;
                     }
@@ -693,8 +696,8 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
             // Single layer (body skin only, no face/underwear overlays) - load directly
             VkTexture* skinTex = charRenderer_->loadTexture(bodySkinPath_);
             if (skinTex != nullptr) {
-                for (size_t ti = 0; ti < model.textures.size(); ti++) {
-                    if (model.textures[ti].type == 1) {
+                for (size_t ti = 0; ti < uploaded.textures.size(); ti++) {
+                    if (uploaded.textures[ti].type == 1) {
                         charRenderer_->setModelTexture(modelId_, static_cast<uint32_t>(ti), skinTex);
                         break;
                     }
@@ -707,8 +710,8 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
     if (!hairScalpPath.empty()) {
         VkTexture* hairTex = charRenderer_->loadTexture(hairScalpPath);
         if (hairTex != nullptr) {
-            for (size_t ti = 0; ti < model.textures.size(); ti++) {
-                if (model.textures[ti].type == 6) {
+            for (size_t ti = 0; ti < uploaded.textures.size(); ti++) {
+                if (uploaded.textures[ti].type == 6) {
                     charRenderer_->setModelTexture(modelId_, static_cast<uint32_t>(ti), hairTex);
                     break;
                 }
@@ -742,8 +745,8 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
 
     // Cache the type-1 texture slot index so applyEquipment can update it.
     skinTextureSlotIndex_ = 0;
-    for (size_t ti = 0; ti < model.textures.size(); ti++) {
-        if (model.textures[ti].type == 1) {
+    for (size_t ti = 0; ti < uploaded.textures.size(); ti++) {
+        if (uploaded.textures[ti].type == 1) {
             skinTextureSlotIndex_ = static_cast<uint32_t>(ti);
             break;
         }
@@ -1125,7 +1128,7 @@ bool CharacterPreview::loadCreature(
         break;
     }
 
-    if (!cached && !uploadCachedModel(m2Path, *parsed)) {
+    if (!cached && !uploadCachedModel(m2Path, std::move(*parsed))) {
         LOG_WARNING("CharacterPreview: failed to upload creature model");
         return false;
     }
@@ -1256,7 +1259,7 @@ bool CharacterPreview::selectCachedModel(const std::string& path) {
     return true;
 }
 
-bool CharacterPreview::uploadCachedModel(const std::string& path, const pipeline::M2Model& model) {
+bool CharacterPreview::uploadCachedModel(const std::string& path, pipeline::M2Model&& model) {
     uint32_t id = kFirstCachedModelId + static_cast<uint32_t>(modelCache_.size());
     if (modelCache_.size() >= kCachedModels) {
         // The instance is already gone when this runs, so nothing draws the
@@ -1267,7 +1270,7 @@ bool CharacterPreview::uploadCachedModel(const std::string& path, const pipeline
         charRenderer_->unloadModelIfUnused(id);
         modelCache_.erase(oldest);
     }
-    if (!charRenderer_->loadModel(model, id)) return false;
+    if (!charRenderer_->loadModel(std::move(model), id)) return false;
     CachedModel entry;
     entry.id = id;
     entry.uploadedTextures = charRenderer_->getModelTextures(id);

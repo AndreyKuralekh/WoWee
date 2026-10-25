@@ -149,7 +149,7 @@ void EntitySpawner::processAsyncCreatureResults(bool unlimited) {
         // Use pre-decoded BLP cache to skip main-thread texture decode
         auto uploadStart = std::chrono::steady_clock::now();
         charRenderer->setPredecodedBLPCache(&result.predecodedTextures);
-        if (!charRenderer->loadModel(*result.model, result.modelId)) {
+        if (!charRenderer->loadModel(std::move(*result.model), result.modelId)) {
             charRenderer->setPredecodedBLPCache(nullptr);
             nonRenderableCreatureDisplayIds_.insert(result.displayId);
             creaturePermanentFailureGuids_.insert(result.guid);
@@ -1488,7 +1488,7 @@ void EntitySpawner::processPendingMount() {
             *assetManager_, m2Path, m2Data, model,
             {rendering::anim::STAND, rendering::anim::WALK, rendering::anim::RUN});
 
-        if (!charRenderer->loadModel(model, modelId)) {
+        if (!charRenderer->loadModel(std::move(model), modelId)) {
             LOG_WARNING("Failed to load mount model: ", m2Path);
             return;
         }
@@ -1811,7 +1811,7 @@ bool EntitySpawner::loadRemoteMountModel(uint32_t displayId, uint32_t& modelId,
              rendering::anim::FLY_IDLE, rendering::anim::FLY_FORWARD});
 
         modelId = nextCreatureModelId_++;
-        if (!cr->loadModel(model, modelId)) return false;
+        if (!cr->loadModel(std::move(model), modelId)) return false;
         displayIdModelCache_[displayId] = modelId;
 
         // CreatureDisplayInfo supplies the replaceable mount skins. Mount model

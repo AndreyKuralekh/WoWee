@@ -72,6 +72,11 @@ public:
     void setAssetManager(pipeline::AssetManager* am) { assetManager = am; }
 
     bool loadModel(const pipeline::M2Model& model, uint32_t id);
+    /** The same, taking the model rather than copying it. The copy is the
+     *  dearest part of a load: a character model's animation tracks are
+     *  thousands of small vectors, 30-44 ms of the 35-46 a creature's upload
+     *  took in the frame. Use it wherever the model is not needed after. */
+    bool loadModel(pipeline::M2Model&& model, uint32_t id);
 
     uint32_t createInstance(uint32_t modelId, const glm::vec3& position,
                            const glm::vec3& rotation = glm::vec3(0.0f),
