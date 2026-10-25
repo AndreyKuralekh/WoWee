@@ -29,6 +29,11 @@ public:
         std::string dbcCsvOutputDir; // When set, write CSVs into this directory instead of outputDir/expansions/<exp>/db
         std::string referenceManifest; // If set, only extract files NOT in this manifest (delta extraction)
         std::string listFile;         // External listfile for MPQ enumeration (resolves unnamed hash entries)
+        // Candidate names, one per line, looked up in each archive by hash
+        // rather than added to StormLib's name table. For archives with no
+        // (listfile), where a listfile of millions of names never finishes
+        // adding: a lookup is a hash probe, whatever the list's length.
+        std::string namesFile;
         // Extract only files whose path contains one of these, lowercased with
         // backslashes. Empty means everything. For borrowing one zone's art out
         // of a client rather than unpacking the whole of it.

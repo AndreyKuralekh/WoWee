@@ -792,6 +792,52 @@ bool enumerateFilesImpl(const Extractor::Options& opts,
         SFileCloseArchive(hMpq);
     }
 
+    // Names the archives hold but do not list - a modded client's patches
+    // carry no (listfile) - asked for one at a time. Which archive a name is
+    // read from is decided later, at extraction, by priority, so it is enough
+    // here that one of them has it.
+    if (!opts.namesFile.empty()) {
+        std::ifstream in(opts.namesFile);
+        if (!in) {
+            std::cerr << "  Cannot read names file: " << opts.namesFile << "\n";
+        } else {
+            std::vector<HANDLE> handles;
+            for (const auto& archive : archives) {
+                HANDLE h = nullptr;
+                if (SFileOpenArchive(archive.c_str(), 0, MPQ_OPEN_READ_ONLY | MPQ_OPEN_NO_LISTFILE, &h)) {
+                    handles.push_back(h);
+                }
+            }
+            size_t tried = 0;
+            size_t added = 0;
+            std::string name;
+            while (std::getline(in, name)) {
+                if (!name.empty() && name.back() == '\r') name.pop_back();
+                if (name.empty()) continue;
+                ++tried;
+                if (shouldSkipFile(opts, name)) continue;
+                const std::string norm = normalizeWowPath(name);
+                if (seenNormalized.contains(norm)) continue;
+                if (opts.onlyUsedDbcs && !wantedDbcs.empty() && !wantedDbcs.contains(norm)) continue;
+                if (!opts.includeSubstrings.empty() &&
+                    std::none_of(opts.includeSubstrings.begin(), opts.includeSubstrings.end(),
+                                 [&](const std::string& f) { return norm.find(f) != std::string::npos; })) {
+                    continue;
+                }
+                for (HANDLE h : handles) {
+                    if (SFileHasFile(h, name.c_str())) {
+                        seenNormalized.insert(norm);
+                        outFiles.push_back(name);
+                        ++added;
+                        break;
+                    }
+                }
+            }
+            for (HANDLE h : handles) SFileCloseArchive(h);
+            std::cout << "  Names file: " << added << " more files of " << tried << " names\n";
+        }
+    }
+
     std::cout << "Enumerated " << outFiles.size() << " unique files\n";
     return true;
 }

@@ -64,6 +64,9 @@ static void printUsage(const char* prog) {
               << "  --dbc-csv           Convert selected DBFilesClient/*.dbc to CSV under\n"
               << "                      <output>/expansions/<expansion>/db/*.csv (for committing)\n"
               << "  --listfile <path>   External listfile for MPQ file enumeration (auto-detected)\n"
+              << "  --names <path>      Candidate file names, one per line, each looked up in the\n"
+              << "                      archives by hash; for archives with no (listfile), and\n"
+              << "                      fast with millions of names where --listfile is not\n"
               << "  --include <text>    Extract only paths containing this (repeatable); for\n"
               << "                      borrowing one zone's art instead of a whole client\n"
               << "  --reference-manifest <path>\n"
@@ -156,6 +159,8 @@ int main(int argc, char** argv) {
             opts.dbcCsvOutputDir = argv[++i];
         } else if (std::strcmp(argv[i], "--listfile") == 0 && i + 1 < argc) {
             opts.listFile = argv[++i];
+        } else if (std::strcmp(argv[i], "--names") == 0 && i + 1 < argc) {
+            opts.namesFile = argv[++i];
         } else if (std::strcmp(argv[i], "--include") == 0 && i + 1 < argc) {
             // Matched against the normalized path: lowercase, backslashes. Take
             // it however it was typed.
