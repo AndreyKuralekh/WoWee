@@ -3138,8 +3138,15 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
                     // cloak texture to bind, a white sheet. An NPC that owns a
                     // cape says so by naming the geoset; one that says nothing
                     // has none.
+                    //
+                    // Unless the cloak brings its own art: a model whose cape
+                    // names a texture file, rather than the replaceable cloak
+                    // slot, is a creature that wears it - a mod's custom NPC
+                    // drawn in one piece, cape included. Hiding it left
+                    // Sergeant Willem without his.
                     uint16_t grp = batch.submeshId / 100;
-                    if (grp == 17 || grp == 18 || grp == 15) continue;
+                    if (grp == 17 || grp == 18) continue;
+                    if (grp == 15 && !batchUsesTextureType(gpuModel, batch, 0)) continue;
                 }
                 // One line per head batch, for the first few instances: which
                 // texture slot it resolved to and what type that slot is. The
