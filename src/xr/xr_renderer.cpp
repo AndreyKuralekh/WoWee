@@ -402,6 +402,7 @@ void Renderer::vrBeginViews() {
             // are drawn: a hand round a controller at least curled as at rest.
             // Without a headset, about so.
             float* bend = vrFingerBend_[hand];
+            vrThumbAimed_[hand] = false;
             if (!hands.tracked[hand]) {
                 for (int f = 0; f < 5; ++f) {
                     bend[f * 2] = f == 0 ? 0.3f : 0.6f;
@@ -419,6 +420,22 @@ void Renderer::vrBeginViews() {
             };
             bend[0] = bendAt(2, 3);  // thumb: metacarpal 2, proximal 3, distal 4
             bend[1] = bendAt(3, 4);
+            // The thumb by where it points rather than by how far it bends:
+            // it bends and turns at its base at once, towards the fingers it
+            // meets, and no one axis of bend follows that - a thumb on the X
+            // button was drawn at the little finger. Its proximal (3 to 4)
+            // and distal (4 to 5) phalanges, in the wrist's axes, which the
+            // model's hand is framed in.
+            {
+                const glm::mat3 toWrist = glm::transpose(glm::mat3(joints[kWristJoint]));
+                const auto dirOf = [&](uint32_t from, uint32_t to) {
+                    const glm::vec3 d = toWrist * (glm::vec3(joints[to][3]) - glm::vec3(joints[from][3]));
+                    return glm::length(d) > 1e-5f ? glm::normalize(d) : glm::vec3(0.0f, 0.0f, -1.0f);
+                };
+                vrThumbAim_[hand][0] = dirOf(3, 4);
+                vrThumbAim_[hand][1] = dirOf(4, 5);
+                vrThumbAimed_[hand] = true;
+            }
             constexpr uint32_t kMetacarpal[4] = {6, 11, 16, 21};  // index, middle, ring, little
             for (int f = 0; f < 4; ++f) {
                 const uint32_t m = kMetacarpal[f];
@@ -461,7 +478,8 @@ void Renderer::vrPlaceBody(float torsoYawDeg) {
     const glm::vec3 eyes = characterPosition + glm::vec3(0.0f, 0.0f, cameraController->followedEyeHeight());
     for (int hand = 0; hand < 2; ++hand) {
         characterRenderer->setInstanceArmReach(characterInstanceId, hand, vrWristSeen_[hand],
-                                               eyes + vrWristOffset_[hand], vrWristTurn_[hand], vrFingerBend_[hand]);
+                                               eyes + vrWristOffset_[hand], vrWristTurn_[hand], vrFingerBend_[hand],
+                                               vrThumbAimed_[hand] ? vrThumbAim_[hand] : nullptr);
     }
 }
 

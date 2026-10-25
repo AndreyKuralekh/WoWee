@@ -2699,6 +2699,39 @@ void CharacterRenderer::reachArms(CharacterInstance& instance) const {
                 const glm::vec3 pFirst = bones[first].pivot;
                 glm::vec3 along = second >= 0 ? bones[second].pivot - pFirst : pFirst - pH;
                 along = glm::length(along) > 1e-5f ? glm::normalize(along) : -z;
+                // A tracked thumb is turned to where the player's points:
+                // each bone onto its phalanx, given in the wrist's axes, which
+                // are this hand's x, y and z.
+                if (f == 0 && instance.armThumbAimed[arm]) {
+                    const auto inHand = [&](const glm::vec3& d) {
+                        return glm::normalize(d.x * x + d.y * y + d.z * z);
+                    };
+                    const auto turnAbout = [](const glm::vec3& pivot, const glm::mat3& turn) {
+                        return glm::translate(glm::mat4(1.0f), pivot) * glm::mat4(turn) *
+                               glm::translate(glm::mat4(1.0f), -pivot);
+                    };
+                    const glm::mat3 firstTurn = turnBetween(along, inHand(instance.armThumbAim[arm][0]));
+                    m[first] = m[hand] * turnAbout(pFirst, firstTurn);
+                    posed[first] = 1;
+                    moved[first] = 1;
+                    if (second >= 0) {
+                        int third = -1;
+                        for (int i = second + 1; i < n && third < 0; ++i) {
+                            if (bones[i].parentBone == second) third = i;
+                        }
+                        const glm::vec3 pSecond = bones[second].pivot;
+                        glm::vec3 alongSecond = third >= 0 ? bones[third].pivot - pSecond : glm::vec3(0.0f);
+                        alongSecond = glm::length(alongSecond) > 1e-5f ? glm::normalize(alongSecond) : along;
+                        // The second bone already carries the first's turn;
+                        // its own is what is left, in the model's rest axes.
+                        const glm::mat3 secondTurn =
+                            turnBetween(glm::normalize(firstTurn * alongSecond), inHand(instance.armThumbAim[arm][1]));
+                        m[second] = m[first] * turnAbout(pSecond, glm::transpose(firstTurn) * secondTurn * firstTurn);
+                        posed[second] = 1;
+                        moved[second] = 1;
+                    }
+                    continue;
+                }
                 // A model's fingers rest already bent from the line of the
                 // back of the hand - the wrist to the knuckle - which a flat
                 // hand of the player's is not: that bend comes off, and a
@@ -4235,7 +4268,8 @@ void CharacterRenderer::setInstanceArmsOnly(uint32_t instanceId, bool armsOnly) 
 }
 
 void CharacterRenderer::setInstanceArmReach(uint32_t instanceId, int arm, bool reach, const glm::vec3& wrist,
-                                             const glm::mat3& wristTurn, const float* fingerBend) {
+                                             const glm::mat3& wristTurn, const float* fingerBend,
+                                             const glm::vec3* thumbAim) {
     auto it = instances.find(instanceId);
     if (it == instances.end() || arm < 0 || arm > 1) return;
     CharacterInstance& instance = it->second;
@@ -4243,6 +4277,11 @@ void CharacterRenderer::setInstanceArmReach(uint32_t instanceId, int arm, bool r
     instance.armFingers[arm] = reach && fingerBend;
     if (!reach) return;
     if (fingerBend) std::copy(fingerBend, fingerBend + 10, instance.armFingerBend[arm]);
+    instance.armThumbAimed[arm] = thumbAim != nullptr;
+    if (thumbAim) {
+        instance.armThumbAim[arm][0] = thumbAim[0];
+        instance.armThumbAim[arm][1] = thumbAim[1];
+    }
     const glm::mat4 model = instance.hasOverrideModelMatrix ? instance.overrideModelMatrix : getModelMatrix(instance);
     instance.armReachAt[arm] = glm::vec3(glm::inverse(model) * glm::vec4(wrist, 1.0f));
     instance.armReachTurn[arm] = glm::transpose(turnOf(model)) * wristTurn;
