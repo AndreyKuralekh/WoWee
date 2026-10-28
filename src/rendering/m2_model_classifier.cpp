@@ -192,7 +192,19 @@ bool assetNameLooksLikeFlame(const std::string& path) {
         "glow", "flare", "brazier", "campfire", "bonfire",
     };
     for (std::string_view token : kFlameTokens) {
-        if (assetNameHasWordToken(path, token)) return true;
+        if (assetNameHasWordToken(path, token)) {
+            // A lamppost's whole skin - post, cage, glass - is no flame card,
+            // and keying its dark texels out cut holes in the lamp. Both
+            // spellings are in the data: WesternPlaguelandsLampost01.
+            if (token == "lamp") {
+                const std::string name = assetTokenName(path);
+                if (name.find("lamppost") != std::string::npos ||
+                    name.find("lampost") != std::string::npos) {
+                    continue;
+                }
+            }
+            return true;
+        }
     }
     return false;
 }

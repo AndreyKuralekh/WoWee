@@ -142,6 +142,11 @@ TEST_CASE("the flame list keeps every token both renderers had",
     // needed: the directory is no longer part of the question.
     CHECK_FALSE(assetNameLooksLikeFlame(
         "item\\texturecomponents\\leglowertexture\\leather_a_01brown_pant_ll.blp"));
+
+    // Nor a lamppost's skin, in either spelling: keyed, the lamp had holes.
+    CHECK_FALSE(assetNameLooksLikeFlame(
+        "world\\expansion05\\doodads\\human\\doodads\\6hu_garrison_lamppost.blp"));
+    CHECK_FALSE(assetNameLooksLikeFlame("doodads\\westernplaguelandslampost01.blp"));
 }
 
 // ---------------------------------------------------------------------------
