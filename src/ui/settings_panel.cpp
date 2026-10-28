@@ -883,7 +883,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "daylight", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrdrawbyreach", "vraimwithhand", "vrbody", "vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrdrawbyreach", "vraimwithhand", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1097,6 +1097,7 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrdrawbyreach",     .asBool  = &SettingsPanel::pendingVrDrawByReach},
     {.key = "vraimwithhand",     .asBool  = &SettingsPanel::pendingVrAimWithHand},
     {.key = "vrbody",            .asInt   = &SettingsPanel::pendingVrBody},
+    {.key = "vrcrouch",          .asBool  = &SettingsPanel::pendingVrCrouch},
     {.key = "vrhands",           .asBool  = &SettingsPanel::pendingVrHands},
     {.key = "vrhandtone",        .asFloat = &SettingsPanel::pendingVrHandTone},
     {.key = "vrhandpanels",      .asBool  = &SettingsPanel::pendingVrHandPanels},
@@ -1353,6 +1354,10 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     }
     if (key == "vrbody") {
         xr::system().setBodyMode(pendingVrBody);
+        return;
+    }
+    if (key == "vrcrouch") {
+        xr::system().setCrouchFollows(pendingVrCrouch);
         return;
     }
     if (key == "vrhands") {

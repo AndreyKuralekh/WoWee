@@ -3833,6 +3833,41 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
         }
     }
 
+#ifdef WOWEE_VR
+    // The player crouching in the room. Out of combat and standing still the
+    // character kneels, a stand state the server shows everyone and stands
+    // back up from when the player does, or walks: the camera stands a
+    // kneeling character up on any move, as it does a sitting one. Fighting
+    // or on the move the server is not told - a stand state does not go with
+    // either - and the character stoops as a stealthed one does, for the
+    // player alone. A stand state the player chose, a chair or /sit, is left
+    // as it is.
+    {
+        auto* ac = renderer ? renderer->getAnimationController() : nullptr;
+        auto* cc = renderer ? renderer->getCameraController() : nullptr;
+        const bool headset = xr::system().sessionRunning() || xr::system().fakeHeadset();
+        const int crouch = headset ? xr::system().crouchLevel() : 0;
+        const bool riding = ac && (ac->isMounted() || ac->isTaxiFlight());
+        const bool swimming = cc && cc->isSwimming();
+        const bool moving = cc && cc->isMoving();
+        using AC = rendering::AnimationController;
+        const uint8_t standState = gameHandler ? gameHandler->getStandState() : AC::STAND_STATE_STAND;
+        const bool canKneel = crouch > 0 && gameHandler && !gameHandler->isInCombat() && !moving && !riding &&
+                              !swimming;
+        if (canKneel && !vrCrouchKneels_ && standState == AC::STAND_STATE_STAND) {
+            gameHandler->setStandState(AC::STAND_STATE_KNEEL);
+            vrCrouchKneels_ = true;
+        } else if (!canKneel && vrCrouchKneels_) {
+            if (gameHandler && standState == AC::STAND_STATE_KNEEL) gameHandler->setStandState(AC::STAND_STATE_STAND);
+            vrCrouchKneels_ = false;
+        } else if (vrCrouchKneels_ && standState != AC::STAND_STATE_KNEEL && standState != AC::STAND_STATE_STAND) {
+            // Something else took over - a chair, /sit, death.
+            vrCrouchKneels_ = false;
+        }
+        if (ac) ac->setVrCrouched(crouch > 0 && !vrCrouchKneels_ && !riding && !swimming);
+    }
+#endif
+
     inGameStep = "world update";
     updateCheckpoint = "in_game: world update";
     runInGameStage("world->update", [&] {

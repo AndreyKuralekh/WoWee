@@ -162,6 +162,12 @@ public:
     // ── Stealth ────────────────────────────────────────────────────────────
     /// When true, idle/walk/run use stealth animation variants.
     void setStealthed(bool stealth);
+#ifdef WOWEE_VR
+    /// The headset's player crouching where the server is not told - in a
+    /// fight or on the move: the stealth stoop, as if stealthed, for as long
+    /// as either holds.
+    void setVrCrouched(bool crouched);
+#endif
 
     // ── Effect triggers ────────────────────────────────────────────────────
     void triggerLevelUpEffect(const glm::vec3& position);
@@ -202,6 +208,10 @@ private:
     // ── CharacterAnimator: owns the complete character animation FSM ─────
     CharacterAnimator characterAnimator_;
     bool capabilitiesProbed_ = false;
+    bool stealthed_ = false;
+#ifdef WOWEE_VR
+    bool vrCrouched_ = false;
+#endif
 
     // ── Animation change detection ───────────────────────────────────────
     uint32_t lastPlayerAnimRequest_ = UINT32_MAX;

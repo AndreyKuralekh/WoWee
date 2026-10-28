@@ -737,6 +737,22 @@ void XrSystem::recordHandsCopy(VkCommandBuffer cmd, uint32_t eye, VkImage image)
     f.handsCopied |= 1u << eye;
 }
 
+void XrSystem::updateCrouch(float headDropMetres) {
+    // Entered at a foot and two, left ten centimetres above.
+    constexpr float kStoop = 0.30f;
+    constexpr float kKneel = 0.60f;
+    constexpr float kMargin = 0.10f;
+    int level = crouchLevel_;
+    if (level < 2 && headDropMetres > kKneel) level = 2;
+    if (level == 2 && headDropMetres < kKneel - kMargin) level = 1;
+    if (level == 0 && headDropMetres > kStoop) level = 1;
+    if (level == 1 && headDropMetres < kStoop - kMargin) level = 0;
+    if (level != crouchLevel_ && debug_) {
+        LOG_WARNING("VR: crouch ", crouchLevel_, " -> ", level, ", head ", headDropMetres, " m below where recentred");
+    }
+    crouchLevel_ = level;
+}
+
 void XrSystem::beginFrame() {
     if (fake_) {
         FrameData& f = *frame_;
@@ -763,6 +779,12 @@ void XrSystem::beginFrame() {
             f.views[i].fov.angleUp = 0.77f;
             f.views[i].fov.angleDown = -0.96f;
         }
+        // WOWEE_VR_FAKE_HEAD_DROP=metres: the fake player crouches that far.
+        static const float drop = [] {
+            const char* v = std::getenv("WOWEE_VR_FAKE_HEAD_DROP");
+            return v && *v ? static_cast<float>(std::atof(v)) : 0.0f;
+        }();
+        updateCrouch(drop);
         return;
     }
     if (instance_ == XR_NULL_HANDLE) return;
@@ -931,6 +953,9 @@ void XrSystem::placePanel() {
                         glm::degrees(headYaw), " degrees");
         }
     }
+
+    // Tracking space has Y up: the head below where it was recentred.
+    updateCrouch(headOrigin_.y - head.y);
 
     constexpr float kFollowAngle = glm::radians(40.0f);
     constexpr float kFollowDistance = 0.75f;

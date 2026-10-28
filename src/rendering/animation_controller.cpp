@@ -220,8 +220,20 @@ void AnimationController::setStandState(uint8_t state) {
 // ── Stealth ──────────────────────────────────────────────────────────────────
 
 void AnimationController::setStealthed(bool stealth) {
+    stealthed_ = stealth;
+#ifdef WOWEE_VR
+    stealth = stealth || vrCrouched_;
+#endif
     characterAnimator_.setStealthed(stealth);
 }
+
+#ifdef WOWEE_VR
+void AnimationController::setVrCrouched(bool crouched) {
+    if (crouched == vrCrouched_) return;
+    vrCrouched_ = crouched;
+    characterAnimator_.setStealthed(stealthed_ || vrCrouched_);
+}
+#endif
 
 // ── Sprint aura ──────────────────────────────────────────────────────────────
 

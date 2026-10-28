@@ -1029,6 +1029,11 @@ constexpr SettingDesc kSchema[] = {
      "holds. Arms only: just its forearms and hands. Hands only: plain\n"
      "hands instead, as Show hands and Hand skin tone set them.",
      "Whole body|Arms only|Hands only", 0},
+    {"vrcrouch", "Crouch with the player", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
+     "Crouch for real and your character crouches too: a foot lower\n"
+     "than where you recentred and it stoops, two feet and it\n"
+     "kneels. Out of combat and standing still it kneels for everyone\n"
+     "to see; fighting or walking, it stoops for you alone.", "", 1},
     {"vrhands", "Show hands", SettingKind::Bool, 0, 0, 0, "VR comfort", "Hands",
      "Your own hands in the world, where the controllers are. The\n"
      "fingers follow how you hold them: the trigger, the grip and\n"

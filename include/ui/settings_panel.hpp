@@ -255,6 +255,7 @@ public:
     bool pendingVrDrawByReach = true;       // a reach to the sheath and the grip draws the weapon
     bool pendingVrAimWithHand = false;      // the loaded spell's trigger targets what its hand points at
     int pendingVrBody = 0;                  // 0 the whole body, 1 arms only, 2 the stock hands - see xr::XrSystem::setBodyMode
+    bool pendingVrCrouch = true;            // the character crouches when the player does - see xr::XrSystem::crouchLevel
     bool pendingVrHands = true;             // the player's hands drawn in the world
     float pendingVrHandTone = 0.5f;         // their skin, 0 pale to 1 dark
     bool pendingVrHandPanels = true;        // the action bar and the target frame on the wrist

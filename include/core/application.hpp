@@ -403,6 +403,9 @@ private:
     /// Whether the player was swimming last frame, so weapons are put away
     /// once on entering the water rather than every frame in it.
     bool wasSwimmingForSheath_ = false;
+#ifdef WOWEE_VR
+    bool vrCrouchKneels_ = false;  // the kneel was asked for by the player crouching
+#endif
 
     // Quest marker billboard sprites (above NPCs)
     void loadQuestMarkerModels();  // Now loads BLP textures

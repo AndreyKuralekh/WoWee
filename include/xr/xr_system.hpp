@@ -267,6 +267,13 @@ public:
     [[nodiscard]] bool showBody() const { return bodyMode_ != 2; }
     [[nodiscard]] bool bodyArmsOnly() const { return bodyMode_ == 1; }
 
+    /// How far the player has crouched, by how far the head is below where
+    /// they recentred: 0 upright, 1 stooping (a foot lower), 2 kneeling (two
+    /// feet). Each level is left only a little above where it was entered,
+    /// so the body does not flicker at the edge. Always 0 when switched off.
+    void setCrouchFollows(bool follows) { crouchFollows_ = follows; }
+    [[nodiscard]] int crouchLevel() const { return crouchFollows_ ? crouchLevel_ : 0; }
+
     /// Takes where the head is at the next frame as the place the character's
     /// head is, and the way it faces as straight ahead: the body is wherever
     /// the player sat down, and this is how the game is told. Height is taken
@@ -515,6 +522,9 @@ private:
     bool showFrameRate_ = false;
     bool firstPerson_ = true;
     int bodyMode_ = 0;  // see setBodyMode
+    bool crouchFollows_ = true;  // see setCrouchFollows
+    int crouchLevel_ = 0;        // see crouchLevel
+    void updateCrouch(float headDropMetres);
     bool snapTurn_ = true;
     bool moveByHand_ = false;
     bool leftHanded_ = false;
