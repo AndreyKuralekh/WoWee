@@ -229,6 +229,9 @@ public:
     struct SkyboxLayer {
         std::string path;
         float weight = 0.0f;   ///< 0..1: the share of the lights here that name it
+        /// LightSkybox flag 0x1: the model's sequence is the whole day, played
+        /// by the time of day rather than looped.
+        bool fullDay = false;
     };
     /// Every sky model the lights around the player name, heaviest first, at
     /// the weights those lights have - the same falloff the sky colours blend
@@ -312,6 +315,7 @@ private:
     // LightParams profiles by ID
     std::map<uint32_t, LightParamsProfile> lightParamsProfiles_;
     std::map<uint32_t, std::string> lightSkyboxPaths_;
+    std::map<std::string, bool> lightSkyboxFullDay_;  // by path; see SkyboxLayer::fullDay
 
     // Current state
     LightingParams currentParams_;

@@ -97,6 +97,9 @@ struct M2ModelGPU {
         // them at load, which an animated value replaces.
         std::shared_ptr<const pipeline::M2AnimationTrack> alphaTrack;
         std::shared_ptr<const pipeline::M2AnimationTrack> weightTrack;
+        // The colour as it animates, where it does - a sky dome's tint over
+        // the day. Sampled for an instance on a day clock.
+        std::shared_ptr<const pipeline::M2AnimationTrack> rgbTrack;
         float restAlpha = 1.0f;
         glm::vec3 center = glm::vec3(0.0f); // Center of batch geometry (model space)
         float glowSize = 1.0f;              // Approx radius of batch geometry
@@ -185,6 +188,9 @@ struct M2ModelGPU {
     uint32_t rtMesh = ~0u;      // RtScene mesh, or ~0u when it does not cast
     bool isSmoke = false;       // True for smoke models (UV scroll animation)
     bool isSpellEffect = false;  // True for spell effect models (skip particle dampeners)
+    /// The last key of any batch colour or weight track: the length of the
+    /// day for a "full day" sky whose one sequence is given no duration.
+    float trackSpanMs = 0.0f;
     bool isInstancePortal = false; // Instance portal model (spin + glow)
     bool disableAnimation = false; // Keep foliage/tree doodads visually stable
     bool shadowWindFoliage = false; // Apply wind sway in shadow pass for foliage/tree cards
@@ -291,6 +297,9 @@ struct M2Instance {
     /// back to the idle sequence, which for a door is the closed pose - so an
     /// open door swung open and shut itself, over and over.
     bool holdAtEnd = false;
+    /// Played by the time of day - see M2Renderer::setInstanceDayClock. Its
+    /// batches' colours and alphas follow their tracks, not their first keys.
+    bool dayClock = false;
 
     /// Lit while the player is pressing on this instance: 0 none, 1 full.
     ///
@@ -555,6 +564,10 @@ public:
 
     void setInstanceTransform(uint32_t instanceId, const glm::mat4& transform);
     void setInstanceAnimationFrozen(uint32_t instanceId, bool frozen);
+    /// Hold the first sequence at the frame for this point in the day, 0..1
+    /// from midnight: a "full day" sky model plays its sequence over the day,
+    /// stars at night and blue at noon, rather than looping in real time.
+    void setInstanceDayClock(uint32_t instanceId, float dayFraction);
     /// Play from the first frame, with bones to match.
     ///
     /// New instances start at a random point so placed doodads don't animate

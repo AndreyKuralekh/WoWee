@@ -207,10 +207,16 @@ bool LightingManager::loadLightSkyboxDbc(pipeline::AssetManager* assetManager) {
     }
 
     lightSkyboxPaths_.clear();
+    lightSkyboxFullDay_.clear();
     for (uint32_t i = 0; i < dbc.getRecordCount(); ++i) {
         const uint32_t id = dbc.getUInt32(i, 0);
         std::string path = dbc.getString(i, 1);
-        if (id != 0 && !path.empty()) lightSkyboxPaths_[id] = std::move(path);
+        if (id == 0 || path.empty()) continue;
+        // Flag 0x1: the sequence is the day. A sky with its noon and its
+        // stars in one sequence otherwise loops through both in a minute or
+        // so, and was seen starry at midday.
+        if (dbc.getFieldCount() >= 3 && (dbc.getUInt32(i, 2) & 0x1) != 0) lightSkyboxFullDay_[path] = true;
+        lightSkyboxPaths_[id] = std::move(path);
     }
     LOG_INFO("Loaded LightSkybox.dbc: ", lightSkyboxPaths_.size(), " model paths");
     return !lightSkyboxPaths_.empty();
@@ -405,7 +411,10 @@ void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_
         for (const auto& [path, w] : target) {
             const bool present = std::any_of(skyboxLayers_.begin(), skyboxLayers_.end(),
                                              [&](const SkyboxLayer& l) { return l.path == path; });
-            if (!present) skyboxLayers_.push_back({.path = path, .weight = w * blendFactor});
+            if (!present) {
+                skyboxLayers_.push_back({.path = path, .weight = w * blendFactor,
+                                         .fullDay = lightSkyboxFullDay_.count(path) > 0});
+            }
         }
         // Gone once faded out and not wanted - never while it is still wanted,
         // so a model is not dropped and reloaded on its way in.

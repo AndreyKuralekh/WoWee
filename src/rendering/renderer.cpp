@@ -1939,6 +1939,7 @@ bool Renderer::updateSkyboxLayers() {
         }
         skyboxModelRenderer_->setInstanceFade(it->instanceId, layer.weight);
         skyboxModelRenderer_->setInstancePosition(it->instanceId, skyCentre);
+        if (layer.fullDay) skyboxModelRenderer_->setInstanceDayClock(it->instanceId, lightingManager->getTimeOfDay());
     }
     return !skyLayers_.empty();
 }

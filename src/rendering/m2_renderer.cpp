@@ -2333,6 +2333,21 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                             model.textureWeightTracks[trackIndex]);
                     }
                 }
+                if (batch.colorIndex < model.colorRgbTracks.size()) {
+                    const auto& rgb = model.colorRgbTracks[batch.colorIndex];
+                    const bool moves = std::any_of(rgb.sequences.begin(), rgb.sequences.end(),
+                                                   [](const auto& s) { return s.vec3Values.size() > 1; });
+                    if (moves) bgpu.rgbTrack = std::make_shared<const pipeline::M2AnimationTrack>(rgb);
+                }
+                for (const auto* track : {bgpu.alphaTrack.get(), bgpu.weightTrack.get(), bgpu.rgbTrack.get()}) {
+                    if (!track) continue;
+                    for (const auto& seq : track->sequences) {
+                        if (!seq.timestamps.empty()) {
+                            gpuModel.trackSpanMs = std::max(gpuModel.trackSpanMs,
+                                                            static_cast<float>(seq.timestamps.back()));
+                        }
+                    }
+                }
             }
 
             // Compute batch center and radius for glow sprite positioning

@@ -2151,7 +2151,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             // A spell effect fades as it was authored to - Blizzard's shard is
             // seen only for the last moment of its fall and gone as it enters
             // the ground. Everything else keeps the alpha it was given at load.
-            if (model.isSpellEffect && (batch.alphaTrack || batch.weightTrack)) {
+            // A sky on the day clock likewise: its stars and moon go out at
+            // dawn by their weight tracks.
+            if ((model.isSpellEffect || instance.dayClock) && (batch.alphaTrack || batch.weightTrack)) {
                 float animated = 1.0f;
                 if (batch.alphaTrack) {
                     animated *= m2_track::sampleFloat(*batch.alphaTrack, instance.currentSequenceIndex,
@@ -2221,6 +2223,17 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 // never be a valid seed. The classifier no longer calls
                 // HellfireSkyBox a brazier, and this makes sure the next model
                 // that gets miscalled one cannot strobe the sky either.
+                // A sky on the day clock is tinted as its tracks say for the
+                // hour: the dome's bottom, horizon and top go from night blue
+                // to noon by these, and at their first key it was night.
+                if (skyMode_ && instance.dayClock && batch.rgbTrack) {
+                    const glm::vec3 c = m2_track::sampleVec3(*batch.rgbTrack, instance.currentSequenceIndex,
+                                                             instance.animTime, instance.globalSequenceTime,
+                                                             model.globalSequenceDurations, batch.tint);
+                    mat->tintR = c.r;
+                    mat->tintG = c.g;
+                    mat->tintB = c.b;
+                }
                 if (!skyMode_ && m2BlendIsAdditive(batch.blendMode) &&
                     (model.isBrazierOrFire || model.isTorch || model.isLanternLike)) {
                     const float flicker = lampFlicker(

@@ -1202,6 +1202,13 @@ M2Model M2Loader::load(const std::vector<uint8_t>& m2Data) {
 
             if (dt.nameLength > 0 && dt.nameOffset > 0) {
                 tex.filename = readString(m2Data, dt.nameOffset, dt.nameLength);
+                // A file name has no trailing line break or blank, and some
+                // models carry one: a mod's sky named sky_horizont.blp with a
+                // newline after it, which no file is called, and drew its
+                // blue day as nothing. The original client finds the file.
+                while (!tex.filename.empty() && static_cast<unsigned char>(tex.filename.back()) <= ' ') {
+                    tex.filename.pop_back();
+                }
             }
 
             model.textures.push_back(tex);
@@ -1232,6 +1239,7 @@ M2Model M2Loader::load(const std::vector<uint8_t>& m2Data) {
         model.colorAlphas.reserve(header.nColors);
         model.colorRGB.reserve(header.nColors);
         model.colorAlphaTracks.resize(header.nColors);
+        model.colorRgbTracks.resize(header.nColors);
         for (uint32_t ci = 0; ci < header.nColors; ci++) {
             uint32_t alphaTrackOfs = header.ofsColors + ci * colorSize + alphaOfs;
             M2AnimationTrack& track = model.colorAlphaTracks[ci];
@@ -1239,6 +1247,11 @@ M2Model M2Loader::load(const std::vector<uint8_t>& m2Data) {
                 if (alphaTrackOfs + sizeof(M2TrackDisk) <= m2Data.size()) {
                     M2TrackDisk td = readValue<M2TrackDisk>(m2Data, alphaTrackOfs);
                     parseAnimTrack(m2Data, td, track, TrackType::FIXED16, seqFlags);
+                }
+                const uint32_t rgbTrackOfs = header.ofsColors + ci * colorSize;
+                if (rgbTrackOfs + sizeof(M2TrackDisk) <= m2Data.size()) {
+                    M2TrackDisk td = readValue<M2TrackDisk>(m2Data, rgbTrackOfs);
+                    parseAnimTrack(m2Data, td, model.colorRgbTracks[ci], TrackType::VEC3, seqFlags);
                 }
             } else {
                 if (alphaTrackOfs + sizeof(M2TrackDiskVanilla) <= m2Data.size()) {

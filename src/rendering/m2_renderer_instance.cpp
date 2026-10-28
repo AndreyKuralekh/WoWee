@@ -91,6 +91,28 @@ void M2Renderer::setInstanceAnimationFrozen(uint32_t instanceId, bool frozen) {
     }
 }
 
+void M2Renderer::setInstanceDayClock(uint32_t instanceId, float dayFraction) {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end()) return;
+    auto& inst = instances[idxIt->second];
+    if (!inst.cachedModel || inst.cachedModel->sequences.empty()) return;
+    inst.currentSequenceIndex = 0;
+    inst.playingVariation = false;
+    inst.holdAtEnd = false;
+    inst.animSpeed = 0.0f;
+    inst.dayClock = true;
+    // A sky ported from a later client gives its one sequence no duration and
+    // keys its tracks over the day by themselves: the day is then as long as
+    // its last key. Stars from midnight to 4 and from 8 in the evening, the
+    // sunset at 6 - read from a timeline of 0 it stayed midnight at noon.
+    float day = static_cast<float>(inst.cachedModel->sequences[0].duration);
+    if (day <= 0.0f) day = inst.cachedModel->trackSpanMs;
+    inst.animDuration = day;
+    const float f = dayFraction - std::floor(dayFraction);
+    // Short of the end, which the loop would wrap back to the start.
+    inst.animTime = std::min(f * day, std::max(0.0f, day - 1.0f));
+}
+
 void M2Renderer::restartInstanceAnimation(uint32_t instanceId) {
     auto idxIt = instanceIndexById.find(instanceId);
     if (idxIt == instanceIndexById.end()) return;

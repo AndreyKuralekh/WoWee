@@ -264,6 +264,9 @@ struct M2Model {
     // render time to hide batches whose alpha animates to 0 in the current
     // animation (e.g. the lumberjack carry model's alternate wood bundle).
     std::vector<M2AnimationTrack> colorAlphaTracks;
+    // And the colour itself as it animates: a sky's dome is tinted from night
+    // blue through dawn to noon by these.
+    std::vector<M2AnimationTrack> colorRgbTracks;
 
     // Attachment points (for weapon/effect anchoring)
     std::vector<M2Attachment> attachments;
