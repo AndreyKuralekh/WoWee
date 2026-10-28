@@ -21,11 +21,12 @@ layout(set = 0, binding = 0) uniform PerFrame {
 
 layout(set = 0, binding = 2) uniform sampler3D uFogVolume;
 
-// The height of the image drawn into, for the size in pixels. A glow sprite
-// passes a fixed scale instead - its sizes were chosen against one.
+// The height of the image drawn into, for the size in pixels, and the fixed
+// scale a negative size asks for instead: the glow sprites and a lamp's
+// specks were sized against it.
 layout(push_constant) uniform Push {
     layout(offset = 16) float viewHeight;
-    float fixedScale;
+    float legacyScale;
 } push;
 
 layout(location = 0) in vec3 aPos;
@@ -57,10 +58,10 @@ void main() {
     // so its side in pixels is twice that through the projection. A fixed 500
     // drew every particle about a third of that on a monitor and a quarter of
     // it in the headset, whose eye images are taller.
-    float pixelsPerUnit = push.fixedScale > 0.0
-        ? push.fixedScale
+    float pixelsPerUnit = aSize < 0.0
+        ? push.legacyScale
         : abs(projection[1][1]) * push.viewHeight;
-    gl_PointSize = clamp(aSize * pixelsPerUnit / max(dist, 1.0), 1.0, 1024.0);
+    gl_PointSize = clamp(abs(aSize) * pixelsPerUnit / max(dist, 1.0), 1.0, 1024.0);
     vColor = aColor;
     vTile = aTile;
     float worldDist = length(viewPos.xyz - aPos);

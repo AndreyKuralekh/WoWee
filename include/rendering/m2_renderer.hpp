@@ -200,6 +200,7 @@ struct M2ModelGPU {
     bool isFoliageLike = false;     // Model name matches foliage/tree/bush/grass etc (precomputed)
     bool isElvenLike = false;       // Model name matches elf/elven/quel (precomputed)
     bool isLanternLike = false;     // Model name matches lantern/lamp/light (precomputed)
+    bool hasLanternGlowCard = false; // a batch the glow sprites start from
     bool isKoboldFlame = false;     // Model name matches kobold+(candle/torch/mine) (precomputed)
     bool isLavaModel = false;       // Model name contains lava/molten/magma (UV scroll fallback)
     bool isSkyBird = false;         // Flying bird/bat doodad - hide until animation range
@@ -421,8 +422,8 @@ struct SmokeParticle {
 // The particle vertex shader's push constants, after the fragment shader's
 // tile count and alpha key - matches Push in m2_particle.vert.glsl.
 struct ParticleSizePush {
-    float viewHeight = 0.0f;  // pixels in the image drawn into
-    float fixedScale = 0.0f;  // above zero: pixels per unit regardless
+    float viewHeight = 0.0f;     // pixels in the image drawn into
+    float legacyScale = 500.0f;  // pixels per unit for a negative size
 };
 inline constexpr uint32_t kParticleSizePushOffset = 16;
 
@@ -1120,6 +1121,9 @@ private:
         glm::vec3 worldPos;
         glm::vec4 color;
         float size;
+        // Half its side in world units; otherwise in the fixed scale the
+        // sprites were tuned against.
+        bool trueSize = false;
     };
     std::vector<GlowSprite> glowSprites_;  // Reused each frame
 

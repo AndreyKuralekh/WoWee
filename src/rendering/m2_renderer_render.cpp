@@ -1408,6 +1408,36 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         glowSprites_.push_back(halo);
     };
 
+    // A lamp whose flame is particles only - the Elwynn lamppost - has no glow
+    // card for the sprites below to start from, so its light had no body: a
+    // soft ball about a foot across round the flame, breathing with it, and
+    // stronger at night. The flame sits inside the lamp's glass, which writes
+    // depth, and the sprite is one point at one depth, so it stands just in
+    // front of the glass towards the camera.
+    auto appendLanternHalo = [&](const M2ModelGPU& mdl, const M2Instance& instance, float distSq) {
+        constexpr float kFar = 90.0f;
+        if (distSq >= kFar * kFar) return;
+        glm::vec3 flame(0.0f);
+        for (const auto& emitter : mdl.particleEmitters) {
+            glm::mat4 boneXform(1.0f);
+            if (emitter.bone < instance.boneMatrices.size()) boneXform = instance.boneMatrices[emitter.bone];
+            flame += glm::vec3(instance.modelMatrix * boneXform * glm::vec4(emitter.position, 1.0f));
+        }
+        flame /= static_cast<float>(mdl.particleEmitters.size());
+        const glm::vec3 towardCamera = camPos - flame;
+        const float lenSq = glm::dot(towardCamera, towardCamera);
+        if (lenSq > 0.0001f) flame += towardCamera * glm::inversesqrt(lenSq) * (0.55f * instance.scale);
+
+        const float flicker = lampFlicker(instance.position, lampFlickerClockSeconds(), 0.82f, 0.12f, 0.06f);
+        const float fade = std::clamp((kFar - std::sqrt(distSq)) / 20.0f, 0.0f, 1.0f);
+        GlowSprite halo;
+        halo.worldPos = flame;
+        halo.color = glm::vec4(1.0f, 0.74f, 0.38f, 1.3f * flicker * fade * (0.35f + 0.65f * nightGlow_));
+        halo.size = 0.25f * instance.scale * (0.97f + 0.03f * flicker);
+        halo.trueSize = true;
+        glowSprites_.push_back(halo);
+    };
+
     // Validate per-frame descriptor set before any Vulkan commands
     if (!perFrameSet) {
         LOG_ERROR("M2Renderer::render: perFrameSet is VK_NULL_HANDLE - skipping M2 render");
@@ -1488,6 +1518,14 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 }
                 visStart = groupEnd;
                 continue;
+            }
+            if (model.isLanternLike && !model.particleEmitters.empty() &&
+                !model.hasLanternGlowCard) {
+                for (size_t vi = visStart; vi < groupEnd; vi++) {
+                    const auto& entry = sortedVisible_[vi];
+                    if (entry.index >= instances.size()) continue;
+                    appendLanternHalo(model, instances[entry.index], entry.distSq);
+                }
             }
             if (!model.vertexBuffer || !model.indexBuffer) {
                 visStart = groupEnd;
@@ -2280,8 +2318,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         struct { float tileX, tileY; int alphaKey; } particlePush = {.tileX = 1.0f, .tileY = 1.0f, .alphaKey = 0};
         vkCmdPushConstants(cmd, particlePipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(particlePush), &particlePush);
-        // The sprites' sizes were tuned against the shader's old fixed scale.
-        const ParticleSizePush sizePush{.fixedScale = 500.0f};
+        const ParticleSizePush sizePush{.viewHeight = viewHeight_};
         vkCmdPushConstants(cmd, particlePipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
                            kParticleSizePushOffset, sizeof(sizePush), &sizePush);
 
@@ -2297,7 +2334,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             *dst++ = gs.color.g;
             *dst++ = gs.color.b;
             *dst++ = gs.color.a;
-            *dst++ = gs.size;
+            // The sprites' sizes were tuned against the shader's old fixed
+            // scale, which a negative size asks for.
+            *dst++ = gs.trueSize ? gs.size : -gs.size;
             *dst++ = 0.0f;
         }
 

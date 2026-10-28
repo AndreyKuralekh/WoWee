@@ -243,6 +243,14 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                     // candle, and burns oranger than a lamp wick.
                     float radius    = chandelier ? 10.0f : 5.0f;
                     float intensity = chandelier ? 1.25f : 0.85f;
+                    // A lamp on a post hangs its flame three yards up or more,
+                    // where five yards of reach left the ground a faint
+                    // smudge. Reach the ground and as far again round it.
+                    const float flameHeight = worldPos.z - instance.position.z;
+                    if (!chandelier && !openFlame && flameHeight > 2.5f) {
+                        radius    = flameHeight + 6.5f;
+                        intensity = 1.2f;
+                    }
                     glm::vec3 color(1.0f, 0.58f, 0.22f);
                     if (openFlame) {
                         // Local lights are not shadowed, so this radius is the
@@ -2485,6 +2493,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                           " idxCount=", bgpu.indexCount);
             }
             gpuModel.batches.push_back(bgpu);
+            if (bgpu.glowCardLike && bgpu.lanternGlowHint) gpuModel.hasLanternGlowCard = true;
         }
         // A sky dome is drawn without depth, so its layers cover each other in
         // the order they are drawn, and the model gives that order as priority

@@ -769,6 +769,10 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             }
 
             float scale = rawScale;
+            // A lamp's specks keep the size they had under the shader's old
+            // fixed scale: drawn true to the model, its embers and wisps are
+            // orange balls round the flame rather than insects in its light.
+            bool legacySize = false;
             if (gpu.isSpellEffect) {
                 scale = std::max(rawScale * 1.5f, 0.05f);
             } else if (!gpu.isFireflyEffect) {
@@ -784,9 +788,12 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 // which would also change how they blend.
                 //
                 // Set when the shader drew every particle a third of its size:
-                // 0.05 now is the 0.15 it was then, and keeps the specks a
-                // lamp's embers became, which read as insects round the light.
-                if (cachedFlame) {
+                // 0.05 now is the 0.15 it was then. A lamp keeps the 0.15 in
+                // the old scale itself; see legacySize.
+                if (cachedFlame && gpu.isLanternLike) {
+                    scale = std::max(scale, 0.15f);
+                    legacySize = true;
+                } else if (cachedFlame) {
                     scale = std::max(scale, 0.05f);
                 }
             }
@@ -810,7 +817,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             vd[4] = color.g;
             vd[5] = color.b;
             vd[6] = alpha;
-            vd[7] = scale;
+            vd[7] = legacySize ? -scale : scale;
             float tileIndex = p.tileIndex;
             if (cachedIsTiled) {
                 tileIndex = p.tileIndex + static_cast<float>(cachedAnimFrame);
