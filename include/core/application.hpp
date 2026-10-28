@@ -403,6 +403,14 @@ private:
     /// Whether the player was swimming last frame, so weapons are put away
     /// once on entering the water rather than every frame in it.
     bool wasSwimmingForSheath_ = false;
+    // Where a creature standing still is drawn: the floor under the server's
+    // position, looked up once for that position.
+    struct CreatureRestFloor {
+        glm::vec3 server{0.0f};
+        float z = 0.0f;
+        bool found = false;
+    };
+    std::unordered_map<uint64_t, CreatureRestFloor> creatureRestFloor_;
 #ifdef WOWEE_VR
     bool vrCrouchKneels_ = false;  // the kneel was asked for by the player crouching
 #endif

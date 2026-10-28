@@ -3283,6 +3283,10 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
         const uint64_t currentTargetGuid = gameHandler->hasTarget()
             ? gameHandler->getTargetGuid() : 0;
         const uint64_t autoAttackGuid = gameHandler->getAutoAttackTargetGuid();
+        // Creatures gone since: their floors with them, now and then.
+        if (creatureRestFloor_.size() > _creatureInstances.size() + 256) {
+            std::erase_if(creatureRestFloor_, [&](const auto& e) { return !_creatureInstances.count(e.first); });
+        }
         for (const auto& [guid, instanceId] : _creatureInstances) {
             auto entity = gameHandler->getEntityManager().getEntity(guid);
             if (!entity || entity->getType() != game::ObjectType::UNIT) continue;
@@ -3341,6 +3345,39 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
                                                     previousFloorPos)) {
                     renderPos.z = *floorZ;
                 }
+            } else if (groundCreature && !creatureMount) {
+                // Standing still, on the ground too. A spawn's Z in the
+                // database is a little off the ground as often as not - in
+                // Northshire up to half a yard over it - and only a moving
+                // creature was put on the floor: the rest stood in the air.
+                // Looked up once a server position, and taken only within
+                // a little over half a yard, so a hovering one stays up.
+                auto& rest = creatureRestFloor_[guid];
+                if (!rest.found || rest.server != renderPos) {
+                    rest.server = renderPos;
+                    rest.z = renderPos.z;
+                    rest.found = false;
+                    // The closest of the three floors, without the moving
+                    // path's shortcut to the terrain: indoors the heightfield
+                    // under a building can be nearer than the building's own
+                    // floor, and a standing NPC would sink into it.
+                    constexpr float kRestWindow = 0.6f;
+                    std::optional<float> best;
+                    const auto consider = [&](const std::optional<float>& f) {
+                        if (!f) return;
+                        rest.found = true;
+                        if (std::abs(*f - renderPos.z) > kRestWindow) return;
+                        if (!best || std::abs(*f - renderPos.z) < std::abs(*best - renderPos.z)) best = f;
+                    };
+                    const float probeZ = renderPos.z + kRestWindow;
+                    if (auto* terrain = renderer->getTerrainManager()) consider(terrain->getHeightAt(renderPos.x, renderPos.y));
+                    if (auto* wmo = renderer->getWMORenderer()) {
+                        consider(wmo->getFloorHeight(renderPos.x, renderPos.y, probeZ, nullptr, renderPos.z));
+                    }
+                    if (auto* m2 = renderer->getM2Renderer()) consider(m2->getFloorHeight(renderPos.x, renderPos.y, probeZ));
+                    if (best) rest.z = *best;
+                }
+                renderPos.z = rest.z;
             }
             const glm::vec3 creatureMountPos = renderPos;
             if (creatureMount) renderPos.z += creatureMount->riderHeight;
