@@ -418,6 +418,14 @@ struct SmokeParticle {
     uint32_t instanceId = 0;
 };
 
+// The particle vertex shader's push constants, after the fragment shader's
+// tile count and alpha key - matches Push in m2_particle.vert.glsl.
+struct ParticleSizePush {
+    float viewHeight = 0.0f;  // pixels in the image drawn into
+    float fixedScale = 0.0f;  // above zero: pixels per unit regardless
+};
+inline constexpr uint32_t kParticleSizePushOffset = 16;
+
 // M2 material UBO - matches M2Material in m2.frag.glsl (set 1, binding 2)
 struct M2MaterialUBO {
     int32_t hasTexture;
@@ -719,6 +727,9 @@ public:
 
     void setSuppressBakedStars(bool suppress) { suppressBakedStars_ = suppress; }
     void setInsideInterior(bool inside) { insideInterior = inside; }
+    /// The height of the image the next pass draws into - the window's, or
+    /// an eye's - which sizes the particles.
+    void setViewHeight(float height) { viewHeight_ = height; }
 
     /// Drop the ground clutter from this pass, for the ablation's clutter
     /// phase. Clutter is drawn by the thousand and shares this renderer with
@@ -785,6 +796,7 @@ public:
 private:
     bool initialized_ = false;
     bool insideInterior = false;
+    float viewHeight_ = 1080.0f;
     pipeline::AssetManager* assetManager = nullptr;
 
     // Vulkan context

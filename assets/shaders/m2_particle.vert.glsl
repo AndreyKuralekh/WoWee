@@ -21,6 +21,13 @@ layout(set = 0, binding = 0) uniform PerFrame {
 
 layout(set = 0, binding = 2) uniform sampler3D uFogVolume;
 
+// The height of the image drawn into, for the size in pixels. A glow sprite
+// passes a fixed scale instead - its sizes were chosen against one.
+layout(push_constant) uniform Push {
+    layout(offset = 16) float viewHeight;
+    float fixedScale;
+} push;
+
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec4 aColor;
 layout(location = 2) in float aSize;
@@ -46,7 +53,14 @@ vec4 fogVolumeAt(vec3 worldPos) {
 void main() {
     vec4 viewPos4 = view * vec4(aPos, 1.0);
     float dist = -viewPos4.z;
-    gl_PointSize = clamp(aSize * 500.0 / max(dist, 1.0), 1.0, 128.0);
+    // A particle's scale is half its side, as the original client draws it,
+    // so its side in pixels is twice that through the projection. A fixed 500
+    // drew every particle about a third of that on a monitor and a quarter of
+    // it in the headset, whose eye images are taller.
+    float pixelsPerUnit = push.fixedScale > 0.0
+        ? push.fixedScale
+        : abs(projection[1][1]) * push.viewHeight;
+    gl_PointSize = clamp(aSize * pixelsPerUnit / max(dist, 1.0), 1.0, 1024.0);
     vColor = aColor;
     vTile = aTile;
     float worldDist = length(viewPos.xyz - aPos);

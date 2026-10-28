@@ -2280,6 +2280,10 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         struct { float tileX, tileY; int alphaKey; } particlePush = {.tileX = 1.0f, .tileY = 1.0f, .alphaKey = 0};
         vkCmdPushConstants(cmd, particlePipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(particlePush), &particlePush);
+        // The sprites' sizes were tuned against the shader's old fixed scale.
+        const ParticleSizePush sizePush{.fixedScale = 500.0f};
+        vkCmdPushConstants(cmd, particlePipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
+                           kParticleSizePushOffset, sizeof(sizePush), &sizePush);
 
         // Write glow vertex data directly to mapped buffer (no temp vector)
         size_t uploadCount = std::min(glowSprites_.size(), MAX_GLOW_SPRITES);

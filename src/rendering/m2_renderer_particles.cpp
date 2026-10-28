@@ -770,7 +770,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
 
             float scale = rawScale;
             if (gpu.isSpellEffect) {
-                scale = std::max(rawScale * 1.5f, 0.15f);
+                scale = std::max(rawScale * 1.5f, 0.05f);
             } else if (!gpu.isFireflyEffect) {
                 scale = std::min(rawScale, 1.5f);
                 // Candle flames are authored at a fraction of a unit, which lands
@@ -782,8 +782,12 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 // cut, so its five candles rendered as nothing. Give flame
                 // fixtures the same floor without making them spell effects,
                 // which would also change how they blend.
+                //
+                // Set when the shader drew every particle a third of its size:
+                // 0.05 now is the 0.15 it was then, and keeps the specks a
+                // lamp's embers became, which read as insects round the light.
                 if (cachedFlame) {
-                    scale = std::max(scale, 0.15f);
+                    scale = std::max(scale, 0.05f);
                 }
             }
 
@@ -929,6 +933,9 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         };
         vkCmdPushConstants(cmd, particlePipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(pc), &pc);
+        const ParticleSizePush sizePush{.viewHeight = viewHeight_};
+        vkCmdPushConstants(cmd, particlePipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
+                           kParticleSizePushOffset, sizeof(sizePush), &sizePush);
 
         // The vertices are already in the buffer, at this run's own offset.
         // Both used to be wrong: every group copied to offset zero and drew

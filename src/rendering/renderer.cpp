@@ -3204,6 +3204,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
         }
 
         if (m2Renderer && camera && !skipM2) {
+            m2Renderer->setViewHeight(static_cast<float>(activeRenderExtent_.height));
             m2Future = core::ThreadPool::frameWorkers().submit([&]() -> double {
                 auto t0 = std::chrono::steady_clock::now();
                 VkCommandBuffer cmd = beginSecondary(SEC_M2);
@@ -3512,6 +3513,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
                 m2Renderer->setInsideInterior(cameraController->isInsideInteriorWMO());
             }
             m2Renderer->prepareRender(frameIdx, *camera);
+            m2Renderer->setViewHeight(static_cast<float>(activeRenderExtent_.height));
             auto m2Start = std::chrono::steady_clock::now();
             m2Renderer->render(currentCmd, perFrameSet, *camera);
             m2Renderer->renderSmokeParticles(currentCmd, perFrameSet);
