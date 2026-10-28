@@ -654,11 +654,31 @@ void WorldSocket::tryParsePackets() {
             localHeaderBytesDecrypted = 4;
         }
 
+        // A packet of more than 0x7FFF bytes has a five-byte header: the top bit
+        // of the first byte set and the size in three bytes, big-endian. WotLK
+        // servers send them where a lot is in view - an update of a crowded
+        // place, Northshire Abbey with its bots - and read as four bytes the
+        // size came out over 32768 and the connection was dropped as out of
+        // step. The fifth byte is decrypted once it has arrived, and only once.
+        const bool largeHeader = !useVanillaCrypt && (receiveBuffer[parseOffset + 0] & 0x80) != 0;
+        const size_t headerLen = largeHeader ? 5 : 4;
+        if (largeHeader) {
+            if ((receiveBuffer.size() - parseOffset) < headerLen) break;
+            if (encryptionEnabled && localHeaderBytesDecrypted < headerLen) {
+                decryptCipher.process(receiveBuffer.data() + parseOffset + localHeaderBytesDecrypted,
+                                      headerLen - localHeaderBytesDecrypted);
+                localHeaderBytesDecrypted = headerLen;
+            }
+        }
+
         // Parse header (now decrypted in-place).
-        // Size: 2 bytes big-endian. For world packets, this includes opcode bytes.
-        uint16_t size = (receiveBuffer[parseOffset + 0] << 8) | receiveBuffer[parseOffset + 1];
-        // Opcode: 2 bytes little-endian.
-        uint16_t opcode = receiveBuffer[parseOffset + 2] | (receiveBuffer[parseOffset + 3] << 8);
+        // Size: big-endian, two bytes or three. For world packets, this includes opcode bytes.
+        const uint8_t* hdr = receiveBuffer.data() + parseOffset;
+        uint32_t size = largeHeader
+            ? ((static_cast<uint32_t>(hdr[0] & 0x7F) << 16) | (static_cast<uint32_t>(hdr[1]) << 8) | hdr[2])
+            : ((static_cast<uint32_t>(hdr[0]) << 8) | hdr[1]);
+        // Opcode: 2 bytes little-endian, after the size.
+        uint16_t opcode = static_cast<uint16_t>(hdr[headerLen - 2] | (hdr[headerLen - 1] << 8));
         if (size < 2) {
             LOG_ERROR("World packet framing desync: invalid size=", size,
                       " rawHdr=", std::hex,
@@ -670,8 +690,11 @@ void WorldSocket::tryParsePackets() {
             closeSocketNoJoin();
             return;
         }
-        constexpr uint16_t kMaxWorldPacketSize = 0x8000;  // 32KB - allows large guild rosters, auction lists
-        if (size > kMaxWorldPacketSize) {
+        // 32KB in a four-byte header, which cannot say more; a five-byte one can
+        // say eight megabytes, and nothing a server sends comes near one.
+        constexpr uint32_t kMaxWorldPacketSize = 0x8000;
+        constexpr uint32_t kMaxLargeWorldPacketSize = 0x100000;
+        if (size > (largeHeader ? kMaxLargeWorldPacketSize : kMaxWorldPacketSize)) {
             LOG_ERROR("World packet framing desync: oversized packet size=", size,
                       " rawHdr=", std::hex,
                       static_cast<int>(rawHeader[0]), " ",
@@ -683,8 +706,8 @@ void WorldSocket::tryParsePackets() {
             return;
         }
 
-        const uint16_t payloadLen = size - 2;
-        const size_t totalSize = 4 + payloadLen;
+        const uint32_t payloadLen = size - 2;
+        const size_t totalSize = headerLen + payloadLen;
 
         if (headerTracePacketsLeft > 0) {
             LOG_INFO("WS HDR TRACE raw=",
@@ -711,7 +734,7 @@ void WorldSocket::tryParsePackets() {
                      " buffered=", (receiveBuffer.size() - parseOffset),
                      " enc=", encryptionEnabled ? "yes" : "no");
         }
-        recordRecentPacket(false, opcode, payloadLen);
+        recordRecentPacket(false, opcode, static_cast<uint16_t>(std::min<uint32_t>(payloadLen, 0xFFFF)));
         const auto traceNow = std::chrono::steady_clock::now();
         if (packetTraceUntil_ > traceNow) {
             const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -733,7 +756,7 @@ void WorldSocket::tryParsePackets() {
         try {
             std::vector<uint8_t> packetData(payloadLen);
             if (payloadLen > 0) {
-                std::memcpy(packetData.data(), receiveBuffer.data() + parseOffset + 4, payloadLen);
+                std::memcpy(packetData.data(), receiveBuffer.data() + parseOffset + headerLen, payloadLen);
             }
             // Queue packet; callbacks run after buffer state is finalized.
             parsedPackets->emplace_back(opcode, std::move(packetData));
