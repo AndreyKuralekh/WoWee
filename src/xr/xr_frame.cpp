@@ -766,13 +766,25 @@ void XrSystem::beginFrame() {
             const char* v = std::getenv("WOWEE_VR_FAKE_PITCH");
             return v && *v ? glm::radians(static_cast<float>(std::atof(v))) : 0.0f;
         }();
+        // WOWEE_VR_FAKE_YAW=degrees: and turns left (positive) or right - to
+        // look at something beside the character without walking up to it.
+        static const float yaw = [] {
+            const char* v = std::getenv("WOWEE_VR_FAKE_YAW");
+            return v && *v ? glm::radians(static_cast<float>(std::atof(v))) : 0.0f;
+        }();
         for (uint32_t i = 0; i < kEyeCount; ++i) {
             const float side = i == 0 ? -1.0f : 1.0f;
             f.views[i] = {};
             f.views[i].type = XR_TYPE_VIEW;
-            f.views[i].pose.orientation.x = std::sin(pitch * 0.5f);
-            f.views[i].pose.orientation.w = std::cos(pitch * 0.5f);
-            f.views[i].pose.position.x = side * 0.032f;
+            // Yaw about Y, then pitch about the turned X.
+            const float sp = std::sin(pitch * 0.5f), cp = std::cos(pitch * 0.5f);
+            const float sy = std::sin(yaw * 0.5f), cy = std::cos(yaw * 0.5f);
+            f.views[i].pose.orientation.x = cy * sp;
+            f.views[i].pose.orientation.y = sy * cp;
+            f.views[i].pose.orientation.z = -sy * sp;
+            f.views[i].pose.orientation.w = cy * cp;
+            f.views[i].pose.position.x = side * 0.032f * std::cos(yaw);
+            f.views[i].pose.position.z = -side * 0.032f * std::sin(yaw);
             // Wider outwards than towards the nose, and further down than up.
             f.views[i].fov.angleLeft = i == 0 ? -0.94f : -0.70f;
             f.views[i].fov.angleRight = i == 0 ? 0.70f : 0.94f;
