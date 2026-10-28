@@ -296,6 +296,15 @@ void main() {
     vHighlight = instanceData[instIdx].highlight;
 
     gl_Position = projection * view * worldPos;
+    // A sky is seen from its centre, turned with the view and never moved
+    // by it, as the original client draws one. Placed in the world, its
+    // layers have their own radii - a starfield a few yards out - and each
+    // eye of a headset, apart from the centre, saw them at that distance:
+    // a dome of stars five metres round the player. The centre is where the
+    // camera is, so on a screen nothing changes.
+    if (push.isFoliage < 0) {
+        gl_Position = projection * mat4(mat3(view)) * vec4(worldPos.xyz - model[3].xyz, 1.0);
+    }
     // A sky model sits on the far plane whatever its radius, so the depth
     // test rejects it wherever terrain has already been drawn. The sky is
     // drawn after the ground now, and this is what makes that free.
