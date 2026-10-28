@@ -2104,6 +2104,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             M2ModelGPU::BatchGPU bgpu;
             bgpu.indexStart = batch.indexStart;
             bgpu.indexCount = batch.indexCount;
+            bgpu.priorityPlane = batch.priorityPlane;
 
             // Store texture animation index from batch
             bgpu.textureAnimIndex = batch.textureAnimIndex;
@@ -2481,6 +2482,17 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                           " idxCount=", bgpu.indexCount);
             }
             gpuModel.batches.push_back(bgpu);
+        }
+        // A sky dome is drawn without depth, so its layers cover each other in
+        // the order they are drawn, and the model gives that order as priority
+        // planes rather than as the order of its batches. The Lordaeron sky
+        // lists its cloud layers (planes 32-35) first and the gradient bands
+        // (15-19) after them, and drawn as listed the bands hid every cloud.
+        if (skyMode_) {
+            std::stable_sort(gpuModel.batches.begin(), gpuModel.batches.end(),
+                             [](const M2ModelGPU::BatchGPU& a, const M2ModelGPU::BatchGPU& b) {
+                                 return a.priorityPlane < b.priorityPlane;
+                             });
         }
         if (beamBatchSeen) {
             // A bone's world transform is its parent's times its own, so a

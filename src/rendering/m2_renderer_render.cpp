@@ -2148,6 +2148,10 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             e.model = instance.modelMatrix;
             e.uvOffset = uvOffset;
             e.fadeAlpha = instanceFadeAlpha;
+            // A sky layer's own alpha, which nothing else applies: the Lordaeron
+            // sky's haze is authored at 30% and was drawn solid, a white sheet
+            // over the whole dome once the clouds were drawn on top of it.
+            if (skyMode_) e.fadeAlpha *= batch.restAlpha;
             // A spell effect fades as it was authored to - Blizzard's shard is
             // seen only for the last moment of its fall and gone as it enters
             // the ground. Everything else keeps the alpha it was given at load.

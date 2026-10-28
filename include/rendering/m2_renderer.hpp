@@ -60,6 +60,7 @@ struct M2ModelGPU {
         void* materialUBOMapped = nullptr;  // cached mapped pointer (avoids per-frame vmaGetAllocationInfo)
         uint32_t indexStart = 0;   // offset in indices (not bytes)
         uint32_t indexCount = 0;
+        int8_t priorityPlane = 0;  ///< draw order within the model
         bool hasAlpha = false;
         /// The alpha is a real silhouette, not an atlas leftover.
         bool alphaIsSilhouette = false;
