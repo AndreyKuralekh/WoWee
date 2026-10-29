@@ -257,6 +257,17 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
             dir.z += distN(particleRng_) * vRange;
             float lenSq = glm::dot(dir, dir);
             if (lenSq > 0.001f * 0.001f) dir *= glm::inversesqrt(lenSq);
+            if (gpu.followsEmitterEnabled) {
+                // The ranges are angles: tilted off the emitter's axis by up
+                // to the vertical one, turned round it by up to the
+                // horizontal one. Added to the axis as lengths, a fireball's
+                // smoke - no tilt, any turn - flew out sideways at 2*pi to
+                // one up and hung round the caster as a cloud of grey balls
+                // instead of streaming behind the missile.
+                const float tilt = distN(particleRng_) * vRange;
+                const float turn = distN(particleRng_) * hRange;
+                dir = glm::vec3(std::sin(tilt) * std::cos(turn), std::sin(tilt) * std::sin(turn), std::cos(tilt));
+            }
 
             // Transform direction by bone + model orientation (rotation only)
             glm::mat3 rotMat = glm::mat3(inst.modelMatrix * boneXform);
