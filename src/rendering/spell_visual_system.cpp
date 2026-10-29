@@ -1033,6 +1033,7 @@ void SpellVisualSystem::cancelAllPrecastVisuals() {
     if (!m2Renderer_) return;
     for (auto it = activeSpellVisuals_.begin(); it != activeSpellVisuals_.end(); ) {
         if (it->isPrecast) {
+            LOG_INFO("SpellVisual: precast instance ", it->instanceId, " cancelled after ", it->elapsed, "s");
             m2Renderer_->removeInstance(it->instanceId);
             it = activeSpellVisuals_.erase(it);
         } else {
