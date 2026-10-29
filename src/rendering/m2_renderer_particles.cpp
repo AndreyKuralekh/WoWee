@@ -362,7 +362,16 @@ void M2Renderer::updateParticles(M2Instance& inst, float dt) {
                 const float y = static_cast<float>(static_cast<int8_t>((bits >> 8) & 0xFF)) / 128.0f;
                 const float z = std::sqrt(std::max(0.0f, 1.0f - x * x - y * y));
                 const float strength = static_cast<float>(static_cast<int16_t>(bits >> 16)) * 0.04238648f;
-                pull = glm::vec3(x, y, z) * strength;
+                // Some models carry the flag over a plain pull: the flames a
+                // fireball's precast holds rise at 3, which read as packed
+                // is 690 yards a second squared - they were out of sight in
+                // a frame and through the player's head in a headset. A pull
+                // no model means, where the plain number is one it could.
+                constexpr float kMostPacked = 100.0f;
+                constexpr float kMostPlain = 50.0f;
+                if (std::abs(strength) <= kMostPacked || !std::isfinite(grav) || std::abs(grav) > kMostPlain) {
+                    pull = glm::vec3(x, y, z) * strength;
+                }
             }
             // None where none is authored, flames included. Upstream pulled
             // every such emitter down (5f1c4dae: without it flames were not
