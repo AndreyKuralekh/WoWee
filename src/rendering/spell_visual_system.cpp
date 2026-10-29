@@ -139,6 +139,26 @@ void SpellVisualSystem::loadSpellVisualDbc() {
         return (fxIt != effectPaths.end()) ? fxIt->second : std::string{};
     };
 
+    // Every model of a kit with the point on the unit its slot names:
+    // attachments to try, by kitFieldDefs order - special 0, base, left and
+    // right hand, chest, head, breath, special 1 and 2. An empty list is the
+    // unit's middle.
+    auto slotDefs = [&](uint32_t kitId) {
+        static const std::vector<uint32_t> kSlotAttachments[numKitFields] = {
+            {}, {19}, {21, 2}, {22, 1}, {15}, {11, 20}, {17, 11}, {}, {},
+        };
+        std::vector<StateEffectDef> defs;
+        auto slots = kitSlots.find(kitId);
+        if (!kitId || slots == kitSlots.end()) return defs;
+        for (const auto& [slot, effect] : slots->second) {
+            std::string path = missilePath(effect);
+            if (path.empty()) continue;
+            defs.push_back({.path = std::move(path), .attachments = kSlotAttachments[slot],
+                            .atFeet = slot == 1});
+        }
+        return defs;
+    };
+
     // Load SpellVisual.dbc - visualId → cast/impact M2 paths via kit chain
     auto svDbc = cachedAssetManager_->loadDBC("SpellVisual.dbc");
     if (!svDbc || !svDbc->isLoaded()) {
@@ -157,6 +177,14 @@ void SpellVisualSystem::loadSpellVisualDbc() {
             if (svPrecastKitField < svFc)
                 path = kitPath(svDbc->getUInt32(i, svPrecastKitField));
             if (!path.empty()) { spellVisualPrecastPath_[vid] = path; ++loadedPrecast; }
+            if (svPrecastKitField < svFc) {
+                auto defs = slotDefs(svDbc->getUInt32(i, svPrecastKitField));
+                if (!defs.empty()) spellVisualPrecastKit_[vid] = std::move(defs);
+            }
+            if (svCastKitField < svFc) {
+                auto defs = slotDefs(svDbc->getUInt32(i, svCastKitField));
+                if (!defs.empty()) spellVisualCastKit_[vid] = std::move(defs);
+            }
         }
         // Persistent area: SpellVisual field 25 in WotLK's 32-field layout.
         if (svFc == 32) {
@@ -169,23 +197,8 @@ void SpellVisualSystem::loadSpellVisualDbc() {
         // State: what stays on a unit while the aura lasts. StateKit is field
         // 4 of WotLK's 32; the layouts do not name it.
         if (svFc == 32) {
-            const uint32_t stateKit = svDbc->getUInt32(i, 4);
-            if (auto slots = kitSlots.find(stateKit); stateKit && slots != kitSlots.end()) {
-                // Attachment points by kitFieldDefs order: special 0, base,
-                // left and right hand, chest, head, breath, special 1 and 2.
-                // An empty list is the unit's middle.
-                static const std::vector<uint32_t> kSlotAttachments[numKitFields] = {
-                    {}, {19}, {21, 2}, {22, 1}, {15}, {11, 20}, {17, 11}, {}, {},
-                };
-                std::vector<StateEffectDef> defs;
-                for (const auto& [slot, effect] : slots->second) {
-                    std::string path = missilePath(effect);
-                    if (path.empty()) continue;
-                    defs.push_back({.path = std::move(path), .attachments = kSlotAttachments[slot],
-                                    .atFeet = slot == 1});
-                }
-                if (!defs.empty()) spellVisualState_[vid] = std::move(defs);
-            }
+            auto defs = slotDefs(svDbc->getUInt32(i, 4));
+            if (!defs.empty()) spellVisualState_[vid] = std::move(defs);
         }
         // Missile: the model that travels from caster to target
         if (svMissileField < svFc) {
@@ -281,6 +294,17 @@ void SpellVisualSystem::playSpellVisualPrecast(uint32_t visualId, const glm::vec
     if (!cachedAssetManager_) { LOG_WARNING("SpellVisual: no AssetManager"); return; }
 
     if (!spellVisualDbcLoaded_) loadSpellVisualDbc();
+
+    // Each model of the kit on the hand, chest or head its slot names - a
+    // fireball's flames in both hands. The model's name said nothing
+    // reliable: Spells\cfx_mage_pyroblast_precasthands has no "_hand".
+    if (attachInstanceId != 0) {
+        if (auto kit = spellVisualPrecastKit_.find(visualId); kit != spellVisualPrecastKit_.end()) {
+            const float duration = castTimeMs >= 500
+                ? std::clamp(static_cast<float>(castTimeMs) / 1000.0f, 0.5f, 30.0f) : 0.0f;
+            if (playKitOnCaster(kit->second, worldPosition, attachInstanceId, duration, true)) return;
+        }
+    }
 
     // Try precast path first, fall back to cast path
     auto pathIt = spellVisualPrecastPath_.find(visualId);
@@ -435,6 +459,13 @@ void SpellVisualSystem::playSpellVisual(uint32_t visualId, const glm::vec3& worl
 
     if (!spellVisualDbcLoaded_) loadSpellVisualDbc();
 
+    // A cast kit on the caster goes where its slots say; see the precast.
+    if (!useImpactKit && attachInstanceId != 0) {
+        if (auto kit = spellVisualCastKit_.find(visualId); kit != spellVisualCastKit_.end()) {
+            if (playKitOnCaster(kit->second, worldPosition, attachInstanceId, 0.0f, false)) return;
+        }
+    }
+
     // Select cast or impact path map; fall back to the other if missing - but
     // a target impact only ever stands in for an impact, on the unit hit.
     auto& primaryMap = useImpactKit ? spellVisualImpactPath_ : spellVisualCastPath_;
@@ -570,6 +601,52 @@ void SpellVisualSystem::playSpellVisual(uint32_t visualId, const glm::vec3& worl
             activeSpellVisuals_.push_back({.instanceId = leftId, .elapsed = 0.0f, .duration = duration, .isPrecast = false, .attachmentId = 2 /* LeftHand */, .attachInstanceId = attachInstanceId});
         }
     }
+}
+
+bool SpellVisualSystem::playKitOnCaster(const std::vector<StateEffectDef>& defs, const glm::vec3& worldPosition,
+                                        uint32_t attachInstanceId, float duration, bool isPrecast) {
+    auto* charRenderer = renderer_ ? renderer_->getCharacterRenderer() : nullptr;
+    if (!charRenderer || !m2Renderer_) return false;
+    bool placed = false;
+    for (const auto& def : defs) {
+        const uint32_t modelId = spellEffectModel(def.path);
+        if (modelId == 0) continue;
+        uint32_t attachId = 0;
+        glm::vec3 position = worldPosition;
+        glm::mat4 attachMat;
+        for (uint32_t attachment : def.attachments) {
+            if (charRenderer->getAttachmentTransform(attachInstanceId, attachment, attachMat)) {
+                attachId = attachment;
+                position = glm::vec3(attachMat[3]);
+                break;
+            }
+        }
+        // No such point on this model: its middle, or its feet for a base
+        // effect, where it stays.
+        if (attachId == 0) {
+            float radius = 0.0f;
+            glm::vec3 centre;
+            if (charRenderer->getInstanceBounds(attachInstanceId, centre, radius)) position = centre;
+            float height = 0.0f;
+            if (def.atFeet && charRenderer->getInstanceHeight(attachInstanceId, height)) position.z -= height * 0.5f;
+        }
+        const uint32_t instanceId = m2Renderer_->createInstance(modelId, position, glm::vec3(0.0f), 1.0f);
+        if (instanceId == 0) continue;
+        m2Renderer_->restartInstanceAnimation(instanceId);
+        float life = duration;
+        if (life <= 0.0f) {
+            const float animMs = m2Renderer_->getInstanceAnimDuration(instanceId);
+            life = animMs > 100.0f ? std::clamp(animMs / 1000.0f, 0.5f, SPELL_VISUAL_MAX_DURATION)
+                                   : SPELL_VISUAL_DEFAULT_DURATION;
+        }
+        activeSpellVisuals_.push_back({.instanceId = instanceId, .elapsed = 0.0f, .duration = life,
+                                       .isPrecast = isPrecast, .attachmentId = attachId,
+                                       .attachInstanceId = attachInstanceId});
+        LOG_INFO("SpellVisual: ", (isPrecast ? "precast" : "cast"), " kit ", def.path, " at attachment ",
+                 attachId, " for ", life, "s");
+        placed = true;
+    }
+    return placed;
 }
 
 uint32_t SpellVisualSystem::spellEffectModel(const std::string& modelPath) {
@@ -786,6 +863,45 @@ void SpellVisualSystem::update(float deltaTime) {
             playSpellMissile(diagVisual, centre - right * 10.0f, diagSpeed,
                              [end](glm::vec3& pos) { pos = end; return true; },
                              [this, end]() { playSpellVisual(diagVisual, end, /*useImpactKit=*/true); });
+        }
+    }
+    // WOWEE_SPELL_CAST_DIAG=<SpellVisual id>[:<cast ms>]: every five seconds the
+    // character casts it at nothing - the precast for the cast time, then the
+    // cast kit and the missile flying ten yards ahead - as a real cast would.
+    // 23465 is Fireball.
+    static const uint32_t castDiagVisual = [] {
+        const char* v = std::getenv("WOWEE_SPELL_CAST_DIAG");
+        return v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 10)) : 0u;
+    }();
+    static const uint32_t castDiagMs = [] {
+        const char* v = std::getenv("WOWEE_SPELL_CAST_DIAG");
+        const char* colon = v ? std::strchr(v, ':') : nullptr;
+        const uint32_t ms = colon ? static_cast<uint32_t>(std::strtoul(colon + 1, nullptr, 10)) : 0u;
+        return ms > 0 ? ms : 2500u;
+    }();
+    if (castDiagVisual != 0 && renderer_ && renderer_->getCamera()) {
+        static float castClock = 0.0f;
+        static bool released = false;
+        castClock += deltaTime;
+        const uint32_t caster = renderer_->getCharacterInstanceId();
+        const glm::vec3 feet = renderer_->getCharacterPosition();
+        if (castClock >= 5.0f) {
+            castClock = 0.0f;
+            released = false;
+            playSpellVisualPrecast(castDiagVisual, feet, castDiagMs, caster);
+        } else if (!released && castClock >= castDiagMs / 1000.0f) {
+            released = true;
+            playSpellVisual(castDiagVisual, feet, /*useImpactKit=*/false, caster);
+            glm::vec3 start = feet + glm::vec3(0.0f, 0.0f, 1.0f);
+            glm::mat4 hand(1.0f);
+            if (auto* characters = renderer_->getCharacterRenderer();
+                characters && characters->getAttachmentTransform(caster, 1, hand))
+                start = glm::vec3(hand[3]);
+            const glm::vec3 fwd = renderer_->getCamera()->getForward();
+            const glm::vec3 end = start + glm::normalize(glm::vec3(fwd.x, fwd.y, 0.0f)) * 10.0f;
+            playSpellMissile(castDiagVisual, start, 12.0f,
+                             [end](glm::vec3& pos) { pos = end; return true; },
+                             [this, end]() { playSpellVisual(castDiagVisual, end, /*useImpactKit=*/true); });
         }
     }
     // State effects follow their unit's attachment points every frame.

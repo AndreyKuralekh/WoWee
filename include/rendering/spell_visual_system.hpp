@@ -136,6 +136,11 @@ private:
         bool given = false;
     };
     void placeStateEffect(uint32_t charInstanceId, const UnitStateEffect& effect);
+    // Puts each model of a precast or cast kit on the caster's point its slot
+    // names, following it for the effect's life. False when nothing could be
+    // placed, so the caller can fall back to a single model.
+    bool playKitOnCaster(const std::vector<StateEffectDef>& defs, const glm::vec3& worldPosition,
+                         uint32_t attachInstanceId, float duration, bool isPrecast);
     void removeUnitStateEffects(UnitStateVisuals& unit);
 
     void loadSpellVisualDbc();
@@ -161,6 +166,8 @@ private:
     std::unordered_map<uint32_t, std::string> spellVisualCastPath_;   // visualId → cast M2 path
     std::unordered_map<uint32_t, std::string> spellVisualImpactPath_; // visualId → impact M2 path
     std::unordered_map<uint32_t, std::vector<StateEffectDef>> spellVisualState_; // visualId → state kit
+    std::unordered_map<uint32_t, std::vector<StateEffectDef>> spellVisualPrecastKit_; // visualId → precast kit, by slot
+    std::unordered_map<uint32_t, std::vector<StateEffectDef>> spellVisualCastKit_;    // visualId → cast kit, by slot
     std::unordered_map<uint64_t, UnitStateVisuals> unitStateVisuals_;           // unit guid → its effects
     std::unordered_map<std::string, uint32_t> spellVisualModelIds_;   // M2 path → M2Renderer modelId
     std::unordered_set<uint32_t> spellVisualFailedModels_;           // modelIds that failed to load (negative cache)
