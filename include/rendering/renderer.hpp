@@ -178,6 +178,12 @@ public:
     /// Who the world is drawn for when a headset frame draws it once per eye,
     /// or nullptr when there is no world to draw. Said before beginFrame.
     void setVrGameHandler(game::GameHandler* gameHandler) { vrGameHandler_ = gameHandler; }
+    /// Where the player's eyes were in the last stereo frame, when that frame
+    /// showed the character's own body round them; false otherwise.
+    bool vrEyesInBody(glm::vec3& position) const {
+        glm::mat4 unused;
+        return vrBodyShown_ && vrLastHeadView(position, unused);
+    }
 #endif
     /// What a per-frame set allocated elsewhere binds at binding 2: a fog
     /// volume of clear air, for a set whose block leaves the fog off.

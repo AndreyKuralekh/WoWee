@@ -630,6 +630,7 @@ bool SpellVisualSystem::playKitOnCaster(const std::vector<StateEffectDef>& defs,
             float height = 0.0f;
             if (def.atFeet && charRenderer->getInstanceHeight(attachInstanceId, height)) position.z -= height * 0.5f;
         }
+        if (attachId != 0) position = kitPosition(attachInstanceId, attachId, position);
         const uint32_t instanceId = m2Renderer_->createInstance(modelId, position, glm::vec3(0.0f), 1.0f);
         if (instanceId == 0) continue;
         m2Renderer_->restartInstanceAnimation(instanceId);
@@ -647,6 +648,30 @@ bool SpellVisualSystem::playKitOnCaster(const std::vector<StateEffectDef>& defs,
         placed = true;
     }
     return placed;
+}
+
+glm::vec3 SpellVisualSystem::kitPosition(uint32_t attachInstanceId, uint32_t attachmentId,
+                                         const glm::vec3& point) const {
+#ifdef WOWEE_VR
+    // A fireball's flames sit in the middle of the palm. Seen from the
+    // character's own eyes, with the backs of the hands turned to them as the
+    // player holds the controllers, the hand hid all of the flame but its
+    // halo. Brought towards the eyes, the flame is in front of the hand
+    // however it is turned.
+    const bool hand = attachmentId == 1 || attachmentId == 2 || attachmentId == 21 || attachmentId == 22;
+    glm::vec3 eyes;
+    if (hand && renderer_ && attachInstanceId == renderer_->getCharacterInstanceId() &&
+        renderer_->vrEyesInBody(eyes)) {
+        constexpr float kInFrontOfHand = 0.1f;
+        const glm::vec3 toEyes = eyes - point;
+        const float distance = glm::length(toEyes);
+        if (distance > 2.0f * kInFrontOfHand) return point + toEyes * (kInFrontOfHand / distance);
+    }
+#else
+    (void)attachInstanceId;
+    (void)attachmentId;
+#endif
+    return point;
 }
 
 uint32_t SpellVisualSystem::spellEffectModel(const std::string& modelPath) {
@@ -950,7 +975,8 @@ void SpellVisualSystem::update(float deltaTime) {
             if (it->attachmentId != 0 && it->attachInstanceId != 0 && charRenderer) {
                 glm::mat4 attachMat;
                 if (charRenderer->getAttachmentTransform(it->attachInstanceId, it->attachmentId, attachMat)) {
-                    glm::vec3 bonePos = glm::vec3(attachMat[3]);
+                    const glm::vec3 bonePos = kitPosition(it->attachInstanceId, it->attachmentId,
+                                                          glm::vec3(attachMat[3]));
                     m2Renderer_->setInstancePosition(it->instanceId, bonePos);
                 }
             }
