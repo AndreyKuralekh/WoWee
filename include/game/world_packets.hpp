@@ -1702,7 +1702,9 @@ public:
 /** CMSG_CANCEL_CAST packet builder */
 class CancelCastPacket {
 public:
-    static network::Packet build(uint32_t spellId);
+    /// TBC and WotLK lead with the cast's one-byte count; Classic has the
+    /// spell alone.
+    static network::Packet build(uint32_t spellId, uint8_t castCount, bool classic);
 };
 
 // ============================================================

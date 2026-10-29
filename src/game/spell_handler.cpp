@@ -1272,7 +1272,7 @@ void SpellHandler::cancelCast() {
     if (owner_.pendingGameObjectInteractGuidRef() == 0 &&
         owner_.getState() == WorldState::IN_WORLD && owner_.getSocket() &&
         currentCastSpellId_ != 0) {
-        auto packet = CancelCastPacket::build(currentCastSpellId_);
+        auto packet = CancelCastPacket::build(currentCastSpellId_, castCount_, isClassicLikeExpansion());
         owner_.getSocket()->send(packet);
     }
     owner_.pendingGameObjectInteractGuidRef() = 0;
@@ -3161,7 +3161,7 @@ void SpellHandler::stopCasting() {
     }
 
     if (owner_.pendingGameObjectInteractGuidRef() == 0 && currentCastSpellId_ != 0) {
-        auto packet = CancelCastPacket::build(currentCastSpellId_);
+        auto packet = CancelCastPacket::build(currentCastSpellId_, castCount_, isClassicLikeExpansion());
         owner_.getSocket()->send(packet);
     }
 

@@ -31,9 +31,12 @@ network::Packet AttackStopPacket::build() {
     return packet;
 }
 
-network::Packet CancelCastPacket::build(uint32_t spellId) {
+network::Packet CancelCastPacket::build(uint32_t spellId, uint8_t castCount, bool classic) {
     network::Packet packet(wireOpcode(Opcode::CMSG_CANCEL_CAST));
-    packet.writeUInt32(0); // cast count/sequence
+    // A byte, not four: written as a uint32 the server read the spell from
+    // three bytes of zero and one of the id, found no such cast and let the
+    // spell go on - a cast stopped here flew anyway.
+    if (!classic) packet.writeUInt8(castCount);
     packet.writeUInt32(spellId);
     LOG_DEBUG("Built CMSG_CANCEL_CAST for spell: ", spellId);
     return packet;
