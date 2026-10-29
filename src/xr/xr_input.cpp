@@ -105,6 +105,11 @@ struct XrSystem::InputData {
     bool loadedKeyDown = false;
     SDL_Scancode loadedKey = SDL_SCANCODE_UNKNOWN;
     bool castingAtPress = false;
+    // Both controllers hum while a spell is made ready; see updateCastHaptics.
+    XrAction hapticLeft = XR_NULL_HANDLE;
+    XrAction hapticRight = XR_NULL_HANDLE;
+    std::chrono::steady_clock::time_point hapticNext{};
+    bool humming = false;
 };
 
 namespace {
@@ -282,6 +287,9 @@ bool XrSystem::createActions() {
     in.aimLeft = createAction(in.set, XR_ACTION_TYPE_POSE_INPUT, "aim_left", "Walking direction");
     in.click = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "click", "Left mouse button");
     in.grab = createAction(in.set, XR_ACTION_TYPE_BOOLEAN_INPUT, "grab", "Right mouse button");
+    // Not needed for anything to work: without them the hands are only still.
+    in.hapticLeft = createAction(in.set, XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic_left", "Left hand vibration");
+    in.hapticRight = createAction(in.set, XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic_right", "Right hand vibration");
     if (!in.move || !in.turn || !buttonsMade || !in.aim || !in.aimLeft || !in.click || !in.grab) {
         LOG_WARNING("VR: no controllers - an action could not be created");
         return false;
@@ -303,6 +311,8 @@ bool XrSystem::createActions() {
     for (size_t i = 0; i < kControlButtonCount; ++i) {
         touch.push_back({in.buttons[i], path(instance_, kButtonSources[i].touchPath)});
     }
+    if (in.hapticLeft) touch.push_back({in.hapticLeft, path(instance_, "/user/hand/left/output/haptic")});
+    if (in.hapticRight) touch.push_back({in.hapticRight, path(instance_, "/user/hand/right/output/haptic")});
     XrInteractionProfileSuggestedBinding suggested{};
     suggested.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
     suggested.interactionProfile = path(instance_, "/interaction_profiles/oculus/touch_controller");
@@ -362,6 +372,51 @@ bool XrSystem::createActions() {
         }
     }
     return true;
+}
+
+// While the player makes a spell ready both controllers hum, a little at
+// first and more as the cast comes to its end, the way the flames in the hands
+// grow. Pulses a tenth of a second long, laid end to end: one long buzz would
+// go on past a cast that is cut short until it was stopped, and is stopped
+// here only once.
+void XrSystem::updateCastHaptics(game::GameHandler* game) {
+    if (!input_ || session_ == XR_NULL_HANDLE) return;
+    InputData& in = *input_;
+    if (!in.hapticLeft || !in.hapticRight) return;
+    const bool casting = game && game->isCasting() && !game->isChanneling();
+    const XrAction hands[] = {in.hapticLeft, in.hapticRight};
+    if (!casting) {
+        if (in.humming) {
+            for (XrAction hand : hands) {
+                XrHapticActionInfo info{};
+                info.type = XR_TYPE_HAPTIC_ACTION_INFO;
+                info.action = hand;
+                xrStopHapticFeedback(session_, &info);
+            }
+            in.humming = false;
+        }
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (in.humming && now < in.hapticNext) return;
+    constexpr auto kPulse = std::chrono::milliseconds(100);
+    constexpr float kFirst = 0.1f;
+    constexpr float kLast = 0.5f;
+    const float progress = std::clamp(game->getCastProgress(), 0.0f, 1.0f);
+    XrHapticVibration vibration{};
+    vibration.type = XR_TYPE_HAPTIC_VIBRATION;
+    vibration.duration = std::chrono::duration_cast<std::chrono::nanoseconds>(kPulse).count();
+    vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+    vibration.amplitude = kFirst + (kLast - kFirst) * progress * progress;
+    for (XrAction hand : hands) {
+        XrHapticActionInfo info{};
+        info.type = XR_TYPE_HAPTIC_ACTION_INFO;
+        info.action = hand;
+        xrApplyHapticFeedback(session_, &info, reinterpret_cast<const XrHapticBaseHeader*>(&vibration));
+    }
+    // A little before this one ends, so that the next joins it.
+    in.hapticNext = now + kPulse - std::chrono::milliseconds(15);
+    in.humming = true;
 }
 
 void XrSystem::destroyActions() {
@@ -1080,6 +1135,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
         }
         in.loadedWanted = loaded;
     }
+    updateCastHaptics(core::Application::getInstance().getGameHandler());
 
     // Escape is the interface's: it is asked of ImGui, which a held scancode
     // never reaches.

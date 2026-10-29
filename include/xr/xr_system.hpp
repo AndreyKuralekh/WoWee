@@ -45,6 +45,10 @@
 
 struct SDL_Window;
 
+namespace wowee::game {
+class GameHandler;
+}
+
 namespace wowee::rendering {
 class CameraController;
 class VkContext;
@@ -599,6 +603,7 @@ private:
     // The actions and what they hold down; xr_input.cpp. Null without controllers.
     struct InputData;
     InputData* input_ = nullptr;
+    void updateCastHaptics(game::GameHandler* game);
     // What the buttons do; read from vr_controls.cfg when the actions are made.
     ControlBindings controls_ = ControlBindings::defaults();
     bool controlsLoaded_ = false;
