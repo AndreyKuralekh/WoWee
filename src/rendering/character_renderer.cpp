@@ -3374,7 +3374,13 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
                     currentPipeline = desiredPipeline;
                 }
 
-                float emissiveBoost = 1.0f;
+                // The shader draws an unlit texel at (1 + tint * boost) times
+                // itself, so a boost of one doubles it. An opaque or blended
+                // unlit surface is paint that ignores the light, not a light:
+                // a guard's helm lining, near black, came out a lit red at
+                // twice its colour. Glows and effect models keep the doubling
+                // they have been tuned against.
+                float emissiveBoost = (blendMode >= 3 || instance.isEffectModel) ? 1.0f : 0.0f;
                 glm::vec3 emissiveTint(1.0f, 1.0f, 1.0f);
                 const bool koboldCandleFlame = colorKeyBlack && gpuModel.isKoboldFlame;
                 if (unlit && koboldCandleFlame) {
