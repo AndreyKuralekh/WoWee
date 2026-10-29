@@ -3922,6 +3922,12 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
             }();
             const auto give = [&](uint64_t guid, uint32_t instance, const std::vector<game::AuraSlot>* auras) {
                 if (!auras || instance == 0) return;
+                // A corpse shows nothing its auras carried: a wolf killed with
+                // its disease up kept the skulls rising off its body, as the
+                // aura list is not cleared on death. Blizzard's drops them.
+                if (const auto unit = std::dynamic_pointer_cast<game::Unit>(
+                        gameHandler->getEntityManager().getEntity(guid));
+                    unit && unit->getMaxHealth() > 0 && unit->getHealth() == 0) return;
                 visuals.clear();
                 for (const auto& aura : *auras) {
                     if (aura.isEmpty()) continue;
