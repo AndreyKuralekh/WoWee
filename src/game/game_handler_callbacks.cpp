@@ -3647,8 +3647,8 @@ const std::string& GameHandler::getSpellName(uint32_t spellId) const {
     return EMPTY_STRING;
 }
 
-uint32_t GameHandler::getSpellVisualId(uint32_t spellId) {
-    return spellHandler_ ? spellHandler_->spellVisualId(spellId) : 0;
+uint32_t GameHandler::getAuraStateVisualId(uint32_t spellId) {
+    return spellHandler_ ? spellHandler_->auraStateVisualId(spellId) : 0;
 }
 
 uint32_t GameHandler::getSpellTargetFlags(uint32_t spellId) const {

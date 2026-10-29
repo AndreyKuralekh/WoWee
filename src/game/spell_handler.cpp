@@ -3855,6 +3855,26 @@ uint32_t SpellHandler::getSpellSchoolMask(uint32_t spellId) const {
     return (it != owner_.spellNameCacheRef().end()) ? it->second.schoolMask : 0;
 }
 
+uint32_t SpellHandler::auraStateVisualId(uint32_t spellId) {
+    if (spellId == 0) return 0;
+    loadSpellNameCache();
+    auto it = owner_.spellNameCacheRef().find(spellId);
+    if (it == owner_.spellNameCacheRef().end()) return 0;
+    // An aura that only lets its bearer see stealth and invisibility shows
+    // nothing. Northshire's guards carry 18950 from spawn, and its visual is
+    // the detection eye, which Blizzard's client does not draw over them -
+    // though nothing in the spell or the visual records says why. Reaching
+    // the aura types 17 (stealth detection) and 19 (invisibility detection)
+    // and no other is what sets these apart from the visible ones.
+    bool detectionOnly = false;
+    for (uint32_t aura : it->second.effectAuraIds) {
+        if (aura == 0) continue;
+        if (aura != 17 && aura != 19) return it->second.spellVisualId;
+        detectionOnly = true;
+    }
+    return detectionOnly ? 0 : it->second.spellVisualId;
+}
+
 uint32_t SpellHandler::getSpellTargetFlags(uint32_t spellId) const {
     if (spellId == 0) return 0;
     loadSpellNameCache();

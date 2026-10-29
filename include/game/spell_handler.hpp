@@ -229,8 +229,8 @@ public:
     void loadTalentDbc();
     void syncPreWotlkTalentsFromKnownSpells();
 
-    /// The spell's SpellVisual, 0 for none.
-    uint32_t spellVisualId(uint32_t spellId) { return resolveSpellVisualId(spellId); }
+    /// The SpellVisual an aura of this spell shows while it lasts, 0 for none.
+    uint32_t auraStateVisualId(uint32_t spellId);
 
     // Auras
     [[nodiscard]] const std::vector<AuraSlot>& getPlayerAuras() const { return playerAuras_; }

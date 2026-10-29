@@ -3925,7 +3925,7 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
                 visuals.clear();
                 for (const auto& aura : *auras) {
                     if (aura.isEmpty()) continue;
-                    if (const uint32_t visual = gameHandler->getSpellVisualId(aura.spellId)) visuals.push_back(visual);
+                    if (const uint32_t visual = gameHandler->getAuraStateVisualId(aura.spellId)) visuals.push_back(visual);
                 }
                 if (kStateVisualDiag && guid == gameHandler->getPlayerGuid()) visuals.push_back(kStateVisualDiag);
                 // A unit not given is cleared by endUnitStateVisuals.
