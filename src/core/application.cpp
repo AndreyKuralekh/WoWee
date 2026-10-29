@@ -3914,6 +3914,12 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
         auraVisualTimer_ = 0.0f;
         if (auto* svs = renderer->getSpellVisualSystem()) {
             std::vector<uint32_t> visuals;
+            // A state visual on the local player as if an aura carried it, to look
+            // at one up close: WOWEE_STATE_VISUAL_DIAG=15167 is the wolves' disease.
+            static const uint32_t kStateVisualDiag = [] {
+                const char* v = std::getenv("WOWEE_STATE_VISUAL_DIAG");
+                return v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 10)) : 0u;
+            }();
             const auto give = [&](uint64_t guid, uint32_t instance, const std::vector<game::AuraSlot>* auras) {
                 if (!auras || instance == 0) return;
                 visuals.clear();
@@ -3921,6 +3927,7 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
                     if (aura.isEmpty()) continue;
                     if (const uint32_t visual = gameHandler->getSpellVisualId(aura.spellId)) visuals.push_back(visual);
                 }
+                if (kStateVisualDiag && guid == gameHandler->getPlayerGuid()) visuals.push_back(kStateVisualDiag);
                 // A unit not given is cleared by endUnitStateVisuals.
                 if (!visuals.empty()) svs->setUnitStateVisuals(guid, instance, visuals);
             };

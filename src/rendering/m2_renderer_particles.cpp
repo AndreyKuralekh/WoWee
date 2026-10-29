@@ -264,7 +264,10 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
             // When emission speed is ~0 and bone animation isn't loaded (.anim files),
             // particles pile up at the same position. Give them a drift so they
             // spread outward like a mist/spray effect instead of clustering.
-            if (std::abs(speed) < 0.01f) {
+            // Not for a spell visual's model: its bones are loaded, and a
+            // still particle is meant to stay put - the disease's stars
+            // pulse where they are born rather than flying off.
+            if (std::abs(speed) < 0.01f && !gpu.followsEmitterEnabled) {
                 if (gpu.isFireflyEffect) {
                     // Fireflies: gentle random drift in all directions
                     p.velocity = rotMat * glm::vec3(
@@ -801,7 +804,12 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             // fixed scale: drawn true to the model, its embers and wisps are
             // orange balls round the flame rather than insects in its light.
             bool legacySize = false;
-            if (gpu.isSpellEffect) {
+            if (gpu.followsEmitterEnabled) {
+                // A spell visual's model at its authored size. Half as big
+                // again, the disease's skull-faced puffs grew into a haze two
+                // yards across that hid every skull.
+                scale = std::max(rawScale, 0.05f);
+            } else if (gpu.isSpellEffect) {
                 scale = std::max(rawScale * 1.5f, 0.05f);
             } else if (!gpu.isFireflyEffect) {
                 scale = std::min(rawScale, 1.5f);
