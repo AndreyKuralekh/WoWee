@@ -1997,6 +1997,19 @@ void SpellHandler::handleCastFailed(network::Packet& packet) {
                     " selectedTarget=0x", std::hex, owner_.getTargetGuid(), std::dec);
     }
 
+    LOG_INFO("Cast failed: spell=", data.spellId, " result=", static_cast<int>(data.result),
+             " castCount=", static_cast<int>(data.castCount), " casting=", casting_,
+             " currentSpell=", currentCastSpellId_);
+    // A second press while a cast is going is refused as one in progress -
+    // the refusal is the second press's, and the cast it ran into goes on.
+    // Taken as the cast's own, it stopped the cast bar and put out a
+    // fireball's precast flames a tenth of a second in, while the spell
+    // itself flew three seconds later.
+    if (data.result == kSpellFailedSpellInProgress && casting_) {
+        owner_.addUIError(castFailureMessage(owner_, data.spellId, data.result, -1, data.miscArg, data.miscArg2));
+        return;
+    }
+
     const uint64_t gatherGoGuid = owner_.lastInteractedGoGuidRef();
     const bool gatherCast = gatherGoGuid != 0 && isGatherSpellId(data.spellId);
 
@@ -4430,6 +4443,10 @@ void SpellHandler::handleSpellFailure(network::Packet& packet) {
         uint8_t rawFailReason = packet.readUInt8();
         // Classic result enum starts at 0=AFFECTING_COMBAT; shift +1 for WotLK table
         uint8_t failReason = isClassic ? static_cast<uint8_t>(rawFailReason + 1) : rawFailReason;
+        if (failGuid == owner_.getPlayerGuid() || failGuid == 0) {
+            LOG_INFO("Spell failure: spell=", failSpellId, " reason=", static_cast<int>(failReason),
+                     " casting=", casting_, " currentSpell=", currentCastSpellId_);
+        }
         if (failGuid == owner_.getPlayerGuid() && failReason != 0) {
             // Show interruption/failure reason in chat and error overlay for player
             int pt = -1;
