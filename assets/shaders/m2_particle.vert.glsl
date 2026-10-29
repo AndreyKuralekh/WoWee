@@ -61,7 +61,12 @@ void main() {
     float pixelsPerUnit = aSize < 0.0
         ? push.legacyScale
         : abs(projection[1][1]) * push.viewHeight;
-    gl_PointSize = clamp(abs(aSize) * pixelsPerUnit / max(dist, 1.0), 1.0, 1024.0);
+    // Drawn at its true size down to a fifth of a yard away. Held at a yard,
+    // as it was, a particle nearer than that was drawn smaller than it is -
+    // the flames in the player's own hands, half a yard from the eyes in the
+    // headset, were a third of their size and hard to see at all.
+    float nearest = aSize < 0.0 ? 1.0 : 0.2;
+    gl_PointSize = clamp(abs(aSize) * pixelsPerUnit / max(dist, nearest), 1.0, 1024.0);
     vColor = aColor;
     vTile = aTile;
     float worldDist = length(viewPos.xyz - aPos);
