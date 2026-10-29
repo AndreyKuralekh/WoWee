@@ -1153,6 +1153,7 @@ void M2Renderer::shutdown() {
     spatialGrid.clear();
     instanceIndexById.clear();
     modelParticleOwner_.clear();
+    modelParticlePool_.clear();
     deadModelParticles_.clear();
     instanceDedupMap_.clear();
     // Model and bone destruction above is deferred; drain it now while the

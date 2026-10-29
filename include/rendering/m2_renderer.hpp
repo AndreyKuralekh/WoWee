@@ -1314,6 +1314,10 @@ private:
     void updateModelParticles();
     std::unordered_map<uint32_t, uint32_t> modelParticleOwner_;  // particle instance -> emitting instance
     std::vector<uint32_t> deadModelParticles_;
+    // Spare particle instances by model, hidden at fade 0. Removing an
+    // instance walks every instance to rebuild the index lists, and the
+    // wolves' skulls die by the hundred a second.
+    std::unordered_map<uint32_t, std::vector<uint32_t>> modelParticlePool_;
     void updateRibbons(M2Instance& inst, const M2ModelGPU& gpu, float dt);
 
     // Helper to allocate descriptor sets

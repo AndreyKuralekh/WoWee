@@ -1044,7 +1044,10 @@ void M2Renderer::updateModelParticles() {
     }
     for (uint32_t id : deadModelParticles_) {
         modelParticleOwner_.erase(id);
-        removeInstance(id);
+        auto it = instanceIndexById.find(id);
+        if (it == instanceIndexById.end()) continue;
+        instances[it->second].fade = 0.0f;
+        modelParticlePool_[instances[it->second].modelId].push_back(id);
     }
     deadModelParticles_.clear();
 
@@ -1083,11 +1086,19 @@ void M2Renderer::updateModelParticles() {
 
             uint32_t id = p.modelInstance;
             if (id == 0) {
-                id = createInstance(particleModel, position, glm::vec3(0.0f), scale);
+                auto& spare = modelParticlePool_[particleModel];
+                while (!spare.empty() && !instanceIndexById.count(spare.back())) spare.pop_back();
+                if (!spare.empty()) {
+                    id = spare.back();
+                    spare.pop_back();
+                } else {
+                    id = createInstance(particleModel, position, glm::vec3(0.0f), scale);
+                }
                 if (id == 0) continue;
                 auto again = instanceIndexById.find(ownerId);
                 if (again == instanceIndexById.end()) {
-                    removeInstance(id);
+                    setInstanceFade(id, 0.0f);
+                    modelParticlePool_[particleModel].push_back(id);
                     break;
                 }
                 instances[again->second].particles[pi].modelInstance = id;

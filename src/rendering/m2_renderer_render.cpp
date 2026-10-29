@@ -1221,6 +1221,8 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 cappedViewDistance(),
                 instance.cachedIsGroundDetail, groundDetailMaxDistance_);
 
+            // Hidden outright: a spare model particle, or a sky faded out.
+            if (instance.fade <= 0.0f) continue;
             if (forceNoCull_) {
                 if (!instance.cachedIsValid) continue;
                 glm::vec3 toCam = instance.position - camPos;
@@ -2557,7 +2559,7 @@ bool M2Renderer::prepareShadowCasters(const glm::mat4& lightSpaceMatrix, float s
     for (uint32_t i = first; i < last; ++i) {
         const auto& instance = instances[i];
         if (!instance.cachedIsValid || instance.cachedIsSmoke ||
-            instance.cachedIsInvisibleTrap) continue;
+            instance.cachedIsInvisibleTrap || instance.fade <= 0.0f) continue;
         if (!instance.cachedModel) continue;
         const M2ModelGPU& model = *instance.cachedModel;
 

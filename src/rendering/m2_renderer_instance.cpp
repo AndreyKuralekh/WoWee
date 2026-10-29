@@ -514,6 +514,7 @@ void M2Renderer::clear() {
     spatialGrid.clear();
     instanceIndexById.clear();
     modelParticleOwner_.clear();
+    modelParticlePool_.clear();
     deadModelParticles_.clear();
     boneSeedInstanceByModel_.clear();
     instanceDedupMap_.clear();
@@ -551,6 +552,7 @@ void M2Renderer::clearInstances() {
     spatialGrid.clear();
     instanceIndexById.clear();
     modelParticleOwner_.clear();
+    modelParticlePool_.clear();
     deadModelParticles_.clear();
     boneSeedInstanceByModel_.clear();
     instanceDedupMap_.clear();
@@ -580,6 +582,7 @@ void M2Renderer::rebuildSpatialIndex() {
     spatialGrid.clear();
     instanceIndexById.clear();
     modelParticleOwner_.clear();
+    modelParticlePool_.clear();
     deadModelParticles_.clear();
     boneSeedInstanceByModel_.clear();
     instanceDedupMap_.clear();
