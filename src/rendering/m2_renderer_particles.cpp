@@ -17,7 +17,6 @@
 #include <cmath>
 #include <random>
 #include <cstring>
-#include <chrono>
 #include <limits>
 #include <set>
 
@@ -759,10 +758,6 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         // which model it is. This does.
         float highestParticleZ = -std::numeric_limits<float>::max();
         float widestParticle = 0.0f;
-        // And for a spell effect on the player, where it is drawn: see below.
-        glm::vec3 drawnSum(0.0f);
-        uint32_t drawnCount = 0;
-        float brightest = 0.0f;
 
         for (const auto& p : inst.particles) {
             if (p.emitterIndex < 0 || p.emitterIndex >= static_cast<int>(gpu.particleEmitters.size())) continue;
@@ -873,9 +868,6 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             }
             highestParticleZ = std::max(highestParticleZ, p.position.z);
             widestParticle = std::max(widestParticle, scale);
-            drawnSum += p.position;
-            ++drawnCount;
-            brightest = std::max(brightest, alpha);
 
             float* vd = vbBase + static_cast<size_t>(vbWritten) * 9;
             vd[0] = p.position.x;
@@ -922,34 +914,6 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                                 "' (model bound ", gpu.boundMax.z, " yd, scale ", inst.scale,
                                 ", ", gpu.particleEmitters.size(), " emitters, ",
                                 inst.particles.size(), " live, largest ", widestParticle, " yd)");
-                }
-            }
-        }
-
-        // A spell effect within reach of the eyes - on the player's own hands
-        // - said twice a second: how many of its particles are drawn, where
-        // they are against it and the eyes, how big and how bright. Flames
-        // seen in a fake headset and not in a real one left nothing else to
-        // go on.
-        if (gpu.followsEmitterEnabled) {
-            const glm::vec3 toEyes = cachedCamPos_ - inst.position;
-            if (glm::dot(toEyes, toEyes) < 9.0f) {
-                const auto now = std::chrono::steady_clock::now();
-                static std::chrono::steady_clock::time_point lastSaid;
-                static uint32_t saidThisTime = 0;
-                if (now - lastSaid > std::chrono::milliseconds(500)) {
-                    lastSaid = now;
-                    saidThisTime = 0;
-                }
-                if (saidThisTime++ < 4) {
-                    const glm::vec3 mean = drawnCount ? drawnSum / static_cast<float>(drawnCount) : inst.position;
-                    LOG_INFO("SpellEffect near eyes: '", gpu.name, "' id=", inst.id, " at (", inst.position.x, ",",
-                             inst.position.y, ",", inst.position.z, ") eyes (", cachedCamPos_.x, ",",
-                             cachedCamPos_.y, ",", cachedCamPos_.z, ") ", glm::length(toEyes), " yd; ",
-                             inst.particles.size(), " live, ", drawnCount, " drawn, mean offset (",
-                             mean.x - inst.position.x, ",", mean.y - inst.position.y, ",",
-                             mean.z - inst.position.z, "), largest ", widestParticle, ", alpha ", brightest,
-                             ", seq ", inst.currentSequenceIndex, " t=", inst.animTime, " fade ", inst.fade);
                 }
             }
         }

@@ -732,39 +732,11 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
         return range * range;
     }();
 
-    // A spell effect on the player's own hands, twice a second as it is
-    // updated - even with no particle left, which the drawing side cannot
-    // say: where it is, how many particles it holds, how fast each emitter
-    // asks for more and where its clock stands. Hand flames that a real
-    // headset lost a tenth of a second into the cast, and a fake one kept.
-    static std::chrono::steady_clock::time_point lastHandSaid;
-    const auto handNow = std::chrono::steady_clock::now();
-    const bool sayHands = handNow - lastHandSaid > std::chrono::milliseconds(500);
-    uint32_t handsSaid = 0;
-    if (sayHands) lastHandSaid = handNow;
-
     // Particle update (sequential - uses RNG, not thread-safe)
     // Only iterate instances that have particle emitters (pre-built list).
     for (size_t idx : particleInstanceIndices_) {
         if (idx >= instances.size()) continue;
         auto& instance = instances[idx];
-        if (sayHands && handsSaid < 4 && instance.cachedModel && instance.cachedModel->followsEmitterEnabled &&
-            instance.cachedModel->name.find("Hands") != std::string::npos) {
-            ++handsSaid;
-            const auto& m = *instance.cachedModel;
-            std::string rates;
-            for (const auto& em : m.particleEmitters) {
-                rates += " " + std::to_string(interpFloat(em.emissionRate, instance.animTime,
-                                                          instance.globalSequenceTime,
-                                                          instance.currentSequenceIndex,
-                                                          m.globalSequenceDurations, true));
-            }
-            LOG_INFO("SpellEffect update: '", m.name, "' id=", instance.id, " at (", instance.position.x, ",",
-                     instance.position.y, ",", instance.position.z, ") ",
-                     glm::length(instance.position - cachedCamPos_), " yd from eyes, ", instance.particles.size(),
-                     " live, rates", rates, ", seq ", instance.currentSequenceIndex, " t=", instance.animTime,
-                     " speed ", instance.animSpeed, " density ", particleDensity_);
-        }
         // Distance cull: only update particles within visible range
         glm::vec3 toCam = instance.position - cachedCamPos_;
         float distSq = glm::dot(toCam, toCam);
