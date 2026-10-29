@@ -4479,6 +4479,8 @@ void SpellHandler::handleSpellFailure(network::Packet& packet) {
         }
     }
     if (failGuid == owner_.getPlayerGuid() || failGuid == 0) {
+        LOG_INFO("Spell failure clears the cast: guid=0x", std::hex, failGuid, std::dec,
+                 " casting=", casting_, " currentSpell=", currentCastSpellId_);
         // Player's own cast failed - clear gather-node loot target so the
         // next timed cast doesn't try to loot a stale interrupted gather node.
         casting_ = false; castIsChannel_ = false; currentCastSpellId_ = 0;

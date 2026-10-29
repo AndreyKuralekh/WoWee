@@ -1070,6 +1070,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
                 if (aimed != 0 && aimed != game->getTargetGuid()) game->setTarget(aimed);
             }
         } else if (!loaded && in.loadedWanted && game && !in.castingAtPress && game->isCasting()) {
+            LOG_INFO("VR: loaded action let go during its cast - cancelling");
             game->cancelCast();
         }
         const bool press = loaded && in.loadedWanted;

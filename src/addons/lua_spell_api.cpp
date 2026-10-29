@@ -1211,6 +1211,7 @@ void registerSpellLuaAPI(lua_State* L) {
                 {"GetTotemTimeLeft", lua_GetTotemTimeLeft},
                 {"SpellStopCasting", [](lua_State* L) -> int {
             auto* gh = getGameHandler(L);
+            if (gh && gh->isCasting()) LOG_INFO("Cast cancelled by SpellStopCasting from Lua");
             if (gh) gh->cancelCast();
             return 0;
         }},

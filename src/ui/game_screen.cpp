@@ -1590,7 +1590,10 @@ void GameScreen::processTargetInput(game::GameHandler& gameHandler) {
                 case EscapeAction::CloseSettingsWindow:
                     settingsPanel_.showSettingsWindow = false;
                     break;
-                case EscapeAction::CancelCast:             gameHandler.cancelCast(); break;
+                case EscapeAction::CancelCast:
+                    LOG_INFO("Cast cancelled by Escape");
+                    gameHandler.cancelCast();
+                    break;
                 case EscapeAction::CloseLoot:              gameHandler.closeLoot(); break;
                 case EscapeAction::CloseGossip:            gameHandler.closeGossip(); break;
                 case EscapeAction::ReturnHeldItem:
