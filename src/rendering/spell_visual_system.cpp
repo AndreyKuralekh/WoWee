@@ -349,7 +349,7 @@ void SpellVisualSystem::playSpellVisualPrecast(uint32_t visualId, const glm::vec
             playSpellVisual(visualId, worldPosition, false, attachInstanceId);
             return;
         }
-        m2Renderer_->markModelAsSpellEffect(modelId);
+        m2Renderer_->markModelAsSpellEffect(modelId, true);
         LOG_INFO("SpellVisual: loaded precast model id=", modelId, " path=", modelPath);
     }
 
@@ -503,7 +503,7 @@ void SpellVisualSystem::playSpellVisual(uint32_t visualId, const glm::vec3& worl
             spellVisualFailedModels_.insert(modelId);
             return;
         }
-        m2Renderer_->markModelAsSpellEffect(modelId);
+        m2Renderer_->markModelAsSpellEffect(modelId, true);
         LOG_INFO("SpellVisual: loaded model id=", modelId, " path=", modelPath);
     }
 
@@ -609,7 +609,7 @@ uint32_t SpellVisualSystem::spellEffectModel(const std::string& modelPath) {
         spellVisualFailedModels_.insert(modelId);
         return 0;
     }
-    m2Renderer_->markModelAsSpellEffect(modelId);
+    m2Renderer_->markModelAsSpellEffect(modelId, true);
     LOG_INFO("SpellVisual: loaded model id=", modelId, " path=", modelPath,
              " verts=", model.vertices.size(), " particles=", model.particleEmitters.size(),
              " ribbons=", model.ribbonEmitters.size());

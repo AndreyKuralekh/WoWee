@@ -189,7 +189,7 @@ struct M2ModelGPU {
     uint32_t rtMesh = ~0u;      // RtScene mesh, or ~0u when it does not cast
     bool isSmoke = false;       // True for smoke models (UV scroll animation)
     bool isSpellEffect = false;  // True for spell effect models (skip particle dampeners)
-    bool followsEmitterEnabled = false; // Spells\ model: emitters obey their enabledIn track
+    bool followsEmitterEnabled = false; // Spell visual model: emitters obey enabledIn
     /// The last key of any batch colour or weight track: the length of the
     /// day for a "full day" sky whose one sequence is given no duration.
     float trackSpanMs = 0.0f;
@@ -484,7 +484,7 @@ public:
     /** Force-remove a model and all its GPU resources. Caller must ensure no instances reference it. */
     void unloadModel(uint32_t modelId);
     /** Mark a loaded model as a spell effect (full-brightness particles, no collision). */
-    void markModelAsSpellEffect(uint32_t modelId);
+    void markModelAsSpellEffect(uint32_t modelId, bool followsEmitterEnabled = false);
 
     /// Instances of the same model at the same spot are treated as one placement,
     /// which is right for the static world and wrong for anything whose position
@@ -1295,7 +1295,8 @@ private:
 
     float interpFloat(const pipeline::M2AnimationTrack& track, float animTime,
                       float globalTime, int seqIdx,
-                      const std::vector<uint32_t>& globalSeqDurations);
+                      const std::vector<uint32_t>& globalSeqDurations,
+                      bool firstSequenceFallback = false);
     float interpFBlockFloat(const pipeline::M2FBlock& fb, float lifeRatio);
     glm::vec3 interpFBlockVec3(const pipeline::M2FBlock& fb, float lifeRatio);
     void emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt);

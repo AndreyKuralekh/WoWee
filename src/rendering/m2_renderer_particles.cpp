@@ -51,7 +51,17 @@ bool isFlameEmitter(const M2ModelGPU& gpu, const pipeline::M2ParticleEmitter& em
 
 float M2Renderer::interpFloat(const pipeline::M2AnimationTrack& track, float animTime,
                                 float globalTime, int seqIdx,
-                                const std::vector<uint32_t>& globalSeqDurations) {
+                                const std::vector<uint32_t>& globalSeqDurations,
+                                bool firstSequenceFallback) {
+    // A spell model keys most emitter values in its first sequence only:
+    // BestowDisease_Impact_Chest has a lifespan for Stand and none for Hold,
+    // which read as zero left its skulls unborn. They hold in every sequence.
+    if (firstSequenceFallback && track.globalSequence < 0 && seqIdx > 0 &&
+        !track.sequences.empty() &&
+        (static_cast<size_t>(seqIdx) >= track.sequences.size() ||
+         track.sequences[static_cast<size_t>(seqIdx)].timestamps.empty())) {
+        seqIdx = 0;
+    }
     return m2_track::sampleFloat(track, seqIdx, animTime, globalTime,
                                  globalSeqDurations, 0.0f);
 }
@@ -127,7 +137,7 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
     for (size_t ei = 0; ei < gpu.particleEmitters.size(); ei++) {
         const auto& em = gpu.particleEmitters[ei];
         if (!em.enabled) continue;
-        // Only spell models: a torch or brazier game object is authored dark
+        // Only spell visual models: a torch or brazier game object is authored dark
         // in Stand and lit in Opened, which not every caller plays.
         if (gpu.followsEmitterEnabled &&
             m2_track::sampleFloat(em.enabledIn, inst.currentSequenceIndex, inst.animTime,
@@ -138,9 +148,11 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
         }
 
         float rate = interpFloat(em.emissionRate, inst.animTime, inst.globalSequenceTime,
-                                 inst.currentSequenceIndex, gpu.globalSequenceDurations);
+                                 inst.currentSequenceIndex, gpu.globalSequenceDurations,
+                                 gpu.followsEmitterEnabled);
         float life = interpFloat(em.lifespan, inst.animTime, inst.globalSequenceTime,
-                                 inst.currentSequenceIndex, gpu.globalSequenceDurations);
+                                 inst.currentSequenceIndex, gpu.globalSequenceDurations,
+                                 gpu.followsEmitterEnabled);
         // What the player asked to see of it, before the floor below. The order
         // is the whole point: thinning first and flooring second lets a low
         // setting take smoke, dust and spell effects down while a candle is
@@ -198,9 +210,11 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
             // From one point a lamp's cloud of wisps was a few specks.
             glm::vec3 localPos = em.position;
             const float areaLength = interpFloat(em.emissionAreaLength, inst.animTime, inst.globalSequenceTime,
-                                                 inst.currentSequenceIndex, gpu.globalSequenceDurations);
+                                                 inst.currentSequenceIndex, gpu.globalSequenceDurations,
+                                 gpu.followsEmitterEnabled);
             const float areaWidth = interpFloat(em.emissionAreaWidth, inst.animTime, inst.globalSequenceTime,
-                                                inst.currentSequenceIndex, gpu.globalSequenceDurations);
+                                                inst.currentSequenceIndex, gpu.globalSequenceDurations,
+                                 gpu.followsEmitterEnabled);
             if (em.emitterType == 1) {
                 localPos.x += distN(particleRng_) * areaLength * 0.5f;
                 localPos.y += distN(particleRng_) * areaWidth * 0.5f;
@@ -221,14 +235,18 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
 
             // Velocity: emission speed in upward direction + random spread
             float speed = interpFloat(em.emissionSpeed, inst.animTime, inst.globalSequenceTime,
-                                      inst.currentSequenceIndex, gpu.globalSequenceDurations);
+                                      inst.currentSequenceIndex, gpu.globalSequenceDurations,
+                                 gpu.followsEmitterEnabled);
             const float speedVariation = interpFloat(em.speedVariation, inst.animTime, inst.globalSequenceTime,
-                                                     inst.currentSequenceIndex, gpu.globalSequenceDurations);
+                                                     inst.currentSequenceIndex, gpu.globalSequenceDurations,
+                                 gpu.followsEmitterEnabled);
             speed *= 1.0f + distN(particleRng_) * speedVariation;
             float vRange = interpFloat(em.verticalRange, inst.animTime, inst.globalSequenceTime,
-                                       inst.currentSequenceIndex, gpu.globalSequenceDurations);
+                                       inst.currentSequenceIndex, gpu.globalSequenceDurations,
+                                 gpu.followsEmitterEnabled);
             float hRange = interpFloat(em.horizontalRange, inst.animTime, inst.globalSequenceTime,
-                                       inst.currentSequenceIndex, gpu.globalSequenceDurations);
+                                       inst.currentSequenceIndex, gpu.globalSequenceDurations,
+                                 gpu.followsEmitterEnabled);
 
             // Base direction: up in model space, transformed to world
             glm::vec3 dir(0.0f, 0.0f, 1.0f);
@@ -317,7 +335,8 @@ void M2Renderer::updateParticles(M2Instance& inst, float dt) {
             const auto& pem = gpu.particleEmitters[e];
             float grav = interpFloat(pem.gravity,
                                       inst.animTime, inst.globalSequenceTime,
-                                      inst.currentSequenceIndex, gpu.globalSequenceDurations);
+                                      inst.currentSequenceIndex, gpu.globalSequenceDurations,
+                                 gpu.followsEmitterEnabled);
             // The pull is down, as much as it says. Packed, it is a direction
             // as two bytes and a strength as a short in the float's bits.
             glm::vec3 pull(0.0f, 0.0f, grav);
