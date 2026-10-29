@@ -127,6 +127,15 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
     for (size_t ei = 0; ei < gpu.particleEmitters.size(); ei++) {
         const auto& em = gpu.particleEmitters[ei];
         if (!em.enabled) continue;
+        // Only spell models: a torch or brazier game object is authored dark
+        // in Stand and lit in Opened, which not every caller plays.
+        if (gpu.followsEmitterEnabled &&
+            m2_track::sampleFloat(em.enabledIn, inst.currentSequenceIndex, inst.animTime,
+                                  inst.globalSequenceTime, gpu.globalSequenceDurations,
+                                  1.0f) < 0.5f) {
+            inst.emitterAccumulators[ei] = 0.0f;
+            continue;
+        }
 
         float rate = interpFloat(em.emissionRate, inst.animTime, inst.globalSequenceTime,
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations);
@@ -819,7 +828,15 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             vd[6] = alpha;
             vd[7] = legacySize ? -scale : scale;
             float tileIndex = p.tileIndex;
-            if (cachedIsTiled) {
+            // A cell track says which frame of the atlas a particle shows at
+            // each point of its life, so a skull forms and comes apart as it
+            // rises. Without it every particle showed the same frame - the
+            // first, when the emitter lacked the tiled flag.
+            if (!em.headCell.floatValues.empty() && cachedTotalTiles > 1 &&
+                !(em.flags & kParticleFlagRandomized)) {
+                tileIndex = std::fmod(std::floor(interpFBlockFloat(em.headCell, lifeRatio)),
+                                      static_cast<float>(cachedTotalTiles));
+            } else if (cachedIsTiled) {
                 tileIndex = p.tileIndex + static_cast<float>(cachedAnimFrame);
                 while (tileIndex >= cachedTilesFloat) {
                     tileIndex -= cachedTilesFloat;

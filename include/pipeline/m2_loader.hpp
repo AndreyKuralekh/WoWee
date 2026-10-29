@@ -178,6 +178,10 @@ struct M2ParticleEmitter {
     M2FBlock particleColor;   // vec3 RGB at 3 timestamps
     M2FBlock particleAlpha;   // float (from uint16/32767) at 3 timestamps
     M2FBlock particleScale;   // float (x component of vec2) at 3 timestamps
+    M2FBlock headCell;        // atlas cell over the particle's life (WotLK)
+    // When in each sequence the emitter emits at all: 0 or 1 per key (WotLK).
+    // An empty sequence means always.
+    M2AnimationTrack enabledIn;
     bool enabled = true;
 };
 

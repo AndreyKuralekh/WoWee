@@ -743,7 +743,8 @@ void parseAnimTrackVanilla(const std::vector<uint8_t>& data,
 // FBlocks are like M2Track but WITHOUT the interpolationType/globalSequence prefix.
 void parseFBlock(const std::vector<uint8_t>& data, uint32_t offset,
                  M2FBlock& fb, int valueType) {
-    // valueType: 0 = color (C3Vector, 3 floats in 0-255 range), 1 = alpha (uint16), 2 = scale (float pair)
+    // valueType: 0 = color (C3Vector, 3 floats in 0-255 range), 1 = alpha (uint16), 2 = scale (float pair),
+    // 3 = atlas cell (uint16)
     if (offset + sizeof(FBlockDisk) > data.size()) return;
 
     FBlockDisk disk = readValue<FBlockDisk>(data, offset);
@@ -791,6 +792,12 @@ void parseFBlock(const std::vector<uint8_t>& data, uint32_t offset,
             float x = readValue<float>(data, ofsKeys + i * 8);
             fb.floatValues.push_back(x);
         }
+    } else if (valueType == 3) {
+        // Atlas cell: uint16 per key
+        if (ofsKeys + nKeys * sizeof(uint16_t) > data.size()) return;
+        auto rawCells = readArray<uint16_t>(data, ofsKeys, nKeys);
+        fb.floatValues.reserve(nKeys);
+        for (auto c : rawCells) fb.floatValues.push_back(static_cast<float>(c));
     }
 }
 
@@ -1599,6 +1606,14 @@ M2Model M2Loader::load(const std::vector<uint8_t>& m2Data) {
                 parseFBlock(m2Data, base + 0x104, em.particleColor, 0);
                 parseFBlock(m2Data, base + 0x114, em.particleAlpha, 1);
                 parseFBlock(m2Data, base + 0x124, em.particleScale, 2);
+                parseFBlock(m2Data, base + 0x13C, em.headCell, 3);
+
+                // The last field of the 476-byte record. Checked against every
+                // WotLK model with emitters: all 15000 parse as byte tracks.
+                if (base + 0x1C8 + sizeof(M2TrackDisk) <= m2Data.size()) {
+                    M2TrackDisk disk = readValue<M2TrackDisk>(m2Data, base + 0x1C8);
+                    parseAnimTrack(m2Data, disk, em.enabledIn, TrackType::BYTE_BOOL, emSeqFlags);
+                }
             }
 
             model.particleEmitters.push_back(std::move(em));

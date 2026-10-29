@@ -3,6 +3,7 @@
 #include "rendering/renderer.hpp"
 #include "rendering/camera.hpp"
 #include "rendering/character_renderer.hpp"
+#include "rendering/animation/animation_ids.hpp"
 #include "pipeline/asset_manager.hpp"
 #include "pipeline/dbc_loader.hpp"
 #include "pipeline/dbc_layout.hpp"
@@ -921,6 +922,11 @@ void SpellVisualSystem::setUnitStateVisuals(uint64_t unitGuid, uint32_t charInst
             if (modelId == 0) continue;
             const uint32_t instance = m2Renderer_->createInstance(modelId, glm::vec3(0.0f), glm::vec3(0.0f), 1.0f);
             if (instance == 0) continue;
+            // An effect that lasts as long as the aura is authored in Hold:
+            // BestowDisease_Impact_Chest bursts its skulls for one second in
+            // four there, and streams them with sparks without a break in
+            // Stand. A no-op for a model without Hold.
+            m2Renderer_->setInstanceAnimation(instance, anim::HOLD, true);
             UnitStateEffect effect{.visualId = visualId, .m2Instance = instance, .def = &def};
             placeStateEffect(charInstanceId, effect);
             unit.effects.push_back(effect);

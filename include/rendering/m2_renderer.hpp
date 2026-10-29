@@ -189,6 +189,7 @@ struct M2ModelGPU {
     uint32_t rtMesh = ~0u;      // RtScene mesh, or ~0u when it does not cast
     bool isSmoke = false;       // True for smoke models (UV scroll animation)
     bool isSpellEffect = false;  // True for spell effect models (skip particle dampeners)
+    bool followsEmitterEnabled = false; // Spells\ model: emitters obey their enabledIn track
     /// The last key of any batch colour or weight track: the length of the
     /// day for a "full day" sky whose one sequence is given no duration.
     float trackSpanMs = 0.0f;

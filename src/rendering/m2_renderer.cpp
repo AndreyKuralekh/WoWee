@@ -1450,6 +1450,11 @@ void M2Renderer::markModelAsSpellEffect(uint32_t modelId) {
     auto it = models.find(modelId);
     if (it != models.end()) {
         it->second.isSpellEffect = true;
+        const std::string& name = it->second.name;
+        it->second.followsEmitterEnabled =
+            name.size() > 7 && (name[6] == '\\' || name[6] == '/') &&
+            std::equal(name.begin(), name.begin() + 6, "spells",
+                       [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == b; });
         // Spell effects MUST have bone animation for ribbons/particles to work.
         // The classifier may have set disableAnimation=true based on name tokens
         // (e.g. "chest" in HolySmite_Low_Chest.m2) - override that for spell effects.
