@@ -1524,6 +1524,14 @@ M2Model M2Loader::load(const std::vector<uint8_t>& m2Data) {
                 // disease's skulls are.
                 em.geometryModelPath = readString(m2Data, readValue<uint32_t>(m2Data, base + 0x1C),
                                                   readValue<uint32_t>(m2Data, base + 0x18));
+                em.twinkleSpeed    = readValue<float>(m2Data, base + 0x160);
+                em.twinklePercent  = readValue<float>(m2Data, base + 0x164);
+                em.twinkleScaleMin = readValue<float>(m2Data, base + 0x168);
+                em.twinkleScaleMax = readValue<float>(m2Data, base + 0x16C);
+                if (!std::isfinite(em.twinkleSpeed) || !std::isfinite(em.twinklePercent) ||
+                    !std::isfinite(em.twinkleScaleMin) || !std::isfinite(em.twinkleScaleMax)) {
+                    em.twinklePercent = 0.0f;
+                }
             }
 
             if (isVanilla) {

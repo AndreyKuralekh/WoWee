@@ -184,6 +184,13 @@ struct M2ParticleEmitter {
     M2AnimationTrack enabledIn;
     // A model each particle is drawn as, instead of a textured sprite (WotLK).
     std::string geometryModelPath;
+    // Twinkle (WotLK): this share of the particles scale between min and max,
+    // this many times a second. A constant multiplier when min equals max -
+    // which is how the later-expansion flames the mod brings are sized.
+    float twinkleSpeed = 0.0f;
+    float twinklePercent = 0.0f;
+    float twinkleScaleMin = 1.0f;
+    float twinkleScaleMax = 1.0f;
     bool enabled = true;
 };
 

@@ -265,6 +265,7 @@ struct M2Particle {
     int emitterIndex;  // which emitter spawned this
     float tileIndex = 0.0f; // texture atlas tile index
     uint32_t modelInstance = 0; // the instance drawn for it, for a model particle
+    float twinkleSeed = 0.0f;   // 0..1: whether it twinkles, and its phase
 };
 
 /**
@@ -1305,6 +1306,9 @@ private:
                       const std::vector<uint32_t>& globalSeqDurations,
                       bool firstSequenceFallback = false);
     float interpFBlockFloat(const pipeline::M2FBlock& fb, float lifeRatio);
+    /// The emitter's twinkle multiplier on this particle's size: 1 for a
+    /// particle outside its twinkling share.
+    static float twinkleScale(const pipeline::M2ParticleEmitter& em, const M2Particle& p);
     glm::vec3 interpFBlockVec3(const pipeline::M2FBlock& fb, float lifeRatio);
     void emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt);
     void updateParticles(M2Instance& inst, float dt);

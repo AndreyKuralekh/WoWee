@@ -204,6 +204,7 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
             p.life = 0.0f;
             p.maxLife = life;
             p.tileIndex = 0.0f;
+            p.twinkleSeed = dist01(particleRng_);
 
             // Position: emitter position transformed by bone matrix, anywhere
             // in the emitter's area - a plane's rectangle, a sphere's ball.
@@ -809,8 +810,9 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             if (gpu.followsEmitterEnabled) {
                 // A spell visual's model at its authored size. Half as big
                 // again, the disease's skull-faced puffs grew into a haze two
-                // yards across that hid every skull.
-                scale = std::max(rawScale, 0.05f);
+                // yards across that hid every skull. Its twinkle is part of
+                // that size: a fireball's hand flames are 0.013 twinkled 23.
+                scale = std::max(rawScale * twinkleScale(em, p), 0.05f);
             } else if (gpu.isSpellEffect) {
                 scale = std::max(rawScale * 1.5f, 0.05f);
             } else if (!gpu.isFireflyEffect) {
@@ -1028,6 +1030,13 @@ void M2Renderer::renderSmokeParticles(VkCommandBuffer cmd, VkDescriptorSet perFr
     vkCmdDraw(cmd, static_cast<uint32_t>(count), 1, 0, 0);
 }
 
+float M2Renderer::twinkleScale(const pipeline::M2ParticleEmitter& em, const M2Particle& p) {
+    if (em.twinklePercent <= 0.0f || p.twinkleSeed >= em.twinklePercent) return 1.0f;
+    if (em.twinkleScaleMin == em.twinkleScaleMax) return em.twinkleScaleMin;
+    const float wave = 0.5f + 0.5f * std::sin((p.life * em.twinkleSpeed + p.twinkleSeed) * glm::two_pi<float>());
+    return glm::mix(em.twinkleScaleMin, em.twinkleScaleMax, wave);
+}
+
 void M2Renderer::setEmitterParticleModel(uint32_t modelId, size_t emitterIndex, uint32_t particleModelId) {
     auto it = models.find(modelId);
     if (it == models.end() || emitterIndex >= it->second.particleEmitters.size()) return;
@@ -1076,7 +1085,7 @@ void M2Renderer::updateModelParticles() {
 
             const auto& em = gpu.particleEmitters[p.emitterIndex];
             const float lifeRatio = p.life / std::max(p.maxLife, 0.001f);
-            const float scale = std::max(interpFBlockFloat(em.particleScale, lifeRatio), 0.001f);
+            const float scale = std::max(interpFBlockFloat(em.particleScale, lifeRatio) * twinkleScale(em, p), 0.001f);
             const float alpha = std::min(interpFBlockFloat(em.particleAlpha, lifeRatio), 1.0f);
             const glm::vec3 position = p.position;
             // Nothing in the emitter turns it, so it turns to the viewer
