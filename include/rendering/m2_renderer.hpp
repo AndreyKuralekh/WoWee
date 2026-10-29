@@ -190,6 +190,9 @@ struct M2ModelGPU {
     bool isSmoke = false;       // True for smoke models (UV scroll animation)
     bool isSpellEffect = false;  // True for spell effect models (skip particle dampeners)
     bool followsEmitterEnabled = false; // Spell visual model: emitters obey enabledIn
+    // Per emitter, the loaded model each of its particles is drawn as; 0 or
+    // absent for a sprite. See setEmitterParticleModel.
+    std::vector<uint32_t> emitterParticleModels;
     /// The last key of any batch colour or weight track: the length of the
     /// day for a "full day" sky whose one sequence is given no duration.
     float trackSpanMs = 0.0f;
@@ -261,6 +264,7 @@ struct M2Particle {
     float maxLife;     // total lifespan
     int emitterIndex;  // which emitter spawned this
     float tileIndex = 0.0f; // texture atlas tile index
+    uint32_t modelInstance = 0; // the instance drawn for it, for a model particle
 };
 
 /**
@@ -485,6 +489,9 @@ public:
     void unloadModel(uint32_t modelId);
     /** Mark a loaded model as a spell effect (full-brightness particles, no collision). */
     void markModelAsSpellEffect(uint32_t modelId, bool followsEmitterEnabled = false);
+    /// Draw each particle of one of the model's emitters as an instance of
+    /// another loaded model rather than as a sprite - the disease's skulls.
+    void setEmitterParticleModel(uint32_t modelId, size_t emitterIndex, uint32_t particleModelId);
 
     /// Instances of the same model at the same spot are treated as one placement,
     /// which is right for the static world and wrong for anything whose position
@@ -1301,6 +1308,12 @@ private:
     glm::vec3 interpFBlockVec3(const pipeline::M2FBlock& fb, float lifeRatio);
     void emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt);
     void updateParticles(M2Instance& inst, float dt);
+    /// Places an instance on every live model particle, and removes those
+    /// whose particle or emitting instance is gone. After the particle pass:
+    /// it creates instances, so no reference into instances survives it.
+    void updateModelParticles();
+    std::unordered_map<uint32_t, uint32_t> modelParticleOwner_;  // particle instance -> emitting instance
+    std::vector<uint32_t> deadModelParticles_;
     void updateRibbons(M2Instance& inst, const M2ModelGPU& gpu, float dt);
 
     // Helper to allocate descriptor sets

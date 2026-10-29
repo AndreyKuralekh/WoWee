@@ -365,6 +365,7 @@ void M2Renderer::updateParticles(M2Instance& inst, float dt) {
         auto& p = inst.particles[i];
         p.life += dt;
         if (p.life >= p.maxLife) {
+            if (p.modelInstance != 0) deadModelParticles_.push_back(p.modelInstance);
             // Swap-and-pop removal
             inst.particles[i] = inst.particles.back();
             inst.particles.pop_back();
@@ -739,6 +740,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
 
         for (const auto& p : inst.particles) {
             if (p.emitterIndex < 0 || p.emitterIndex >= static_cast<int>(gpu.particleEmitters.size())) continue;
+            if (p.modelInstance != 0) continue;  // drawn as a model; see updateModelParticles
 
             if (p.emitterIndex != lastEmitterIdx) {
                 lastEmitterIdx = p.emitterIndex;
@@ -1024,6 +1026,80 @@ void M2Renderer::renderSmokeParticles(VkCommandBuffer cmd, VkDescriptorSet perFr
     VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &smokeVB_, &offset);
     vkCmdDraw(cmd, static_cast<uint32_t>(count), 1, 0, 0);
+}
+
+void M2Renderer::setEmitterParticleModel(uint32_t modelId, size_t emitterIndex, uint32_t particleModelId) {
+    auto it = models.find(modelId);
+    if (it == models.end() || emitterIndex >= it->second.particleEmitters.size()) return;
+    auto& slots = it->second.emitterParticleModels;
+    if (slots.size() < it->second.particleEmitters.size()) slots.resize(it->second.particleEmitters.size(), 0);
+    slots[emitterIndex] = particleModelId;
+}
+
+void M2Renderer::updateModelParticles() {
+    // An emitting instance removed by any path leaves its particles' models
+    // behind; they go with it here rather than in each removal path.
+    for (const auto& [child, owner] : modelParticleOwner_) {
+        if (!instanceIndexById.count(owner)) deadModelParticles_.push_back(child);
+    }
+    for (uint32_t id : deadModelParticles_) {
+        modelParticleOwner_.erase(id);
+        removeInstance(id);
+    }
+    deadModelParticles_.clear();
+
+    std::vector<uint32_t> owners;
+    for (size_t idx : particleInstanceIndices_) {
+        if (idx >= instances.size()) continue;
+        const auto& inst = instances[idx];
+        if (inst.cachedModel && !inst.cachedModel->emitterParticleModels.empty() && !inst.particles.empty())
+            owners.push_back(inst.id);
+    }
+
+    for (uint32_t ownerId : owners) {
+        for (size_t pi = 0;; ++pi) {
+            // Looked up again each time round: creating an instance can move
+            // every instance, the owner included.
+            auto ownerIt = instanceIndexById.find(ownerId);
+            if (ownerIt == instanceIndexById.end()) break;
+            M2Instance& owner = instances[ownerIt->second];
+            if (pi >= owner.particles.size()) break;
+            const M2ModelGPU& gpu = *owner.cachedModel;
+            const M2Particle& p = owner.particles[pi];
+            if (p.emitterIndex < 0 || static_cast<size_t>(p.emitterIndex) >= gpu.emitterParticleModels.size())
+                continue;
+            const uint32_t particleModel = gpu.emitterParticleModels[p.emitterIndex];
+            if (particleModel == 0) continue;
+
+            const auto& em = gpu.particleEmitters[p.emitterIndex];
+            const float lifeRatio = p.life / std::max(p.maxLife, 0.001f);
+            const float scale = std::max(interpFBlockFloat(em.particleScale, lifeRatio), 0.001f);
+            const float alpha = std::min(interpFBlockFloat(em.particleAlpha, lifeRatio), 1.0f);
+            const glm::vec3 position = p.position;
+            // Nothing in the emitter turns it, so it turns to the viewer
+            // about the vertical: a skull looks at whoever is looking.
+            const glm::vec3 toCamera = cachedCamPos_ - position;
+            const float yaw = std::atan2(toCamera.y, toCamera.x);
+
+            uint32_t id = p.modelInstance;
+            if (id == 0) {
+                id = createInstance(particleModel, position, glm::vec3(0.0f), scale);
+                if (id == 0) continue;
+                auto again = instanceIndexById.find(ownerId);
+                if (again == instanceIndexById.end()) {
+                    removeInstance(id);
+                    break;
+                }
+                instances[again->second].particles[pi].modelInstance = id;
+                modelParticleOwner_[id] = ownerId;
+            }
+            glm::mat4 transform = glm::translate(glm::mat4(1.0f), position);
+            transform = glm::rotate(transform, yaw, glm::vec3(0.0f, 0.0f, 1.0f));
+            transform = glm::scale(transform, glm::vec3(scale));
+            setInstanceTransform(id, transform);
+            setInstanceFade(id, alpha);
+        }
+    }
 }
 
 } // namespace rendering

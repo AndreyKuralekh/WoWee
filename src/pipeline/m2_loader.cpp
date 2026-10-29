@@ -1519,6 +1519,12 @@ M2Model M2Loader::load(const std::vector<uint8_t>& m2Data) {
             em.textureCols = readValue<uint16_t>(m2Data, base + 0x32);
             if (em.textureRows == 0) em.textureRows = 1;
             if (em.textureCols == 0) em.textureCols = 1;
+            if (!isVanilla) {
+                // A model drawn for each particle in place of a sprite, as the
+                // disease's skulls are.
+                em.geometryModelPath = readString(m2Data, readValue<uint32_t>(m2Data, base + 0x1C),
+                                                  readValue<uint32_t>(m2Data, base + 0x18));
+            }
 
             if (isVanilla) {
                 // Vanilla: 10 contiguous M2TrackDiskVanilla tracks (28 bytes each) at 0x34

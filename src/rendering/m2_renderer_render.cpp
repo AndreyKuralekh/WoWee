@@ -745,6 +745,8 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
             // were and go on taking room in the particle buffer - which is
             // finite, and filled in list order, so enough of them left a
             // spell cast a moment ago with no particles at all.
+            for (const auto& p : instance.particles)
+                if (p.modelInstance != 0) deadModelParticles_.push_back(p.modelInstance);
             instance.particles.clear();
             continue;
         }
@@ -755,6 +757,7 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
             updateRibbons(instance, *instance.cachedModel, deltaTime);
         }
     }
+    updateModelParticles();
 
 }
 

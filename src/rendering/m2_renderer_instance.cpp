@@ -513,6 +513,8 @@ void M2Renderer::clear() {
     instances.clear();
     spatialGrid.clear();
     instanceIndexById.clear();
+    modelParticleOwner_.clear();
+    deadModelParticles_.clear();
     boneSeedInstanceByModel_.clear();
     instanceDedupMap_.clear();
     for (auto& ids : cullSubmittedIds_) ids.clear();
@@ -548,6 +550,8 @@ void M2Renderer::clearInstances() {
     instances.clear();
     spatialGrid.clear();
     instanceIndexById.clear();
+    modelParticleOwner_.clear();
+    deadModelParticles_.clear();
     boneSeedInstanceByModel_.clear();
     instanceDedupMap_.clear();
     for (auto& ids : cullSubmittedIds_) ids.clear();
@@ -575,6 +579,8 @@ void M2Renderer::resetQueryStats() {
 void M2Renderer::rebuildSpatialIndex() {
     spatialGrid.clear();
     instanceIndexById.clear();
+    modelParticleOwner_.clear();
+    deadModelParticles_.clear();
     boneSeedInstanceByModel_.clear();
     instanceDedupMap_.clear();
     instanceIndexById.reserve(instances.size());

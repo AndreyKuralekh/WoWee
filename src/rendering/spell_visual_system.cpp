@@ -610,6 +610,18 @@ uint32_t SpellVisualSystem::spellEffectModel(const std::string& modelPath) {
         return 0;
     }
     m2Renderer_->markModelAsSpellEffect(modelId, true);
+    // Emitters whose particles are models: the disease's skulls are
+    // Skull180, drawn for each particle where the emitter's texture - a
+    // star - would be the sprite.
+    for (size_t e = 0; e < model.particleEmitters.size(); ++e) {
+        std::string particlePath = model.particleEmitters[e].geometryModelPath;
+        if (particlePath.empty() || particlePath == modelPath) continue;
+        const size_t dot = particlePath.find_last_of('.');
+        if (dot != std::string::npos) particlePath = particlePath.substr(0, dot) + ".m2";
+        if (const uint32_t particleModel = spellEffectModel(particlePath)) {
+            m2Renderer_->setEmitterParticleModel(modelId, e, particleModel);
+        }
+    }
     LOG_INFO("SpellVisual: loaded model id=", modelId, " path=", modelPath,
              " verts=", model.vertices.size(), " particles=", model.particleEmitters.size(),
              " ribbons=", model.ribbonEmitters.size());

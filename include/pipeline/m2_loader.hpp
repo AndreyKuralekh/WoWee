@@ -182,6 +182,8 @@ struct M2ParticleEmitter {
     // When in each sequence the emitter emits at all: 0 or 1 per key (WotLK).
     // An empty sequence means always.
     M2AnimationTrack enabledIn;
+    // A model each particle is drawn as, instead of a textured sprite (WotLK).
+    std::string geometryModelPath;
     bool enabled = true;
 };
 
