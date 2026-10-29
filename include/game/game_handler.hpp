@@ -3353,6 +3353,8 @@ public:
     void trainSpell(uint32_t spellId);
     void closeTrainer();
     const std::string& getSpellName(uint32_t spellId) const;
+    /// The spell's SpellVisual, 0 for none or unknown.
+    uint32_t getSpellVisualId(uint32_t spellId);
     const std::string& getSpellRank(uint32_t spellId) const;
     /// Returns the tooltip/description text from Spell.dbc (empty if unknown or has no text).
     const std::string& getSpellDescription(uint32_t spellId) const;

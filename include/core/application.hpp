@@ -411,6 +411,8 @@ private:
         bool found = false;
     };
     std::unordered_map<uint64_t, CreatureRestFloor> creatureRestFloor_;
+    // Since units' auras were last handed to the spell visuals.
+    float auraVisualTimer_ = 0.0f;
 #ifdef WOWEE_VR
     bool vrCrouchKneels_ = false;  // the kneel was asked for by the player crouching
 #endif

@@ -71,6 +71,15 @@ public:
     // Advance lifetime timers and remove expired instances.
     void update(float deltaTime);
 
+    /// What a unit's auras show for as long as they last - the state kits of
+    /// their spells' visuals, such as the skulls round a diseased wolf. Given
+    /// the unit's whole list each time; effects of visuals no longer in it
+    /// are taken off. endUnitStateVisuals() then takes off those of every
+    /// unit not given since the last call.
+    void setUnitStateVisuals(uint64_t unitGuid, uint32_t charInstanceId,
+                             const std::vector<uint32_t>& visualIds);
+    void endUnitStateVisuals();
+
     // Remove all active precast visual instances (cast canceled/interrupted).
     void cancelAllPrecastVisuals();
 
@@ -108,6 +117,27 @@ private:
         std::function<void()> onArrive;
     };
 
+    // One model of a state kit, and where on the unit it goes: attachment
+    // points to try in order, then the unit's middle or, for a base effect,
+    // its feet.
+    struct StateEffectDef {
+        std::string path;
+        std::vector<uint32_t> attachments;
+        bool atFeet = false;
+    };
+    struct UnitStateEffect {
+        uint32_t visualId = 0;
+        uint32_t m2Instance = 0;
+        const StateEffectDef* def = nullptr;
+    };
+    struct UnitStateVisuals {
+        uint32_t charInstanceId = 0;
+        std::vector<UnitStateEffect> effects;
+        bool given = false;
+    };
+    void placeStateEffect(uint32_t charInstanceId, const UnitStateEffect& effect);
+    void removeUnitStateEffects(UnitStateVisuals& unit);
+
     void loadSpellVisualDbc();
     // The M2Renderer model for a spell effect path, loaded on first use. 0 if
     // it cannot be had.
@@ -130,6 +160,8 @@ private:
     std::unordered_map<uint32_t, std::string> spellVisualPrecastPath_; // visualId → precast M2 path
     std::unordered_map<uint32_t, std::string> spellVisualCastPath_;   // visualId → cast M2 path
     std::unordered_map<uint32_t, std::string> spellVisualImpactPath_; // visualId → impact M2 path
+    std::unordered_map<uint32_t, std::vector<StateEffectDef>> spellVisualState_; // visualId → state kit
+    std::unordered_map<uint64_t, UnitStateVisuals> unitStateVisuals_;           // unit guid → its effects
     std::unordered_map<std::string, uint32_t> spellVisualModelIds_;   // M2 path → M2Renderer modelId
     std::unordered_set<uint32_t> spellVisualFailedModels_;           // modelIds that failed to load (negative cache)
     uint32_t nextSpellVisualModelId_ = 999000; // Reserved range 999000-999799

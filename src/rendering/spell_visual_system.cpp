@@ -100,6 +100,9 @@ void SpellVisualSystem::loadSpellVisualDbc() {
     // Blizzard_AreaBase in that one field.
     std::unordered_map<uint32_t, uint32_t> kitToWorldEffect;
     constexpr uint32_t kKitWorldEffectField = 14;
+    // Every slot of a kit, for the state kits, which put one model on each
+    // part of the unit they name rather than the first one found.
+    std::unordered_map<uint32_t, std::vector<std::pair<size_t, uint32_t>>> kitSlots; // kitId → (kitFieldDefs index, effect)
     if (kitDbc && kitDbc->isLoaded()) {
         uint32_t fc = kitDbc->getFieldCount();
         for (uint32_t i = 0; i < kitDbc->getRecordCount(); ++i) {
@@ -111,6 +114,10 @@ void SpellVisualSystem::loadSpellVisualDbc() {
                     eff = kitDbc->getUInt32(i, kitFields[k]);
             }
             if (eff) kitToEffectName[kitId] = eff;
+            for (size_t k = 0; k < numKitFields; ++k) {
+                if (kitFields[k] >= fc) continue;
+                if (const uint32_t e = kitDbc->getUInt32(i, kitFields[k])) kitSlots[kitId].emplace_back(k, e);
+            }
             if (fc == 38 && kKitWorldEffectField < fc) {
                 if (const uint32_t world = kitDbc->getUInt32(i, kKitWorldEffectField)) kitToWorldEffect[kitId] = world;
             }
@@ -158,6 +165,27 @@ void SpellVisualSystem::loadSpellVisualDbc() {
             if (path.empty()) path = kitPath(areaKit);
             if (!path.empty()) spellVisualAreaPath_[vid] = std::move(path);
         }
+        // State: what stays on a unit while the aura lasts. StateKit is field
+        // 4 of WotLK's 32; the layouts do not name it.
+        if (svFc == 32) {
+            const uint32_t stateKit = svDbc->getUInt32(i, 4);
+            if (auto slots = kitSlots.find(stateKit); stateKit && slots != kitSlots.end()) {
+                // Attachment points by kitFieldDefs order: special 0, base,
+                // left and right hand, chest, head, breath, special 1 and 2.
+                // An empty list is the unit's middle.
+                static const std::vector<uint32_t> kSlotAttachments[numKitFields] = {
+                    {}, {19}, {21, 2}, {22, 1}, {15}, {11, 20}, {17, 11}, {}, {},
+                };
+                std::vector<StateEffectDef> defs;
+                for (const auto& [slot, effect] : slots->second) {
+                    std::string path = missilePath(effect);
+                    if (path.empty()) continue;
+                    defs.push_back({.path = std::move(path), .attachments = kSlotAttachments[slot],
+                                    .atFeet = slot == 1});
+                }
+                if (!defs.empty()) spellVisualState_[vid] = std::move(defs);
+            }
+        }
         // Missile: the model that travels from caster to target
         if (svMissileField < svFc) {
             std::string path = missilePath(svDbc->getUInt32(i, svMissileField));
@@ -188,6 +216,7 @@ void SpellVisualSystem::loadSpellVisualDbc() {
             if (!path.empty()) { spellVisualImpactPath_[vid] = path; ++loadedImpact; }
         }
     }
+    LOG_INFO("SpellVisual: ", spellVisualState_.size(), " visuals with a state kit");
     LOG_INFO("SpellVisual: loaded precast=", loadedPrecast, " cast=", loadedCast, " impact=", loadedImpact,
              " visual\u2192M2 mappings (of ", svDbc->getRecordCount(), " records)");
 }
@@ -746,6 +775,10 @@ void SpellVisualSystem::update(float deltaTime) {
                              [this, end]() { playSpellVisual(diagVisual, end, /*useImpactKit=*/true); });
         }
     }
+    // State effects follow their unit's attachment points every frame.
+    for (const auto& [guid, unit] : unitStateVisuals_) {
+        for (const auto& effect : unit.effects) placeStateEffect(unit.charInstanceId, effect);
+    }
     if (activeSpellVisuals_.empty() && physicalProjectiles_.empty() && spellMissiles_.empty()) return;
 
     // Missiles first, and their arrivals after the list is settled: an
@@ -830,9 +863,90 @@ void SpellVisualSystem::cancelAllPrecastVisuals() {
     }
 }
 
+void SpellVisualSystem::placeStateEffect(uint32_t charInstanceId, const UnitStateEffect& effect) {
+    auto* charRenderer = renderer_ ? renderer_->getCharacterRenderer() : nullptr;
+    if (!charRenderer || !m2Renderer_ || !effect.def) return;
+    glm::mat4 attachMat;
+    for (uint32_t attachment : effect.def->attachments) {
+        if (charRenderer->getAttachmentTransform(charInstanceId, attachment, attachMat)) {
+            m2Renderer_->setInstancePosition(effect.m2Instance, glm::vec3(attachMat[3]));
+            return;
+        }
+    }
+    // No such point on this model: its middle, or its feet for a base effect.
+    glm::vec3 centre;
+    float radius = 0.0f;
+    if (!charRenderer->getInstanceBounds(charInstanceId, centre, radius)) return;
+    float height = 0.0f;
+    if (effect.def->atFeet && charRenderer->getInstanceHeight(charInstanceId, height)) {
+        centre.z -= height * 0.5f;
+    }
+    m2Renderer_->setInstancePosition(effect.m2Instance, centre);
+}
+
+void SpellVisualSystem::removeUnitStateEffects(UnitStateVisuals& unit) {
+    for (const auto& effect : unit.effects) {
+        if (m2Renderer_) m2Renderer_->removeInstance(effect.m2Instance);
+    }
+    unit.effects.clear();
+}
+
+void SpellVisualSystem::setUnitStateVisuals(uint64_t unitGuid, uint32_t charInstanceId,
+                                            const std::vector<uint32_t>& visualIds) {
+    if (!m2Renderer_) return;
+    if (!cachedAssetManager_) cachedAssetManager_ = core::Application::getInstance().getAssetManager();
+    if (!cachedAssetManager_) return;
+    if (!spellVisualDbcLoaded_) loadSpellVisualDbc();
+
+    UnitStateVisuals& unit = unitStateVisuals_[unitGuid];
+    unit.given = true;
+    // A new model for the unit - a shapeshift, a respawn - takes the effects
+    // off the old one.
+    if (unit.charInstanceId != charInstanceId) {
+        removeUnitStateEffects(unit);
+        unit.charInstanceId = charInstanceId;
+    }
+    std::erase_if(unit.effects, [&](const UnitStateEffect& effect) {
+        if (std::find(visualIds.begin(), visualIds.end(), effect.visualId) != visualIds.end()) return false;
+        m2Renderer_->removeInstance(effect.m2Instance);
+        return true;
+    });
+    for (uint32_t visualId : visualIds) {
+        if (std::any_of(unit.effects.begin(), unit.effects.end(),
+                        [&](const UnitStateEffect& e) { return e.visualId == visualId; })) continue;
+        auto defs = spellVisualState_.find(visualId);
+        if (defs == spellVisualState_.end()) continue;
+        for (const auto& def : defs->second) {
+            const uint32_t modelId = spellEffectModel(def.path);
+            if (modelId == 0) continue;
+            const uint32_t instance = m2Renderer_->createInstance(modelId, glm::vec3(0.0f), glm::vec3(0.0f), 1.0f);
+            if (instance == 0) continue;
+            UnitStateEffect effect{.visualId = visualId, .m2Instance = instance, .def = &def};
+            placeStateEffect(charInstanceId, effect);
+            unit.effects.push_back(effect);
+            LOG_INFO("SpellVisual: state effect ", def.path, " on unit 0x", std::hex, unitGuid, std::dec,
+                     " (visual ", visualId, ")");
+        }
+    }
+}
+
+void SpellVisualSystem::endUnitStateVisuals() {
+    for (auto it = unitStateVisuals_.begin(); it != unitStateVisuals_.end(); ) {
+        if (!it->second.given) {
+            removeUnitStateEffects(it->second);
+            it = unitStateVisuals_.erase(it);
+        } else {
+            it->second.given = false;
+            ++it;
+        }
+    }
+}
+
 void SpellVisualSystem::reset() {
     // Clear lingering spell visual instances from the previous map/combat session.
     // Without this, old effects could remain visible after teleport or map change.
+    for (auto& [guid, unit] : unitStateVisuals_) removeUnitStateEffects(unit);
+    unitStateVisuals_.clear();
     for (auto& sv : activeSpellVisuals_) {
         if (m2Renderer_) m2Renderer_->removeInstance(sv.instanceId);
     }

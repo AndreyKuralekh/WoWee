@@ -42,6 +42,7 @@
 #include "rendering/celestial.hpp"
 #include "rendering/starfield.hpp"
 #include "rendering/clouds.hpp"
+#include "rendering/spell_visual_system.hpp"
 #include "rendering/lens_flare.hpp"
 #include "rendering/weather.hpp"
 #include "rendering/lighting_manager.hpp"
@@ -3904,6 +3905,33 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
         if (ac) ac->setVrCrouched(crouch > 0 && !vrCrouchKneels_ && !riding && !swimming);
     }
 #endif
+
+    // What units' auras show for as long as they last - the skulls round a
+    // diseased wolf. Four times a second: auras change far more slowly than
+    // frames, and the effects follow their units every frame regardless.
+    auraVisualTimer_ += deltaTime;
+    if (auraVisualTimer_ >= 0.25f && gameHandler && entitySpawner_ && renderer) {
+        auraVisualTimer_ = 0.0f;
+        if (auto* svs = renderer->getSpellVisualSystem()) {
+            std::vector<uint32_t> visuals;
+            const auto give = [&](uint64_t guid, uint32_t instance, const std::vector<game::AuraSlot>* auras) {
+                if (!auras || instance == 0) return;
+                visuals.clear();
+                for (const auto& aura : *auras) {
+                    if (aura.isEmpty()) continue;
+                    if (const uint32_t visual = gameHandler->getSpellVisualId(aura.spellId)) visuals.push_back(visual);
+                }
+                // A unit not given is cleared by endUnitStateVisuals.
+                if (!visuals.empty()) svs->setUnitStateVisuals(guid, instance, visuals);
+            };
+            for (const auto& [guid, instance] : entitySpawner_->getCreatureInstances())
+                give(guid, instance, gameHandler->getUnitAuras(guid));
+            for (const auto& [guid, instance] : entitySpawner_->getPlayerInstances())
+                give(guid, instance, gameHandler->getUnitAuras(guid));
+            give(gameHandler->getPlayerGuid(), renderer->getCharacterInstanceId(), &gameHandler->getPlayerAuras());
+            svs->endUnitStateVisuals();
+        }
+    }
 
     inGameStep = "world update";
     updateCheckpoint = "in_game: world update";

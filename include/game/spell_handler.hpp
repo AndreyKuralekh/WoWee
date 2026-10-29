@@ -229,6 +229,9 @@ public:
     void loadTalentDbc();
     void syncPreWotlkTalentsFromKnownSpells();
 
+    /// The spell's SpellVisual, 0 for none.
+    uint32_t spellVisualId(uint32_t spellId) { return resolveSpellVisualId(spellId); }
+
     // Auras
     [[nodiscard]] const std::vector<AuraSlot>& getPlayerAuras() const { return playerAuras_; }
     [[nodiscard]] const std::vector<AuraSlot>& getTargetAuras() const { return targetAuras_; }

@@ -428,7 +428,14 @@ bool M2Renderer::buildMainPassPipelines(VkDescriptorSetLayout perFrameLayout) {
                 .build(device, vkCtx_->getPipelineCache());
         };
 
-        particlePipeline_ = buildParticlePipeline(PipelineBuilder::blendAlpha());
+        // m2_particle.frag writes its colour already multiplied by its alpha,
+        // so the blended pipeline takes the source colour as it is. Blending
+        // it by its alpha again drew every smoke and mist at alpha squared:
+        // the green fog round a diseased wolf came out a dark smudge. The
+        // additive one keeps it - fires and glows were tuned that way.
+        VkPipelineColorBlendAttachmentState premultiplied = PipelineBuilder::blendAlpha();
+        premultiplied.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        particlePipeline_ = buildParticlePipeline(premultiplied);
         particleAdditivePipeline_ = buildParticlePipeline(PipelineBuilder::blendAdditive());
     }
 
