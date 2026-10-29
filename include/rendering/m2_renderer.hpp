@@ -610,6 +610,11 @@ public:
     /// Set the animation sequence by animation ID (e.g. anim::OPEN, anim::CLOSE).
     /// Finds the first sequence with matching ID. Unfreezes the instance and resets time.
     void setInstanceAnimation(uint32_t instanceId, uint32_t animationId, bool loop = true);
+    /// Put an instance at this point of the sequence with this animation ID,
+    /// for a caller that runs the clock itself. False if it has none.
+    bool setInstanceAnimationTime(uint32_t instanceId, uint32_t animationId, float timeMs);
+    /// The length of the sequence with this animation ID; 0 if there is none.
+    [[nodiscard]] float getInstanceSequenceDuration(uint32_t instanceId, uint32_t animationId) const;
     /// Check if a model instance has a specific animation ID in its sequence table.
     [[nodiscard]] bool hasAnimation(uint32_t instanceId, uint32_t animationId) const;
     [[nodiscard]] float getInstanceAnimDuration(uint32_t instanceId) const;

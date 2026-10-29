@@ -96,6 +96,10 @@ private:
         bool isPrecast;  // true for precast effects (removed on cancel/interrupt)
         uint32_t attachmentId;  // character attachment point to track (0=none/static)
         uint32_t attachInstanceId;  // CharacterRenderer instance the attachment belongs to
+        // A precast model's Birth, drawn out over this many seconds of the
+        // cast before it goes over to Hold; 0 when it has none or is past it.
+        float birthSeconds = 0.0f;
+        float birthMs = 0.0f;  // the Birth sequence's own length
     };
 
     struct PhysicalProjectile {

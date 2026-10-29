@@ -176,6 +176,37 @@ void M2Renderer::setInstanceAnimation(uint32_t instanceId, uint32_t animationId,
     }
 }
 
+bool M2Renderer::setInstanceAnimationTime(uint32_t instanceId, uint32_t animationId, float timeMs) {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end()) return false;
+    auto& inst = instances[idxIt->second];
+    if (!inst.cachedModel) return false;
+    const auto& seqs = inst.cachedModel->sequences;
+    for (int i = 0; i < static_cast<int>(seqs.size()); ++i) {
+        if (seqs[i].id != animationId) continue;
+        inst.currentSequenceIndex = i;
+        inst.animDuration = static_cast<float>(seqs[i].duration);
+        // Kept short of the end, where update() would wrap it to the start.
+        inst.animTime = std::clamp(timeMs, 0.0f, std::max(0.0f, inst.animDuration - 1.0f));
+        inst.animSpeed = 1.0f;
+        inst.playingVariation = false;
+        inst.holdAtEnd = false;
+        return true;
+    }
+    return false;
+}
+
+float M2Renderer::getInstanceSequenceDuration(uint32_t instanceId, uint32_t animationId) const {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end()) return 0.0f;
+    const auto& inst = instances[idxIt->second];
+    if (!inst.cachedModel) return 0.0f;
+    for (const auto& seq : inst.cachedModel->sequences) {
+        if (seq.id == animationId) return static_cast<float>(seq.duration);
+    }
+    return 0.0f;
+}
+
 bool M2Renderer::hasAnimation(uint32_t instanceId, uint32_t animationId) const {
     auto idxIt = instanceIndexById.find(instanceId);
     if (idxIt == instanceIndexById.end()) return false;

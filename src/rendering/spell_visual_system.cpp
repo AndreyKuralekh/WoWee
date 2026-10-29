@@ -640,9 +640,23 @@ bool SpellVisualSystem::playKitOnCaster(const std::vector<StateEffectDef>& defs,
             life = animMs > 100.0f ? std::clamp(animMs / 1000.0f, 0.5f, SPELL_VISUAL_MAX_DURATION)
                                    : SPELL_VISUAL_DEFAULT_DURATION;
         }
+        // A precast flame grows through its Birth and burns on in its Hold,
+        // which loops. Left on its first sequence, the Birth looped instead:
+        // the flame went out every two seconds and grew again from nothing,
+        // and the big flames, which it starts most of a second in, were
+        // hardly seen. The Birth is drawn out over most of the cast, so it
+        // is at its fullest as the spell goes.
+        float birthSeconds = 0.0f;
+        const float birthMs = m2Renderer_->getInstanceSequenceDuration(instanceId, anim::BIRTH);
+        if (isPrecast && birthMs > 0.0f && m2Renderer_->hasAnimation(instanceId, anim::HOLD)) {
+            constexpr float kBirthShareOfCast = 0.9f;
+            birthSeconds = life > 0.0f ? life * kBirthShareOfCast : birthMs / 1000.0f;
+            m2Renderer_->setInstanceAnimationTime(instanceId, anim::BIRTH, 0.0f);
+        }
         activeSpellVisuals_.push_back({.instanceId = instanceId, .elapsed = 0.0f, .duration = life,
                                        .isPrecast = isPrecast, .attachmentId = attachId,
-                                       .attachInstanceId = attachInstanceId});
+                                       .attachInstanceId = attachInstanceId,
+                                       .birthSeconds = birthSeconds, .birthMs = birthMs});
         LOG_INFO("SpellVisual: ", (isPrecast ? "precast" : "cast"), " kit ", def.path, " at attachment ",
                  attachId, " for ", life, "s");
         placed = true;
@@ -970,6 +984,15 @@ void SpellVisualSystem::update(float deltaTime) {
             m2Renderer_->removeInstance(it->instanceId);
             it = activeSpellVisuals_.erase(it);
         } else {
+            if (it->birthSeconds > 0.0f) {
+                if (it->elapsed < it->birthSeconds) {
+                    m2Renderer_->setInstanceAnimationTime(it->instanceId, anim::BIRTH,
+                                                          it->birthMs * (it->elapsed / it->birthSeconds));
+                } else {
+                    m2Renderer_->setInstanceAnimation(it->instanceId, anim::HOLD);
+                    it->birthSeconds = 0.0f;
+                }
+            }
             // Update position for bone-tracked effects - follow the CASTER's
             // hands/chest/head, not the local player's.
             if (it->attachmentId != 0 && it->attachInstanceId != 0 && charRenderer) {
