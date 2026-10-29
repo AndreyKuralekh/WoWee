@@ -2240,6 +2240,15 @@ void Renderer::update(float deltaTime) {
         } else if (cameraController->isMoving() || cameraController->isRightMouseHeld() ||
                    cameraController->isTurningLeft() || cameraController->isTurningRight()) {
             characterYaw = cameraController->getFacingYaw();
+#ifdef WOWEE_VR
+        } else if (vrInCharacterEyes_ && !(animationController_ && animationController_->isMounted())) {
+            // Out of the character's own eyes it faces where the player
+            // does, standing still too: the head and the turn buttons turn
+            // the camera, as a mouse would without its right button, and the
+            // character - and the server - stayed facing the old way. A
+            // target the player had turned round to was "not in front".
+            characterYaw = cameraController->getYaw();
+#endif
         } else if (animationController_ && animationController_->isInCombat() &&
                    animationController_->getTargetPosition() && !animationController_->isEmoteActive() && !(animationController_ && animationController_->isMounted())) {
             glm::vec3 toTarget = *animationController_->getTargetPosition() - characterPosition;

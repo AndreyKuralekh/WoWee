@@ -522,6 +522,8 @@ private:
     // The character's body under the eyes of the last stereo frame: where
     // those were from the character, and which way they looked.
     bool vrBodyShown_ = false;
+    // The last stereo frame looked out of the character's own eyes.
+    bool vrInCharacterEyes_ = false;
     glm::vec2 vrHeadOffset_{0.0f};
     glm::vec2 vrHeadForward_{1.0f, 0.0f};
     glm::vec2 vrBodyOffset_{0.0f};                    // where the body stands from the character

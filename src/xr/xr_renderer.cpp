@@ -304,6 +304,7 @@ void Renderer::vrBeginViews() {
         }
     }
     vrBodyShown_ = false;
+    vrInCharacterEyes_ = false;
     if (camera) camera->clearPickRay();
     if (!vrGameHandler_) vrInWorld_ = false;
     if (!vrGameHandler_ || !camera || currentCmd == VK_NULL_HANDLE || !xr::system().stereoFrame()) return;
@@ -338,6 +339,7 @@ void Renderer::vrBeginViews() {
         const float eyeZ = followed->z + cameraController->followedEyeHeight();
         if (xr::system().firstPerson()) {
             reference = glm::vec3(followed->x, followed->y, eyeZ);
+            vrInCharacterEyes_ = true;
             // The body below the eyes, without the head they are in; vrPlaceBody
             // stands it under them.
             if (xr::system().showBody() && characterRenderer && characterInstanceId) {
