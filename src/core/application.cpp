@@ -5278,6 +5278,12 @@ void Application::render() {
                         barButtons[i] = one[0];
                     }
                     xr::system().setActionButtonRects(actionButtons);
+                    // The slot its key casts, as the number keys find it.
+                    if (uiManager) {
+                        xr::system().setLoadedBarSlot(ui::ActionBarPanel::actionSlotForPage(
+                            uiManager->getGameScreen().actionBarPanel().getMainActionBarPage(),
+                            xr::system().loadedSlot()));
+                    }
                     const glm::vec4 loaded = actionButtons[static_cast<size_t>(xr::system().loadedSlot())];
                     if (loaded.z > 0.0f) {
                         const float glow = 0.65f + 0.35f * std::sin(static_cast<float>(ImGui::GetTime()) * 4.0f);

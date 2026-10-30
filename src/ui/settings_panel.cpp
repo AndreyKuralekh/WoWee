@@ -883,7 +883,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "daylight", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrdrawbyreach", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrdrawbyreach", "vrkeepcasting", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1095,6 +1095,7 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrshadowstrength",  .asFloat = &SettingsPanel::pendingVrShadowStrength},
     {.key = "vreyescale",        .asInt   = &SettingsPanel::pendingVrEyeScale},
     {.key = "vrdrawbyreach",     .asBool  = &SettingsPanel::pendingVrDrawByReach},
+    {.key = "vrkeepcasting",     .asBool  = &SettingsPanel::pendingVrKeepCasting},
     {.key = "vrbody",            .asInt   = &SettingsPanel::pendingVrBody},
     {.key = "vrcrouch",          .asBool  = &SettingsPanel::pendingVrCrouch},
     {.key = "vrhands",           .asBool  = &SettingsPanel::pendingVrHands},
@@ -1343,6 +1344,10 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     // The eye images are made before the settings are read; XrSystem reads
     // this one from the file itself, at the next start.
     if (key == "vreyescale") return;
+    if (key == "vrkeepcasting") {
+        xr::system().setKeepCasting(pendingVrKeepCasting);
+        return;
+    }
     if (key == "vrdrawbyreach") {
         xr::system().setDrawByReach(pendingVrDrawByReach);
         return;

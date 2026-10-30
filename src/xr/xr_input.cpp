@@ -40,6 +40,15 @@
 
 namespace wowee::xr {
 
+// One pulse of a haptic pattern, from the pattern's start. The controllers
+// tell pulses apart by length, strength and rhythm only: what frequency is
+// asked for, they ignore (TASK_04 step 0.2).
+struct HapticPulse {
+    int startMs;
+    int durationMs;
+    float amplitude;
+};
+
 struct XrSystem::InputData {
     XrActionSet set = XR_NULL_HANDLE;
     XrAction move = XR_NULL_HANDLE;      // left stick
@@ -99,17 +108,29 @@ struct XrSystem::InputData {
     bool gripWasDown = false;
     bool gripTaken = false;
     // The loaded action: whether its button was down last frame, the key it
-    // holds - the loaded button's, as of the press - and whether a cast was
-    // already going when it went down, which letting go does not cancel.
+    // holds - the loaded button's, as of the press - and where the press is
+    // between going down and its spell going; see updateLoadedAction.
     bool loadedWanted = false;
     bool loadedKeyDown = false;
     SDL_Scancode loadedKey = SDL_SCANCODE_UNKNOWN;
-    bool castingAtPress = false;
+    bool loadedAimFrame = false;   // the press's own frame: aimed, nothing sent
+    bool loadedPending = false;    // waiting for the spell to be ready
+    bool loadedRefusable = false;  // a first look: a long wait is refused
+    bool loadedFired = false;      // the key has gone down for this press
+    bool loadedRepress = false;    // the key is up for a frame, to go down again
+    bool loadedOwnsCast = false;   // the cast going is the one the key began
+    bool loadedSawCast = false;
+    std::chrono::steady_clock::time_point loadedFiredAt{};
     // Both controllers hum while a spell is made ready; see updateCastHaptics.
     XrAction hapticLeft = XR_NULL_HANDLE;
     XrAction hapticRight = XR_NULL_HANDLE;
     std::chrono::steady_clock::time_point hapticNext{};
     bool humming = false;
+    // A pattern of pulses a hand plays over the hum - a refusal, say -
+    // physical left and right; see playHaptic.
+    std::vector<HapticPulse> pattern[2];
+    std::chrono::steady_clock::time_point patternStart[2]{};
+    size_t patternNext[2] = {};
 };
 
 namespace {
@@ -374,6 +395,160 @@ bool XrSystem::createActions() {
     return true;
 }
 
+namespace {
+
+// How long a press waits for its spell rather than being refused: the GCD,
+// a cooldown or another cast ending this soon. The original client has no
+// such queue (Cataclysm brought one); its own is for a cast's last 0.4 s.
+constexpr float kLoadedQueueSeconds = 0.4f;
+
+// What stands between the loaded button and its spell going. For a spell,
+// the longest of its cooldown, the global cooldown and a cast already going;
+// a channel has no end that a press may wait for.
+struct LoadedWait {
+    bool empty = false;
+    float seconds = 0.0f;
+    bool onlyGlobal = false;  // the GCD alone is long: the spell may not have one
+    const char* refusal = nullptr;
+};
+
+LoadedWait loadedWait(const game::GameHandler& game, int barSlot) {
+    LoadedWait wait;
+    const auto& bar = game.getActionBar();
+    if (barSlot < 0 || barSlot >= static_cast<int>(bar.size()) || bar[barSlot].isEmpty()) {
+        wait.empty = true;
+        wait.refusal = "There is nothing in the glowing frame";
+        return wait;
+    }
+    const game::ActionBarSlot& slot = bar[barSlot];
+    if (slot.type == game::ActionBarSlot::MACRO) return wait;
+    float cooldown = slot.cooldownRemaining;
+    if (slot.type == game::ActionBarSlot::SPELL) cooldown = std::max(cooldown, game.getSpellCooldown(slot.id));
+    float casting = 0.0f;
+    // Eating and drinking are put down by any action; they are no wait.
+    if (game.isCasting() && !game.isRestoring()) {
+        casting = game.isChanneling() ? 1e9f : game.getCastTimeRemaining();
+    }
+    const float global = slot.type == game::ActionBarSlot::SPELL ? game.getGCDRemaining() : 0.0f;
+    wait.seconds = std::max({cooldown, casting, global});
+    wait.onlyGlobal = cooldown <= kLoadedQueueSeconds && casting <= kLoadedQueueSeconds;
+    wait.refusal = casting > cooldown ? "Another action is in progress" : "Spell is not ready yet";
+    return wait;
+}
+
+bool targetAlive(const game::GameHandler& game) {
+    const auto target = game.getTarget();
+    if (!target || !target->isUnit()) return false;
+    return static_cast<const game::Unit*>(target.get())->getHealth() > 0;
+}
+
+}  // namespace
+
+// The loaded action: the key of the button in the glowing frame. As its
+// button goes down the other hand aims, for the aimed kind - what it points
+// at is made the target - and the key follows no sooner than a frame later,
+// so that the cast goes at that target. It goes as soon as the spell can:
+// at once, or after a wait of up to kLoadedQueueSeconds while the button is
+// held; a longer wait, or an empty slot, is refused. A wait for the GCD alone
+// is not refused - not every spell has one, and the server says which - the
+// key goes at once. Let go while a cast the key began is still going, the
+// cast is cancelled: held to the end, the spell goes. Held on past that, with
+// keepCasting_, the same key goes again as soon as it can.
+void XrSystem::updateLoadedAction(bool loaded, bool aimed) {
+    InputData& in = *input_;
+    core::Input& input = core::Input::getInstance();
+    game::GameHandler* game = core::Application::getInstance().getGameHandler();
+    const auto now = std::chrono::steady_clock::now();
+    const bool casting = game && game->isCasting() && !game->isRestoring();
+
+    if (loaded && !in.loadedWanted) {
+        in.loadedKey = kActionKeys[std::clamp(loadedSlot_, 0, 11)];
+        if (aimed) targetByOffHandRay();
+        in.loadedAimFrame = true;
+        in.loadedPending = true;
+        in.loadedRefusable = true;
+        in.loadedFired = false;
+        in.loadedOwnsCast = false;
+    } else if (!loaded && in.loadedWanted) {
+        if (in.loadedOwnsCast && casting) {
+            LOG_INFO("VR: loaded action let go during its cast - cancelling");
+            game->cancelCast();
+        }
+        in.loadedPending = false;
+        in.loadedFired = false;
+        in.loadedOwnsCast = false;
+    } else if (loaded) {
+        in.loadedAimFrame = false;
+    }
+    in.loadedWanted = loaded;
+
+    // Whether the cast the key began is still going: it is once a cast has
+    // been seen after the key, until there is none. An instant spell shows
+    // none, and after a moment the key is taken to have done what it could.
+    if (in.loadedOwnsCast) {
+        if (casting) {
+            in.loadedSawCast = true;
+        } else if (in.loadedSawCast || now - in.loadedFiredAt > std::chrono::milliseconds(500)) {
+            in.loadedOwnsCast = false;
+        }
+    }
+    // Held on after the spell went: again, if asked, at a target still alive.
+    if (loaded && keepCasting_ && in.loadedFired && !in.loadedOwnsCast && !in.loadedPending && game &&
+        targetAlive(*game) && now - in.loadedFiredAt > std::chrono::milliseconds(500)) {
+        in.loadedPending = true;
+        in.loadedRefusable = false;
+    }
+
+    if (loaded && in.loadedPending && !in.loadedAimFrame && game) {
+        const LoadedWait wait = loadedWait(*game, loadedBarSlot_);
+        const bool refusable = in.loadedRefusable;
+        in.loadedRefusable = false;
+        if (wait.empty) {
+            in.loadedPending = false;
+            if (refusable) refuseLoadedAction(*game, wait.refusal);
+        } else if (wait.seconds <= 0.0f || (refusable && wait.onlyGlobal && wait.seconds > kLoadedQueueSeconds)) {
+            in.loadedPending = false;
+            in.loadedRepress = in.loadedKeyDown;  // up for a frame, so the game sees a new press
+            in.loadedFired = true;
+            in.loadedOwnsCast = true;
+            in.loadedSawCast = false;
+            in.loadedFiredAt = now;
+        } else if (refusable && wait.seconds > kLoadedQueueSeconds) {
+            in.loadedPending = false;
+            refuseLoadedAction(*game, wait.refusal);
+        }
+    }
+
+    bool press = loaded && in.loadedFired;
+    if (in.loadedRepress) {
+        press = false;
+        in.loadedRepress = false;
+    }
+    if (press != in.loadedKeyDown) {
+        input.setVirtualKey(in.loadedKey, press);
+        in.loadedKeyDown = press;
+    }
+}
+
+void XrSystem::refuseLoadedAction(game::GameHandler& game, const char* message) {
+    LOG_INFO("VR: loaded action refused - ", message);
+    playHaptic(true, HapticPattern::Refusal);
+    game.raiseUiError(message);
+}
+
+void XrSystem::playHaptic(bool offHand, HapticPattern pattern) {
+    if (!input_) return;
+    // Physical left is the other hand unless the player is left-handed.
+    const int hand = (offHand != leftHanded_) ? 0 : 1;
+    switch (pattern) {
+        case HapticPattern::Refusal:
+            input_->pattern[hand] = {{0, 30, 0.6f}, {90, 30, 0.6f}, {180, 30, 0.6f}};
+            break;
+    }
+    input_->patternStart[hand] = std::chrono::steady_clock::now();
+    input_->patternNext[hand] = 0;
+}
+
 // While the player makes a spell ready both controllers hum, a little at
 // first and more as the cast comes to its end, the way the flames in the hands
 // grow. Pulses a tenth of a second long, laid end to end: one long buzz would
@@ -385,34 +560,53 @@ void XrSystem::updateCastHaptics(game::GameHandler* game) {
     if (!in.hapticLeft || !in.hapticRight) return;
     const bool casting = game && game->isCasting() && !game->isChanneling();
     const XrAction hands[] = {in.hapticLeft, in.hapticRight};
+    const auto now = std::chrono::steady_clock::now();
+    const auto apply = [this](XrAction hand, int64_t durationNs, float amplitude) {
+        XrHapticVibration vibration{};
+        vibration.type = XR_TYPE_HAPTIC_VIBRATION;
+        vibration.duration = durationNs;
+        vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+        vibration.amplitude = amplitude;
+        XrHapticActionInfo info{};
+        info.type = XR_TYPE_HAPTIC_ACTION_INFO;
+        info.action = hand;
+        xrApplyHapticFeedback(session_, &info, reinterpret_cast<const XrHapticBaseHeader*>(&vibration));
+    };
+    // The patterns, each pulse as its time comes. A hand playing one does
+    // not hum meanwhile: the pulse would be lost in it.
+    bool patterned[2] = {};
+    for (int h = 0; h < 2; ++h) {
+        const std::vector<HapticPulse>& pattern = in.pattern[h];
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - in.patternStart[h]).count();
+        while (in.patternNext[h] < pattern.size() && ms >= pattern[in.patternNext[h]].startMs) {
+            const HapticPulse& pulse = pattern[in.patternNext[h]++];
+            apply(hands[h], static_cast<int64_t>(pulse.durationMs) * 1'000'000, pulse.amplitude);
+        }
+        // Until its last pulse has ended.
+        patterned[h] = !pattern.empty() && ms < pattern.back().startMs + pattern.back().durationMs;
+    }
     if (!casting) {
         if (in.humming) {
-            for (XrAction hand : hands) {
+            for (int h = 0; h < 2; ++h) {
+                if (patterned[h]) continue;
                 XrHapticActionInfo info{};
                 info.type = XR_TYPE_HAPTIC_ACTION_INFO;
-                info.action = hand;
+                info.action = hands[h];
                 xrStopHapticFeedback(session_, &info);
             }
             in.humming = false;
         }
         return;
     }
-    const auto now = std::chrono::steady_clock::now();
     if (in.humming && now < in.hapticNext) return;
     constexpr auto kPulse = std::chrono::milliseconds(100);
     constexpr float kFirst = 0.1f;
     constexpr float kLast = 0.5f;
     const float progress = std::clamp(game->getCastProgress(), 0.0f, 1.0f);
-    XrHapticVibration vibration{};
-    vibration.type = XR_TYPE_HAPTIC_VIBRATION;
-    vibration.duration = std::chrono::duration_cast<std::chrono::nanoseconds>(kPulse).count();
-    vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
-    vibration.amplitude = kFirst + (kLast - kFirst) * progress * progress;
-    for (XrAction hand : hands) {
-        XrHapticActionInfo info{};
-        info.type = XR_TYPE_HAPTIC_ACTION_INFO;
-        info.action = hand;
-        xrApplyHapticFeedback(session_, &info, reinterpret_cast<const XrHapticBaseHeader*>(&vibration));
+    for (int h = 0; h < 2; ++h) {
+        if (patterned[h]) continue;
+        apply(hands[h], std::chrono::duration_cast<std::chrono::nanoseconds>(kPulse).count(),
+              kFirst + (kLast - kFirst) * progress * progress);
     }
     // A little before this one ends, so that the next joins it.
     in.hapticNext = now + kPulse - std::chrono::milliseconds(15);
@@ -447,6 +641,10 @@ void XrSystem::releaseControllerKeys() {
     if (input_->loadedKeyDown) input.setVirtualKey(input_->loadedKey, false);
     input_->loadedKeyDown = false;
     input_->loadedWanted = false;
+    input_->loadedPending = false;
+    input_->loadedFired = false;
+    input_->loadedOwnsCast = false;
+    input_->loadedRepress = false;
     // Forgotten as well as released: a button still down when the controllers
     // are live again is a fresh press.
     for (size_t i = 0; i < kControlButtonCount; ++i) {
@@ -1121,30 +1319,9 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
         input.setVirtualKey(key, keyWanted[f]);
         in.keyHeld[f] = keyWanted[f];
     }
-    // The loaded action: the key of the button in the glowing frame. As its
-    // button goes down the other hand aims, for the aimed kind - what it
-    // points at is made the target - and the key follows a frame later, so
-    // that the cast goes at that target. Let go while a cast it began is
-    // still going, the cast is cancelled: held to the end, the spell goes.
-    {
-        const bool aimed = keyWanted[static_cast<size_t>(ControlFunction::AimedLoadedAction)];
-        const bool loaded = aimed || keyWanted[static_cast<size_t>(ControlFunction::LoadedAction)];
-        game::GameHandler* game = core::Application::getInstance().getGameHandler();
-        if (loaded && !in.loadedWanted) {
-            in.loadedKey = kActionKeys[std::clamp(loadedSlot_, 0, 11)];
-            in.castingAtPress = game && game->isCasting();
-            if (aimed) targetByOffHandRay();
-        } else if (!loaded && in.loadedWanted && game && !in.castingAtPress && game->isCasting()) {
-            LOG_INFO("VR: loaded action let go during its cast - cancelling");
-            game->cancelCast();
-        }
-        const bool press = loaded && in.loadedWanted;
-        if (press != in.loadedKeyDown) {
-            input.setVirtualKey(in.loadedKey, press);
-            in.loadedKeyDown = press;
-        }
-        in.loadedWanted = loaded;
-    }
+    updateLoadedAction(keyWanted[static_cast<size_t>(ControlFunction::AimedLoadedAction)] ||
+                           keyWanted[static_cast<size_t>(ControlFunction::LoadedAction)],
+                       keyWanted[static_cast<size_t>(ControlFunction::AimedLoadedAction)]);
     updateCastHaptics(core::Application::getInstance().getGameHandler());
 
     // Escape is the interface's: it is asked of ImGui, which a held scancode

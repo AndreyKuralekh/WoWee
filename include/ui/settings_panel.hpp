@@ -253,6 +253,7 @@ public:
     float pendingVrShadowStrength = 0.7f;   // how dark they are there, 0 none to 1 black
     int pendingVrEyeScale = 100;            // eye picture size in percent of the headset's; read at start - see xr::XrSystem
     bool pendingVrDrawByReach = true;       // a reach to the sheath and the grip draws the weapon
+    bool pendingVrKeepCasting = false;      // the loaded spell is cast again while its button is held
     int pendingVrBody = 0;                  // 0 the whole body, 1 arms only, 2 the stock hands - see xr::XrSystem::setBodyMode
     bool pendingVrCrouch = true;            // the character crouches when the player does - see xr::XrSystem::crouchLevel
     bool pendingVrHands = true;             // the player's hands drawn in the world

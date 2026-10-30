@@ -352,6 +352,13 @@ public:
     /// Which of them is in the glowing frame, 0 to 11: what the loaded action
     /// (the left trigger, unless rebound) fires.
     [[nodiscard]] int loadedSlot() const { return loadedSlot_; }
+    /// The slot of GameHandler::getActionBar() the loaded button's key casts,
+    /// with the bar's page: what it holds and whether it is ready.
+    void setLoadedBarSlot(int slot) { loadedBarSlot_ = slot; }
+    /// Whether, with the loaded action's button still held after its spell
+    /// went, the same spell is cast again as soon as it can be - while the
+    /// target is alive.
+    void setKeepCasting(bool on) { keepCasting_ = on; }
     /// Whether the pointer has the mouse: it is on a panel or a window, or
     /// holds a button. The system's own motion of the mouse is not wanted
     /// meanwhile; see core::Input::setVirtualMousePosition.
@@ -600,6 +607,14 @@ private:
     struct InputData;
     InputData* input_ = nullptr;
     void updateCastHaptics(game::GameHandler* game);
+    void updateLoadedAction(bool loaded, bool aimed);
+    // A refusal: the press does nothing, and says so - three short pulses on
+    // the casting hand, the interface's error sound and its red line.
+    void refuseLoadedAction(game::GameHandler& game, const char* message);
+    enum class HapticPattern { Refusal };
+    void playHaptic(bool offHand, HapticPattern pattern);
+    int loadedBarSlot_ = 0;
+    bool keepCasting_ = false;
     // What the buttons do; read from vr_controls.cfg when the actions are made.
     ControlBindings controls_ = ControlBindings::defaults();
     bool controlsLoaded_ = false;
