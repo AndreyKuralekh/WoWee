@@ -55,7 +55,11 @@ constexpr ButtonName kFunctions[kControlFunctionCount] = {
     {"Recenter view", "recenter"},
     {"Spell in the glowing frame", "loaded"},
     {"Sit / stand", "sit"},
+    {"Target and cast framed spell", "loadedaimed"},
+    {"Target with laser / modifier (hold)", "lasertarget"},
 };
+
+constexpr std::string_view kLayoutKey = "vrlayout";
 
 constexpr std::string_view kShiftedSuffix = ".modifier";
 
@@ -93,16 +97,35 @@ bool parseSettingKey(std::string_view key, std::size_t& button, bool& shiftedOut
 }  // namespace
 
 ControlBindings ControlBindings::defaults() {
+    return layout(ControlLayout::TriggerCast);
+}
+
+ControlBindings ControlBindings::layout(ControlLayout which) {
     ControlBindings b;
     const auto set = [&b](ControlButton button, ControlFunction plain, ControlFunction shifted) {
         b.plain[static_cast<std::size_t>(button)] = plain;
         b.shifted[static_cast<std::size_t>(button)] = shifted;
     };
-    // The right hand aims, the left one fires: the left trigger fires the
-    // button in the glowing frame, which the right grip moves on the bar.
-    // Seven of the bar's twelve are reached without the pointer.
-    set(ControlButton::LeftTrigger, ControlFunction::LoadedAction, ControlFunction::Action7);
-    set(ControlButton::LeftGrip, ControlFunction::Modifier, ControlFunction::None);
+    // The right hand chooses, the left one fires: the right grip moves the
+    // glowing frame on the bar, the left hand fires the button in it. Seven
+    // of the bar's twelve are reached without the pointer.
+    switch (which) {
+        case ControlLayout::GripCast:
+            // The trigger picks the target and, held, is the modifier; the
+            // grip casts. Nothing for the grip with the modifier: aiming with
+            // the trigger still held, the grip must still cast.
+            set(ControlButton::LeftTrigger, ControlFunction::LaserTarget, ControlFunction::None);
+            set(ControlButton::LeftGrip, ControlFunction::LoadedAction, ControlFunction::None);
+            break;
+        case ControlLayout::Classic:
+            set(ControlButton::LeftTrigger, ControlFunction::LoadedAction, ControlFunction::Action7);
+            set(ControlButton::LeftGrip, ControlFunction::Modifier, ControlFunction::None);
+            break;
+        default:
+            set(ControlButton::LeftTrigger, ControlFunction::AimedLoadedAction, ControlFunction::Action7);
+            set(ControlButton::LeftGrip, ControlFunction::Modifier, ControlFunction::None);
+            break;
+    }
     set(ControlButton::A, ControlFunction::Jump, ControlFunction::Action3);
     set(ControlButton::B, ControlFunction::Action2, ControlFunction::Action4);
     set(ControlButton::X, ControlFunction::TargetEnemy, ControlFunction::Action5);
@@ -111,6 +134,13 @@ ControlBindings ControlBindings::defaults() {
     set(ControlButton::RightStick, ControlFunction::Recenter, ControlFunction::None);
     set(ControlButton::Menu, ControlFunction::Escape, ControlFunction::None);
     return b;
+}
+
+ControlLayout ControlBindings::whichLayout() const {
+    for (auto which : {ControlLayout::TriggerCast, ControlLayout::GripCast, ControlLayout::Classic}) {
+        if (*this == layout(which)) return which;
+    }
+    return ControlLayout::Custom;
 }
 
 bool ControlBindings::load(const std::string& path) {
@@ -128,7 +158,7 @@ bool ControlBindings::load(const std::string& path) {
         if (isShifted) key.remove_suffix(kShiftedSuffix.size());
         ControlFunction function = ControlFunction::None;
         if (!functionFromId(value, function)) continue;
-        if (isShifted && function == ControlFunction::Modifier) continue;
+        if (isShifted && isModifierFunction(function)) continue;
         for (std::size_t i = 0; i < kControlButtonCount; ++i) {
             if (key == kButtons[i].id) (isShifted ? shifted : plain)[i] = function;
         }
@@ -166,12 +196,14 @@ std::string controlsConfigPath() {
 }
 
 bool isControlSettingKey(const std::string& key) {
+    if (key == kLayoutKey) return true;
     std::size_t button = 0;
     bool isShifted = false;
     return parseSettingKey(key, button, isShifted);
 }
 
 std::string controlSettingValue(const ControlBindings& bindings, const std::string& key) {
+    if (key == kLayoutKey) return std::to_string(static_cast<int>(bindings.whichLayout()));
     std::size_t button = 0;
     bool isShifted = false;
     if (!parseSettingKey(key, button, isShifted)) return {};
@@ -180,6 +212,13 @@ std::string controlSettingValue(const ControlBindings& bindings, const std::stri
 
 bool setControlSettingValue(ControlBindings& bindings, const std::string& key, int value, bool& changed) {
     changed = false;
+    if (key == kLayoutKey) {
+        if (value < 0 || value >= static_cast<int>(ControlLayout::Custom)) return true;
+        const ControlBindings chosen = ControlBindings::layout(static_cast<ControlLayout>(value));
+        changed = !(bindings == chosen);
+        bindings = chosen;
+        return true;
+    }
     std::size_t button = 0;
     bool isShifted = false;
     if (!parseSettingKey(key, button, isShifted)) return false;
@@ -187,14 +226,13 @@ bool setControlSettingValue(ControlBindings& bindings, const std::string& key, i
     auto function = static_cast<ControlFunction>(value);
     // A modifier that only exists while the modifier is held is no modifier,
     // and the button that is the modifier has no second function.
-    if (isShifted && (function == ControlFunction::Modifier ||
-                      bindings.plain[button] == ControlFunction::Modifier)) {
+    if (isShifted && (isModifierFunction(function) || isModifierFunction(bindings.plain[button]))) {
         function = ControlFunction::None;
     }
     ControlFunction& slot = (isShifted ? bindings.shifted : bindings.plain)[button];
     changed = slot != function;
     slot = function;
-    if (!isShifted && function == ControlFunction::Modifier &&
+    if (!isShifted && isModifierFunction(function) &&
         bindings.shifted[button] != ControlFunction::None) {
         bindings.shifted[button] = ControlFunction::None;
         changed = true;

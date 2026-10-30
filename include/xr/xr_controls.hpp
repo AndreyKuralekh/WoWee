@@ -48,8 +48,29 @@ enum class ControlFunction : uint8_t {
     Recenter,
     LoadedAction,  // the action bar button in the glowing frame; see XrSystem::loadedSlot
     SitStand,      // the X key: sit down, or stand up
+    // The loaded action, its target first picked by the ray of the button's
+    // hand as the button goes down; pointing at nothing keeps the target.
+    AimedLoadedAction,
+    // As the button goes down, what its hand's ray points at becomes the
+    // target; while held, it is the modifier as well.
+    LaserTarget,
     Count
 };
+
+/// The layouts the VR buttons page offers whole. Custom is any table that is
+/// none of them.
+enum class ControlLayout : uint8_t {
+    TriggerCast,  // the left trigger aims and casts the framed spell, held
+    GripCast,     // the left trigger aims (and is the modifier), the left grip casts
+    Classic,      // as before task 4: the trigger casts at the target there is
+    Custom,
+};
+
+/// Whether a function makes the other buttons do their second function
+/// while its button is held.
+[[nodiscard]] constexpr bool isModifierFunction(ControlFunction function) {
+    return function == ControlFunction::Modifier || function == ControlFunction::LaserTarget;
+}
 
 constexpr std::size_t kControlButtonCount = static_cast<std::size_t>(ControlButton::Count);
 constexpr std::size_t kControlFunctionCount = static_cast<std::size_t>(ControlFunction::Count);
@@ -61,6 +82,10 @@ struct ControlBindings {
     std::array<ControlFunction, kControlButtonCount> shifted{};
 
     [[nodiscard]] static ControlBindings defaults();
+    /// One of the layouts; Custom gives the defaults.
+    [[nodiscard]] static ControlBindings layout(ControlLayout which);
+    /// Which layout this table is, or Custom.
+    [[nodiscard]] ControlLayout whichLayout() const;
 
     /// Reads what the file says over what is here; a button it does not
     /// mention is left as it was. False when there is no file.
@@ -78,7 +103,9 @@ struct ControlBindings {
 
 /// The settings page reaches a binding as a setting: "vrbtn<button>" for
 /// what a button does alone and "vrmod<button>" for what it does with the
-/// modifier held, valued by the function's number. These say whether a key
+/// modifier held, valued by the function's number - and "vrlayout", the
+/// whole table as one of the layouts, valued by ControlLayout; choosing
+/// Custom changes nothing. These say whether a key
 /// is one of those, and read and write the table through it. Each has a row
 /// in settings_schema.cpp, whose choices are the functions in enum order.
 [[nodiscard]] bool isControlSettingKey(const std::string& key);

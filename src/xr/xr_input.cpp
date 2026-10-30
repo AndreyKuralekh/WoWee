@@ -605,6 +605,22 @@ bool XrSystem::offHandWorldRay(glm::vec3& origin, glm::vec3& direction) const {
     return true;
 }
 
+// What the ray of the hand that does not point is on becomes the target.
+// Pointing at nothing keeps the target there was: a ray that misses must not
+// lose it in the middle of a fight. (The original client clears the target
+// for a click on the ground.)
+void XrSystem::targetByOffHandRay() {
+    game::GameHandler* game = core::Application::getInstance().getGameHandler();
+    glm::vec3 origin;
+    glm::vec3 direction;
+    if (!game || !offHandWorldRay(origin, direction)) return;
+    rendering::Ray ray{};
+    ray.origin = origin;
+    ray.direction = direction;
+    const uint64_t aimed = ui::pickScene(*game, ray, ui::ScenePickParams{}).resolve();
+    if (aimed != 0 && aimed != game->getTargetGuid()) game->setTarget(aimed);
+}
+
 // A sheet has no thickness, so it is turned about the ray to face the head:
 // from there it is a line whichever way the controller points.
 bool XrSystem::pointerBeam(XrTime time, const glm::vec3& head, XrPosef& pose, XrExtent2Df& size) const {
@@ -1079,7 +1095,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
                            i == static_cast<size_t>(ControlButton::LeftGrip))) {
             down[i] = false;
         }
-        if (down[i] && controls_.plain[i] == ControlFunction::Modifier) modifier = true;
+        if (down[i] && isModifierFunction(controls_.plain[i])) modifier = true;
     }
     bool keyWanted[kControlFunctionCount] = {};
     bool escape = false;
@@ -1089,6 +1105,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
             in.latched[i] = second ? controls_.shifted[i] : controls_.plain[i];
             if (in.latched[i] == ControlFunction::Recenter) recenter();
             if (in.latched[i] == ControlFunction::Interact) interactWithTarget();
+            if (in.latched[i] == ControlFunction::LaserTarget) targetByOffHandRay();
         } else if (!down[i]) {
             in.latched[i] = ControlFunction::None;
         }
@@ -1105,25 +1122,18 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
         in.keyHeld[f] = keyWanted[f];
     }
     // The loaded action: the key of the button in the glowing frame. As its
-    // button goes down the other hand aims, if asked - what it points at is
-    // made the target - and the key follows a frame later, so that the cast
-    // goes at that target. Let go while a cast it began is still going, the
-    // cast is cancelled: held to the end, the spell goes.
+    // button goes down the other hand aims, for the aimed kind - what it
+    // points at is made the target - and the key follows a frame later, so
+    // that the cast goes at that target. Let go while a cast it began is
+    // still going, the cast is cancelled: held to the end, the spell goes.
     {
-        const bool loaded = keyWanted[static_cast<size_t>(ControlFunction::LoadedAction)];
+        const bool aimed = keyWanted[static_cast<size_t>(ControlFunction::AimedLoadedAction)];
+        const bool loaded = aimed || keyWanted[static_cast<size_t>(ControlFunction::LoadedAction)];
         game::GameHandler* game = core::Application::getInstance().getGameHandler();
         if (loaded && !in.loadedWanted) {
             in.loadedKey = kActionKeys[std::clamp(loadedSlot_, 0, 11)];
             in.castingAtPress = game && game->isCasting();
-            glm::vec3 origin;
-            glm::vec3 direction;
-            if (aimWithHand_ && game && offHandWorldRay(origin, direction)) {
-                rendering::Ray ray{};
-                ray.origin = origin;
-                ray.direction = direction;
-                const uint64_t aimed = ui::pickScene(*game, ray, ui::ScenePickParams{}).resolve();
-                if (aimed != 0 && aimed != game->getTargetGuid()) game->setTarget(aimed);
-            }
+            if (aimed) targetByOffHandRay();
         } else if (!loaded && in.loadedWanted && game && !in.castingAtPress && game->isCasting()) {
             LOG_INFO("VR: loaded action let go during its cast - cancelling");
             game->cancelCast();

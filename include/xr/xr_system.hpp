@@ -356,10 +356,6 @@ public:
     /// holds a button. The system's own motion of the mouse is not wanted
     /// meanwhile; see core::Input::setVirtualMousePosition.
     [[nodiscard]] bool pointerHasMouse() const { return pointerHasMouse_; }
-    /// Whether the loaded action's spell is aimed by the other hand: what its
-    /// ray points at, as the button goes down, becomes the target.
-    void setAimWithHand(bool on) { aimWithHand_ = on; }
-
     /// How big the world is made to look: 1 is its own size, a yard to 0.9144
     /// metres; at 2 everything is twice as large and a real step covers half
     /// the ground. And how far above or below the character's own eyes the
@@ -449,6 +445,7 @@ private:
     bool offHandYaw(float& yaw) const;
     bool handAtSheath() const;
     bool offHandWorldRay(glm::vec3& origin, glm::vec3& direction) const;
+    void targetByOffHandRay();
     void updateVignette(const glm::vec3& referencePosition);
     bool vignetteQuad(XrPosef& pose, XrExtent2Df& size) const;
     void releasePointer();
@@ -539,7 +536,6 @@ private:
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;
     bool pointerHasMouse_ = false;
-    bool aimWithHand_ = false;
     float worldScale_ = 1.0f;
     float eyeHeightOffset_ = 0.0f;
     float glow_ = 0.8f;
