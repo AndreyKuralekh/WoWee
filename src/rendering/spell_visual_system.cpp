@@ -673,9 +673,16 @@ glm::vec3 SpellVisualSystem::kitPosition(uint32_t attachInstanceId, uint32_t att
     // halo. Brought towards the eyes, the flame is in front of the hand
     // however it is turned.
     const bool hand = attachmentId == 1 || attachmentId == 2 || attachmentId == 21 || attachmentId == 22;
+    const bool ownHand = hand && renderer_ && attachInstanceId == renderer_->getCharacterInstanceId();
+    // Without the body (Hands only) its hands are wherever its animation has
+    // them, by the waist: the player's own hand instead. 1 is the right
+    // hand, 22 the right hand's spell point.
+    glm::vec3 playerHand;
+    if (ownHand && renderer_->vrHandInWorld(attachmentId == 1 || attachmentId == 22 ? 1 : 0, playerHand)) {
+        return playerHand;
+    }
     glm::vec3 eyes;
-    if (hand && renderer_ && attachInstanceId == renderer_->getCharacterInstanceId() &&
-        renderer_->vrEyesInBody(eyes)) {
+    if (ownHand && renderer_->vrEyesInBody(eyes)) {
         constexpr float kInFrontOfHand = 0.1f;
         const glm::vec3 toEyes = eyes - point;
         const float distance = glm::length(toEyes);

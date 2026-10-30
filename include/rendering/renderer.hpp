@@ -184,6 +184,12 @@ public:
         glm::mat4 unused;
         return vrBodyShown_ && vrLastHeadView(position, unused);
     }
+    /// Where the player's own hand is in the world - 0 left, 1 right - when
+    /// the character is seen from its eyes without its body: what a spell
+    /// puts in the character's hand goes there instead, a little in front
+    /// of the palm. False with the body drawn, whose hands are where the
+    /// player's are already.
+    bool vrHandInWorld(int hand, glm::vec3& position) const;
 #endif
     /// What a per-frame set allocated elsewhere binds at binding 2: a fog
     /// volume of clear air, for a set whose block leaves the fog off.

@@ -80,6 +80,11 @@ public:
                              const std::vector<uint32_t>& visualIds);
     void endUnitStateVisuals();
 
+    // Where an effect on a character's point is put - and a missile it
+    // throws starts: the point itself, or in a headset a little in front of
+    // the player's own hand.
+    glm::vec3 kitPosition(uint32_t attachInstanceId, uint32_t attachmentId, const glm::vec3& point) const;
+
     // Remove all active precast visual instances (cast canceled/interrupted).
     void cancelAllPrecastVisuals();
 
@@ -145,9 +150,6 @@ private:
     // placed, so the caller can fall back to a single model.
     bool playKitOnCaster(const std::vector<StateEffectDef>& defs, const glm::vec3& worldPosition,
                          uint32_t attachInstanceId, float duration, bool isPrecast);
-    // Where an effect on a character's point is put: the point itself, or in
-    // a headset a little in front of the player's own hand.
-    glm::vec3 kitPosition(uint32_t attachInstanceId, uint32_t attachmentId, const glm::vec3& point) const;
     void removeUnitStateEffects(UnitStateVisuals& unit);
 
     void loadSpellVisualDbc();

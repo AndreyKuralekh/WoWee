@@ -469,6 +469,32 @@ void Renderer::vrBeginViews() {
     if (xr::system().pickRay(pointer.origin, pointer.direction)) camera->setPickRay(pointer);
 }
 
+bool Renderer::vrHandInWorld(int hand, glm::vec3& position) const {
+    if (!vrInCharacterEyes_ || vrBodyShown_ || hand < 0 || hand > 1) return false;
+    const xr::HandPoses& hands = xr::system().handsInWorld();
+    glm::vec4 palm;
+    if (hands.tracked[hand]) {
+        constexpr uint32_t kPalmJoint = 0;
+        palm = hands.joint[hand][kPalmJoint][3];
+    } else if (hands.fake) {
+        palm = glm::vec4(hand == 0 ? -0.2f : 0.2f, -0.3f, -0.2f, 1.0f);  // as the body's wrists, above
+    } else {
+        return false;
+    }
+    position = glm::vec3(hands.trackingToWorld * palm);
+    // In front of the palm, as on the body (SpellVisualSystem::kitPosition):
+    // a flame inside the hand is hidden by it.
+    glm::vec3 eyes;
+    glm::mat4 unused;
+    if (vrLastHeadView(eyes, unused)) {
+        constexpr float kInFrontOfHand = 0.1f;
+        const glm::vec3 toEyes = eyes - position;
+        const float distance = glm::length(toEyes);
+        if (distance > 2.0f * kInFrontOfHand) position += toEyes * (kInFrontOfHand / distance);
+    }
+    return true;
+}
+
 // The character's body stood under the eyes the headset last saw from: turned
 // as the view is round the vertical - the game turns its model only while it
 // walks or a mouse button is down - and moved so its neck is behind those eyes

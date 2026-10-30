@@ -416,7 +416,7 @@ bool SpellHandler::launchSpellMissile(uint32_t spellId, uint64_t casterGuid, uin
         glm::mat4 hand(1.0f);
         const uint32_t casterInstance = owner_.resolveUnitRenderInstance(casterGuid);
         if (casterInstance != 0 && characters->getAttachmentTransform(casterInstance, 1, hand))
-            start = glm::vec3(hand[3]);
+            start = svs->kitPosition(casterInstance, 1, glm::vec3(hand[3]));
     }
 
     return svs->playSpellMissile(visualId, start, speed,
