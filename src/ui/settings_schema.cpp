@@ -1018,6 +1018,10 @@ constexpr SettingDesc kSchema[] = {
      "grip of the hand that points: your character draws its weapon, or\n"
      "puts it away, as the Z key does. Elsewhere the grip does what it\n"
      "always did.", "", 1},
+    {"vrhapticstrength", "Vibration", SettingKind::Float, 0.0f, 1.0f, 0.1f, "VR comfort", "Combat",
+     "How strongly the controllers vibrate for your spells: while one\n"
+     "is made ready, as it goes, and when a press does nothing. 0 turns\n"
+     "it off.", "", 1.0f},
     {"vrkeepcasting", "Keep casting while held", SettingKind::Bool, 0, 0, 0, "VR comfort", "Combat",
      "Keep holding the button that cast the spell in the glowing frame\n"
      "and the same spell is cast again as soon as it can be, for as\n"

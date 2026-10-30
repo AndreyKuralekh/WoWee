@@ -2925,6 +2925,16 @@ public:
     // UI error frame: prominent on-screen error messages (spell can't be cast, etc.)
     using UIErrorCallback = std::function<void(const std::string& msg)>;
     void setUIErrorCallback(UIErrorCallback cb) { uiErrorCallback_ = std::move(cb); }
+
+    // The player's own spells as the server reports them: gone, refused,
+    // interrupted while being cast, pushed back by a hit. For a headset's
+    // controllers to give a feel to; nothing else needs it.
+    enum class PlayerSpellEvent : uint8_t { Go, Failed, Interrupted, Delayed };
+    using PlayerSpellEventCallback = std::function<void(PlayerSpellEvent event, uint32_t spellId)>;
+    void setPlayerSpellEventCallback(PlayerSpellEventCallback cb) { playerSpellEventCallback_ = std::move(cb); }
+    void firePlayerSpellEvent(PlayerSpellEvent event, uint32_t spellId) {
+        if (playerSpellEventCallback_) playerSpellEventCallback_(event, spellId);
+    }
     void addUIError(const std::string& msg) {
         if (uiErrorCallback_) uiErrorCallback_(msg);
         fireAddonEvent("UI_ERROR_MESSAGE", {msg});
@@ -5132,6 +5142,7 @@ private:
 
     // ---- UI error frame callback ----
     UIErrorCallback uiErrorCallback_;
+    PlayerSpellEventCallback playerSpellEventCallback_;
 
     // ---- Reputation change callback ----
     RepChangeCallback repChangeCallback_;

@@ -532,17 +532,34 @@ void XrSystem::updateLoadedAction(bool loaded, bool aimed) {
 
 void XrSystem::refuseLoadedAction(game::GameHandler& game, const char* message) {
     LOG_INFO("VR: loaded action refused - ", message);
-    playHaptic(true, HapticPattern::Refusal);
+    feel(HapticPattern::Refusal);
     game.raiseUiError(message);
 }
 
-void XrSystem::playHaptic(bool offHand, HapticPattern pattern) {
+void XrSystem::feel(HapticPattern pattern) {
+    // Physical left is the casting hand unless the player is left-handed.
+    const int casting = leftHanded_ ? 1 : 0;
+    playHaptic(casting, pattern);
+    if (pattern != HapticPattern::Refusal && !weaponDrawn_) playHaptic(1 - casting, pattern);
+}
+
+void XrSystem::playHaptic(int hand, HapticPattern pattern) {
     if (!input_) return;
-    // Physical left is the other hand unless the player is left-handed.
-    const int hand = (offHand != leftHanded_) ? 0 : 1;
     switch (pattern) {
         case HapticPattern::Refusal:
             input_->pattern[hand] = {{0, 30, 0.6f}, {90, 30, 0.6f}, {180, 30, 0.6f}};
+            break;
+        case HapticPattern::SpellGo:
+            input_->pattern[hand] = {{0, 40, 1.0f}};
+            break;
+        case HapticPattern::Shot:
+            input_->pattern[hand] = {{0, 25, 0.35f}};
+            break;
+        case HapticPattern::Interrupted:
+            input_->pattern[hand] = {{0, 150, 0.8f}, {220, 150, 0.45f}};
+            break;
+        case HapticPattern::Pushback:
+            input_->pattern[hand] = {{0, 60, 1.0f}};
             break;
     }
     input_->patternStart[hand] = std::chrono::steady_clock::now();
@@ -562,6 +579,8 @@ void XrSystem::updateCastHaptics(game::GameHandler* game) {
     const XrAction hands[] = {in.hapticLeft, in.hapticRight};
     const auto now = std::chrono::steady_clock::now();
     const auto apply = [this](XrAction hand, int64_t durationNs, float amplitude) {
+        if (hapticStrength_ <= 0.0f) return;
+        amplitude *= hapticStrength_;
         XrHapticVibration vibration{};
         vibration.type = XR_TYPE_HAPTIC_VIBRATION;
         vibration.duration = durationNs;
@@ -603,8 +622,10 @@ void XrSystem::updateCastHaptics(game::GameHandler* game) {
     constexpr float kFirst = 0.1f;
     constexpr float kLast = 0.5f;
     const float progress = std::clamp(game->getCastProgress(), 0.0f, 1.0f);
+    // The hand holding a weapon is left out, as for the patterns; see feel.
+    const int weaponHand = leftHanded_ ? 0 : 1;
     for (int h = 0; h < 2; ++h) {
-        if (patterned[h]) continue;
+        if (patterned[h] || (weaponDrawn_ && h == weaponHand)) continue;
         apply(hands[h], std::chrono::duration_cast<std::chrono::nanoseconds>(kPulse).count(),
               kFirst + (kLast - kFirst) * progress * progress);
     }

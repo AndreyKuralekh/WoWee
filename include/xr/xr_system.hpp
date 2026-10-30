@@ -36,6 +36,7 @@
 #include <openxr/openxr.h>
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -359,6 +360,24 @@ public:
     /// went, the same spell is cast again as soon as it can be - while the
     /// target is alive.
     void setKeepCasting(bool on) { keepCasting_ = on; }
+
+    /// What the controllers play for the player's own spells. The controllers
+    /// tell these apart by length, strength and rhythm.
+    enum class HapticPattern {
+        Refusal,      // three short taps: the press did nothing
+        SpellGo,      // a firm click: the spell went
+        Shot,         // a light tap: a wand's or a bow's shot
+        Interrupted,  // two long, the second weaker
+        Pushback,     // one hard jolt: a hit pushed the cast back
+    };
+    /// On the casting hand - the one that does not point - and, for all but a
+    /// refusal, on the other one too while it holds no weapon.
+    void feel(HapticPattern pattern);
+    /// Whether the character's weapons are out, which leaves the hand that
+    /// holds one out of what the spells play.
+    void setWeaponDrawn(bool drawn) { weaponDrawn_ = drawn; }
+    /// How strongly the controllers vibrate, 0 (not at all) to 1.
+    void setHapticStrength(float strength) { hapticStrength_ = std::clamp(strength, 0.0f, 1.0f); }
     /// Whether the pointer has the mouse: it is on a panel or a window, or
     /// holds a button. The system's own motion of the mouse is not wanted
     /// meanwhile; see core::Input::setVirtualMousePosition.
@@ -611,10 +630,11 @@ private:
     // A refusal: the press does nothing, and says so - three short pulses on
     // the casting hand, the interface's error sound and its red line.
     void refuseLoadedAction(game::GameHandler& game, const char* message);
-    enum class HapticPattern { Refusal };
-    void playHaptic(bool offHand, HapticPattern pattern);
+    void playHaptic(int physicalHand, HapticPattern pattern);
     int loadedBarSlot_ = 0;
     bool keepCasting_ = false;
+    bool weaponDrawn_ = false;
+    float hapticStrength_ = 1.0f;
     // What the buttons do; read from vr_controls.cfg when the actions are made.
     ControlBindings controls_ = ControlBindings::defaults();
     bool controlsLoaded_ = false;

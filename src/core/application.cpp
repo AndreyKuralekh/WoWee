@@ -2284,6 +2284,22 @@ void Application::setState(AppState newState) {
                 gameHandler->setRangedWeaponSwapCallback([this](bool show) {
                     if (appearanceComposer_) appearanceComposer_->showRangedWeapon(show);
                 });
+#ifdef WOWEE_VR
+                // The player's spells, felt in the hands.
+                gameHandler->setPlayerSpellEventCallback([](game::GameHandler::PlayerSpellEvent event, uint32_t spellId) {
+                    using Event = game::GameHandler::PlayerSpellEvent;
+                    using Pattern = xr::XrSystem::HapticPattern;
+                    switch (event) {
+                        case Event::Go:
+                            xr::system().feel(game::spellclass::isRangedWeaponAutoAttack(spellId) ? Pattern::Shot
+                                                                                                   : Pattern::SpellGo);
+                            break;
+                        case Event::Failed: xr::system().feel(Pattern::Refusal); break;
+                        case Event::Interrupted: xr::system().feel(Pattern::Interrupted); break;
+                        case Event::Delayed: xr::system().feel(Pattern::Pushback); break;
+                    }
+                });
+#endif
                 if (renderer && renderer->getAnimationController()) {
                     renderer->getAnimationController()->setRangedShotCompleteCallback([this]() {
                         if (appearanceComposer_) appearanceComposer_->showRangedWeapon(false);
@@ -3847,6 +3863,13 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
         }
         wasSwimmingForSheath_ = swimmingNow;
     }
+#ifdef WOWEE_VR
+    // A hand holding a weapon is left out of what the spells play.
+    if (appearanceComposer_ && gameHandler) {
+        xr::system().setWeaponDrawn(!appearanceComposer_->isWeaponsSheathed() &&
+                                    !gameHandler->getInventory().getEquipSlot(game::EquipSlot::MAIN_HAND).empty());
+    }
+#endif
 
     // Toggle weapon sheathe state with Z (ignored while UI captures keyboard).
     inGameStep = "weapon-toggle input";

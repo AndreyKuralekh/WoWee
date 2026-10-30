@@ -2000,6 +2000,7 @@ void SpellHandler::handleCastFailed(network::Packet& packet) {
     LOG_INFO("Cast failed: spell=", data.spellId, " result=", static_cast<int>(data.result),
              " castCount=", static_cast<int>(data.castCount), " casting=", casting_,
              " currentSpell=", currentCastSpellId_);
+    owner_.firePlayerSpellEvent(GameHandler::PlayerSpellEvent::Failed, data.spellId);
     // A second press while a cast is going is refused as one in progress -
     // the refusal is the second press's, and the cast it ran into goes on.
     // Taken as the cast's own, it stopped the cast bar and put out a
@@ -2230,6 +2231,7 @@ void SpellHandler::handleSpellGo(network::Packet& packet) {
         // Anything at or under the global cooldown is ignored inside, and an
         // existing cooldown is left alone, so this cannot shorten one.
         seedCooldownFromSpellInfo(data.spellId);
+        owner_.firePlayerSpellEvent(GameHandler::PlayerSpellEvent::Go, data.spellId);
 
         // Play cast-complete sound
         if (!owner_.isProfessionSpell(data.spellId) && !rangedWeaponAttack)
@@ -4317,6 +4319,7 @@ void SpellHandler::handleSpellDelayed(network::Packet& packet) {
         if (casting_) {
             castTimeRemaining_ += delaySec;
             castTimeTotal_     += delaySec;
+            owner_.firePlayerSpellEvent(GameHandler::PlayerSpellEvent::Delayed, currentCastSpellId_);
         }
     } else {
         auto it = unitCastStates_.find(caster);
@@ -4446,6 +4449,11 @@ void SpellHandler::handleSpellFailure(network::Packet& packet) {
         if (failGuid == owner_.getPlayerGuid() || failGuid == 0) {
             LOG_INFO("Spell failure: spell=", failSpellId, " reason=", static_cast<int>(failReason),
                      " casting=", casting_, " currentSpell=", currentCastSpellId_);
+        }
+        // Interrupted is a cast this client still has going: one the player
+        // put down themselves is already over here.
+        if (failGuid == owner_.getPlayerGuid() && casting_) {
+            owner_.firePlayerSpellEvent(GameHandler::PlayerSpellEvent::Interrupted, failSpellId);
         }
         if (failGuid == owner_.getPlayerGuid() && failReason != 0) {
             // Show interruption/failure reason in chat and error overlay for player
