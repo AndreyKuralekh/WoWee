@@ -1077,6 +1077,14 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
 
     // Reuse persistent buffers (clear instead of reallocating)
     glowSprites_.clear();
+    for (const FreeGlow& glow : freeGlows_) {
+        GlowSprite sprite;
+        sprite.worldPos = glow.position;
+        sprite.color = glow.color;
+        sprite.size = glow.size;
+        sprite.trueSize = true;
+        glowSprites_.push_back(sprite);
+    }
 
     lastDrawCallCount = 0;
     const float lavaAnimSeconds = std::chrono::duration<float>(

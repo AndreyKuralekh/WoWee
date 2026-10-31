@@ -85,6 +85,9 @@ public:
     // the player's own hand.
     glm::vec3 kitPosition(uint32_t attachInstanceId, uint32_t attachmentId, const glm::vec3& point) const;
 
+    // Whether a visual has a model of its own in the hands while it is made ready.
+    bool hasPrecastEffect(uint32_t visualId);
+
     // Remove all active precast visual instances (cast canceled/interrupted).
     void cancelAllPrecastVisuals();
 

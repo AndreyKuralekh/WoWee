@@ -3969,6 +3969,62 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
         }
     }
 
+#ifdef WOWEE_VR
+    // A spell made ready with nothing of its own in the hands - most mage
+    // spells have something, not every spell does - is a soft glow in both,
+    // the colour of its school with a paler core, growing as the cast does.
+    // In a headset the hands are where the player looks.
+    if (renderer && gameHandler) {
+        std::vector<rendering::M2Renderer::FreeGlow> glows;
+        auto* svs = renderer->getSpellVisualSystem();
+        auto* characters = renderer->getCharacterRenderer();
+        const uint32_t self = renderer->getCharacterInstanceId();
+        const uint32_t spellId = gameHandler->isCasting() && !gameHandler->isRestoring()
+                                     ? gameHandler->getCurrentCastSpellId() : 0;
+        if (svs && characters && self != 0 && spellId != 0) {
+            const auto& cache = gameHandler->spellNameCacheRef();
+            const auto cached = cache.find(spellId);
+            const uint32_t visual = cached != cache.end() ? cached->second.spellVisualId : 0;
+            if (visual == 0 || !svs->hasPrecastEffect(visual)) {
+                // Mixed schools take the mean of their colours.
+                static constexpr std::pair<uint32_t, glm::vec3> kSchoolColours[] = {
+                    {0x01, {1.0f, 0.95f, 0.85f}},  // physical
+                    {0x02, {1.0f, 0.85f, 0.45f}},  // holy
+                    {0x04, {1.0f, 0.5f, 0.15f}},   // fire
+                    {0x08, {0.45f, 1.0f, 0.3f}},   // nature
+                    {0x10, {0.45f, 0.75f, 1.0f}},  // frost
+                    {0x20, {0.6f, 0.3f, 0.9f}},    // shadow
+                    {0x40, {0.85f, 0.45f, 1.0f}},  // arcane
+                };
+                const uint32_t school = gameHandler->getSpellSchoolMask(spellId);
+                glm::vec3 colour(0.0f);
+                int schools = 0;
+                for (const auto& [bit, c] : kSchoolColours) {
+                    if (school & bit) {
+                        colour += c;
+                        ++schools;
+                    }
+                }
+                colour = schools ? colour / static_cast<float>(schools) : kSchoolColours[6].second;
+                const float progress = gameHandler->isChanneling()
+                                           ? 1.0f : std::clamp(gameHandler->getCastProgress(), 0.0f, 1.0f);
+                const float pulse = 0.85f + 0.15f * std::sin(static_cast<float>(ImGui::GetTime()) * 6.0f);
+                const float alpha = (1.0f + 1.5f * progress) * pulse;
+                const float size = 0.1f + 0.1f * progress;
+                for (uint32_t point : {21u, 22u}) {  // the hands' spell points
+                    glm::mat4 at(1.0f);
+                    if (!characters->getAttachmentTransform(self, point, at)) continue;
+                    const glm::vec3 position = svs->kitPosition(self, point, glm::vec3(at[3]));
+                    glows.push_back({position, glm::vec4(glm::mix(colour, glm::vec3(1.0f), 0.5f), alpha), size * 0.4f});
+                    glows.push_back({position, glm::vec4(colour, alpha), size});
+                    glows.push_back({position, glm::vec4(colour, alpha * 0.35f), size * 2.4f});
+                }
+            }
+        }
+        if (auto* m2 = renderer->getM2Renderer()) m2->setFreeGlows(std::move(glows));
+    }
+#endif
+
     inGameStep = "world update";
     updateCheckpoint = "in_game: world update";
     runInGameStage("world->update", [&] {

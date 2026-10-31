@@ -739,6 +739,15 @@ public:
     /// How far into the night it is, 0 by day to 1 once the sun is down: lamp
     /// halos and the light they throw are stronger for it.
     void setNightGlow(float night) { nightGlow_ = std::clamp(night, 0.0f, 1.0f); }
+    /// Soft glows that belong to no model - a spell made ready in the hands -
+    /// drawn with the lamps' sprites until set again. Size is half the side,
+    /// in world units.
+    struct FreeGlow {
+        glm::vec3 position;
+        glm::vec4 color;
+        float size;
+    };
+    void setFreeGlows(std::vector<FreeGlow> glows) { freeGlows_ = std::move(glows); }
 
     void setSuppressBakedStars(bool suppress) { suppressBakedStars_ = suppress; }
     void setInsideInterior(bool inside) { insideInterior = inside; }
@@ -1140,6 +1149,7 @@ private:
         bool trueSize = false;
     };
     std::vector<GlowSprite> glowSprites_;  // Reused each frame
+    std::vector<FreeGlow> freeGlows_;
 
     // Shadow-pass texture descriptor cache (reused each frame, cleared via pool reset)
     std::unordered_map<VkImageView, VkDescriptorSet> shadowTexSetCache_;

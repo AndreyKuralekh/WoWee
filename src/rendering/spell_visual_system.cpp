@@ -1121,6 +1121,22 @@ void SpellVisualSystem::setUnitStateVisuals(uint64_t unitGuid, uint32_t charInst
     }
 }
 
+bool SpellVisualSystem::hasPrecastEffect(uint32_t visualId) {
+    if (!cachedAssetManager_) cachedAssetManager_ = core::Application::getInstance().getAssetManager();
+    if (!cachedAssetManager_) return true;  // unknown: assume it has, and add nothing
+    if (!spellVisualDbcLoaded_) loadSpellVisualDbc();
+    const auto onHand = [](uint32_t point) { return point == 1 || point == 2 || point == 21 || point == 22; };
+    if (auto kit = spellVisualPrecastKit_.find(visualId); kit != spellVisualPrecastKit_.end()) {
+        for (const auto& def : kit->second) {
+            if (std::any_of(def.attachments.begin(), def.attachments.end(), onHand)) return true;
+        }
+    }
+    if (auto path = spellVisualPrecastPath_.find(visualId); path != spellVisualPrecastPath_.end()) {
+        return onHand(classifyAttachmentId(path->second));
+    }
+    return false;
+}
+
 void SpellVisualSystem::endUnitStateVisuals() {
     for (auto it = unitStateVisuals_.begin(); it != unitStateVisuals_.end(); ) {
         if (!it->second.given) {
