@@ -3764,6 +3764,84 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
 
 }
 
+#ifdef WOWEE_VR
+namespace {
+
+// The rings round the wrists (TASK_04 step 3), as dots of light: blue round
+// the casting hand for the cast - filling with the server's cast, emptying
+// with a channel, and between casts the readiness of the spell in the glowing
+// frame, dim while it waits and bright once it can go - and red round the
+// other for the weapon's swing while auto-attacking, an estimate from its
+// speed and the last swing (the server does not say when the next is due).
+void appendWristBars(game::GameHandler& game, ui::UIManager* ui,
+                     std::vector<rendering::M2Renderer::FreeGlow>& glows) {
+    const xr::XrSystem::WristBars& bars = xr::system().wristBars();
+    if (!bars.shown || bars.opacity <= 0.0f) return;
+    const bool casting = game.isCasting() && !game.isRestoring();
+    if (bars.combatOnly && !game.isInCombat() && !casting) return;
+
+    constexpr int kDots = 24;
+    const auto ring = [&](bool castingHand, float fill, const glm::vec3& colour, float brightness) {
+        glm::vec3 centre;
+        glm::vec3 across;
+        glm::vec3 up;
+        if (!xr::system().wristInWorld(castingHand, centre, across, up)) return;
+        const float radius = 0.045f * bars.size;    // metres
+        const float dotSize = 0.006f * bars.size * glm::length(across);
+        fill = std::clamp(fill, 0.0f, 1.0f);
+        for (int i = 0; i < kDots; ++i) {
+            // From the back of the hand, round over the thumb side.
+            const float angle = glm::two_pi<float>() * (static_cast<float>(i) + 0.5f) / kDots;
+            const glm::vec3 at = centre + radius * (std::cos(angle) * up + std::sin(angle) * across);
+            const bool lit = (static_cast<float>(i) + 0.5f) / kDots <= fill;
+            const float alpha = (lit ? brightness : 0.15f) * bars.opacity;
+            glows.push_back({at, glm::vec4(colour, alpha), lit ? dotSize : dotSize * 0.7f});
+        }
+    };
+
+    // Blue: the cast, or the framed spell's readiness.
+    constexpr glm::vec3 kBlue(0.35f, 0.6f, 1.0f);
+    if (casting) {
+        const float progress = game.getCastProgress();
+        ring(true, game.isChanneling() ? 1.0f - progress : progress, kBlue, 1.8f);
+    } else if (ui) {
+        const int slotIndex = ui::ActionBarPanel::actionSlotForPage(
+            ui->getGameScreen().actionBarPanel().getMainActionBarPage(), xr::system().loadedSlot());
+        const auto& bar = game.getActionBar();
+        if (slotIndex >= 0 && slotIndex < static_cast<int>(bar.size()) && !bar[slotIndex].isEmpty()) {
+            const game::ActionBarSlot& slot = bar[slotIndex];
+            float ready = 1.0f;
+            const auto waitFor = [&ready](float remaining, float total) {
+                if (remaining > 0.0f && total > 0.0f) ready = std::min(ready, 1.0f - remaining / total);
+            };
+            waitFor(slot.cooldownRemaining, slot.cooldownTotal);
+            if (slot.type == game::ActionBarSlot::SPELL) {
+                waitFor(game.getSpellCooldown(slot.id), game.getSpellCooldownTotal(slot.id));
+                waitFor(game.getGCDRemaining(), game.getGCDTotal());
+            }
+            ring(true, ready, kBlue, ready >= 1.0f ? 1.1f : 0.55f);
+        }
+    }
+
+    // Red: the swing, while auto-attacking.
+    if (game.isAutoAttacking()) {
+        float speedMs = 0.0f;
+        if (auto self = game.getEntityManager().getEntity(game.getPlayerGuid())) {
+            constexpr uint16_t kBaseAttackTime = 62;  // UNIT_FIELD_BASEATTACKTIME, main hand
+            speedMs = static_cast<float>(self->getField(kBaseAttackTime));
+        }
+        if (speedMs <= 0.0f) speedMs = 2000.0f;  // not arrived yet, just after entering the world
+        const uint64_t last = game.getLastMeleeSwingMs();
+        const uint64_t now = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+        const float fill = last == 0 ? 1.0f : static_cast<float>(now - last) / speedMs;
+        ring(false, fill, glm::vec3(1.0f, 0.25f, 0.2f), fill >= 1.0f ? 1.6f : 1.0f);
+    }
+}
+
+}  // namespace
+#endif
+
 void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
     updateCheckpoint = "in_game: enter";
     const char* inGameStep = "begin";
@@ -4021,6 +4099,7 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
                 }
             }
         }
+        appendWristBars(*gameHandler, uiManager.get(), glows);
         if (auto* m2 = renderer->getM2Renderer()) m2->setFreeGlows(std::move(glows));
     }
 #endif

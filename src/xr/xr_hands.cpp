@@ -175,6 +175,31 @@ void XrSystem::placeHands(const glm::mat4& trackingToWorld) {
     }
 }
 
+bool XrSystem::wristInWorld(bool castingHand, glm::vec3& centre, glm::vec3& across, glm::vec3& up) const {
+    // The casting hand is the one that does not point: the left, unless the
+    // player is left-handed.
+    const int hand = (castingHand != leftHanded_) ? 0 : 1;
+    glm::mat4 wrist(1.0f);
+    if (handsInWorld_.tracked[hand]) {
+        wrist = handsInWorld_.joint[hand][XR_HAND_JOINT_WRIST_EXT];
+    } else if (handsInWorld_.fake) {
+        // As the fake body's wrists (Renderer::vrBeginEyes): in front of the
+        // chest, palms facing.
+        wrist = glm::rotate(glm::mat4(1.0f), glm::radians(hand == 0 ? 90.0f : -90.0f), glm::vec3(0, 0, 1));
+        wrist[3] = glm::vec4(hand == 0 ? -0.2f : 0.2f, -0.3f, -0.2f, 1.0f);
+    } else {
+        return false;
+    }
+    // -Z runs along the hand to the fingers: three centimetres the other way
+    // is the forearm just short of the wrist.
+    constexpr float kUpTheArm = 0.03f;
+    const glm::mat4& toWorld = handsInWorld_.trackingToWorld;
+    centre = glm::vec3(toWorld * wrist * glm::vec4(0.0f, 0.0f, kUpTheArm, 1.0f));
+    across = glm::vec3(toWorld * glm::vec4(glm::vec3(wrist[0]), 0.0f));
+    up = glm::vec3(toWorld * glm::vec4(glm::vec3(wrist[1]), 0.0f));
+    return true;
+}
+
 void relaxHand(std::array<glm::mat4, kHandJointCount>& joints) {
     // Each finger from its metacarpal to its tip, and the least bend of each
     // joint that bends, in degrees, from the knuckle out. The outer fingers

@@ -1026,6 +1026,18 @@ constexpr SettingDesc kSchema[] = {
      "Keep holding the button that cast the spell in the glowing frame\n"
      "and the same spell is cast again as soon as it can be, for as\n"
      "long as your target is alive. Off, each cast is a press of its own.", "", 0},
+    {"vrbars", "Rings on the wrists", SettingKind::Bool, 0, 0, 0, "VR combat", "Wrist rings",
+     "Rings of light round your wrists. Blue round the casting hand:\n"
+     "it fills as a spell is cast and empties with a channelled one;\n"
+     "between casts it is dim and fills while the spell in the glowing\n"
+     "frame waits for its cooldown, bright once it is ready. Red round\n"
+     "the other: your weapon's swing while you auto-attack.", "", 1},
+    {"vrbarsize", "Ring size", SettingKind::Float, 0.5f, 2.0f, 0.1f, "VR combat", "Wrist rings",
+     "How big the rings round the wrists are.", "", 1.0f},
+    {"vrbaropacity", "Ring brightness", SettingKind::Float, 0.1f, 1.0f, 0.05f, "VR combat", "Wrist rings",
+     "How bright the rings round the wrists are.", "", 0.8f},
+    {"vrbarscombatonly", "Rings only in combat", SettingKind::Bool, 0, 0, 0, "VR combat", "Wrist rings",
+     "Show the rings only while you fight or cast.", "", 0},
     {"vrbody", "Your body", SettingKind::Enum, 0, 2, 1, "VR comfort", "Hands",
      "What you see of your character from its eyes. Whole body: look\n"
      "down and it is there, its arms where yours are, holding what it\n"

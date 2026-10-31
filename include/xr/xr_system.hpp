@@ -385,6 +385,21 @@ public:
     /// Whether the character's weapons are out, which leaves the hand that
     /// holds one out of what the spells play.
     void setWeaponDrawn(bool drawn) { weaponDrawn_ = drawn; }
+    /// The wrist of the player's own hand in the world - the casting hand's,
+    /// the one that does not point, or the other - a little up the forearm,
+    /// where a bracelet sits: its middle, and two directions square to the
+    /// forearm, each one metre long in world units (+up is the back of the
+    /// hand). False while that hand is not known.
+    bool wristInWorld(bool castingHand, glm::vec3& centre, glm::vec3& across, glm::vec3& up) const;
+    /// The rings round the wrists for the cast and the swing (TASK_04 step
+    /// 3), as the VR combat page sets them; drawn by the application.
+    struct WristBars {
+        bool shown = true;
+        float size = 1.0f;
+        float opacity = 0.8f;
+        bool combatOnly = false;
+    };
+    WristBars& wristBars() { return wristBars_; }
     /// How strongly the controllers vibrate, 0 (not at all) to 1.
     void setHapticStrength(float strength) { hapticStrength_ = std::clamp(strength, 0.0f, 1.0f); }
     /// Whether the pointer has the mouse: it is on a panel or a window, or
@@ -644,6 +659,7 @@ private:
     bool keepCasting_ = false;
     bool weaponDrawn_ = false;
     bool groundByOffHand_ = false;
+    WristBars wristBars_;
     bool groundCastAsked_ = false;
     float hapticStrength_ = 1.0f;
     // What the buttons do; read from vr_controls.cfg when the actions are made.
