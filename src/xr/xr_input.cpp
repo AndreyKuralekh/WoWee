@@ -470,6 +470,8 @@ void XrSystem::updateLoadedAction(bool loaded, bool aimed) {
         in.loadedFired = false;
         in.loadedOwnsCast = false;
     } else if (!loaded && in.loadedWanted) {
+        // A place on the ground aimed while held: let go, it is cast there.
+        if (groundByOffHand_ && game && game->isAwaitingGroundTarget()) groundCastAsked_ = true;
         if (in.loadedOwnsCast && casting) {
             LOG_INFO("VR: loaded action let go during its cast - cancelling");
             game->cancelCast();
@@ -481,6 +483,10 @@ void XrSystem::updateLoadedAction(bool loaded, bool aimed) {
         in.loadedAimFrame = false;
     }
     in.loadedWanted = loaded;
+    // A spell the key armed for the ground is aimed by this hand from now on.
+    const bool awaitingGround = game && game->isAwaitingGroundTarget();
+    if (loaded && in.loadedFired && awaitingGround) groundByOffHand_ = true;
+    if (!awaitingGround && !groundCastAsked_) groundByOffHand_ = false;
 
     // Whether the cast the key began is still going: it is once a cast has
     // been seen after the key, until there is none. An instant spell shows
@@ -718,7 +724,10 @@ bool XrSystem::pickRay(glm::vec3& origin, glm::vec3& direction) const {
     if (!input_ || !input_->inCharge || !worldPlaced_) return false;
     glm::vec3 from;
     glm::vec3 along;
-    if (!aimRay(localSpace_, frameTime(), from, along)) return false;
+    // A spell aimed at the ground by the loaded button: that button's hand.
+    const bool aimed = groundByOffHand_ ? handRay(offHandSpace(), localSpace_, frameTime(), from, along)
+                                        : aimRay(localSpace_, frameTime(), from, along);
+    if (!aimed) return false;
     // As stereoViews places an eye.
     const float kYardsPerMetre = yardsPerMetre();
     const glm::quat recentre = glm::angleAxis(-(headOriginYaw_ + bodyYaw_), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -851,7 +860,8 @@ bool XrSystem::pointerBeam(XrTime time, const glm::vec3& head, XrPosef& pose, Xr
     if (input_->fingerOnMenu) return false;
     glm::vec3 origin;
     glm::vec3 along;
-    if (!handRay(input_->menuRay ? offHandSpace() : pointingHandSpace(), localSpace_, time, origin, along)) return false;
+    const bool offHand = input_->menuRay || groundByOffHand_;
+    if (!handRay(offHand ? offHandSpace() : pointingHandSpace(), localSpace_, time, origin, along)) return false;
     const float end = input_->beamLength > kStart * 2.0f ? input_->beamLength : kLength;
     const glm::vec3 middle = origin + along * (0.5f * (kStart + end));
     glm::vec3 facing = head - middle;

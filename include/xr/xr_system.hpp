@@ -360,6 +360,15 @@ public:
     /// went, the same spell is cast again as soon as it can be - while the
     /// target is alive.
     void setKeepCasting(bool on) { keepCasting_ = on; }
+    /// A spell cast at the ground by the loaded button is aimed by the ray of
+    /// that button's hand while it is held, and goes when it is let go. True
+    /// once, as it is let go: the game then casts at the place it aims.
+    bool takeGroundCast() {
+        const bool asked = groundCastAsked_;
+        groundCastAsked_ = false;
+        if (asked) groundByOffHand_ = false;
+        return asked;
+    }
 
     /// What the controllers play for the player's own spells. The controllers
     /// tell these apart by length, strength and rhythm.
@@ -634,6 +643,8 @@ private:
     int loadedBarSlot_ = 0;
     bool keepCasting_ = false;
     bool weaponDrawn_ = false;
+    bool groundByOffHand_ = false;
+    bool groundCastAsked_ = false;
     float hapticStrength_ = 1.0f;
     // What the buttons do; read from vr_controls.cfg when the actions are made.
     ControlBindings controls_ = ControlBindings::defaults();

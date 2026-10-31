@@ -66,6 +66,9 @@
 #include <ctime>
 
 #include <unordered_set>
+#ifdef WOWEE_VR
+#include "xr/xr_system.hpp"
+#endif
 
 namespace {
 
@@ -1918,6 +1921,11 @@ void GameScreen::processTargetInput(game::GameHandler& gameHandler) {
         }
         if (input.isMouseButtonJustPressed(SDL_BUTTON_RIGHT)) {
             gameHandler.cancelGroundTargeting();
+#ifdef WOWEE_VR
+        } else if (xr::system().takeGroundCast()) {
+            // Aimed by the hand whose button cast it, and let go: there.
+            if (groundAimValid_) gameHandler.castSpellAtGround(core::coords::renderToCanonical(groundAim_));
+#endif
         } else if (leftClickWasPress_ && input.isMouseButtonJustReleased(SDL_BUTTON_LEFT)) {
             leftClickWasPress_ = false;
             const glm::vec2 dragDelta = input.getMousePosition() - leftClickPressPos_;
