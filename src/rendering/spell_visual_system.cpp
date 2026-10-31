@@ -1124,6 +1124,12 @@ void SpellVisualSystem::setUnitStateVisuals(uint64_t unitGuid, uint32_t charInst
 void SpellVisualSystem::endUnitStateVisuals() {
     for (auto it = unitStateVisuals_.begin(); it != unitStateVisuals_.end(); ) {
         if (!it->second.given) {
+            // Said, as their coming is: skulls left over a dead wolf were
+            // reported, and whether they were taken off is the first question.
+            if (!it->second.effects.empty()) {
+                LOG_INFO("SpellVisual: state effects off unit 0x", std::hex, it->first, std::dec,
+                         " (", it->second.effects.size(), ")");
+            }
             removeUnitStateEffects(it->second);
             it = unitStateVisuals_.erase(it);
         } else {

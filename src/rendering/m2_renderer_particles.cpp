@@ -1068,9 +1068,14 @@ void M2Renderer::setEmitterParticleModel(uint32_t modelId, size_t emitterIndex, 
 void M2Renderer::updateModelParticles() {
     // An emitting instance removed by any path leaves its particles' models
     // behind; they go with it here rather than in each removal path.
+    size_t orphaned = 0;
     for (const auto& [child, owner] : modelParticleOwner_) {
-        if (!instanceIndexById.count(owner)) deadModelParticles_.push_back(child);
+        if (!instanceIndexById.count(owner)) {
+            deadModelParticles_.push_back(child);
+            ++orphaned;
+        }
     }
+    if (orphaned != 0) LOG_INFO("M2: ", orphaned, " model particle(s) of a removed emitter hidden");
     for (uint32_t id : deadModelParticles_) {
         modelParticleOwner_.erase(id);
         auto it = instanceIndexById.find(id);
