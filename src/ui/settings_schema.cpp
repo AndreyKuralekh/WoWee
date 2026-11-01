@@ -1026,6 +1026,14 @@ constexpr SettingDesc kSchema[] = {
      "Keep holding the button that cast the spell in the glowing frame\n"
      "and the same spell is cast again as soon as it can be, for as\n"
      "long as your target is alive. Off, each cast is a press of its own.", "", 0},
+    {"vrswingstrike", "Strike by swinging", SettingKind::Bool, 0, 0, 0, "VR combat", "Weapon",
+     "Swing your weapon hand to strike: each swing is one blow, at\n"
+     "your target, when the red ring on that wrist is full and the\n"
+     "target is in reach. A right click on an enemy then only picks\n"
+     "it. Off, attacking swings by itself as the game always has.", "", 1},
+    {"vrswingspeed", "Swing speed", SettingKind::Float, 1.5f, 5.0f, 0.1f, "VR combat", "Weapon",
+     "How fast the weapon's tip has to move to count as a swing, in\n"
+     "metres a second. Higher wants a harder swing.", "", 2.5f},
     {"vrbars", "Rings on the wrists", SettingKind::Bool, 0, 0, 0, "VR combat", "Wrist rings",
      "Rings of light round your wrists. Blue round the casting hand:\n"
      "it fills as a spell is cast and empties with a channelled one;\n"

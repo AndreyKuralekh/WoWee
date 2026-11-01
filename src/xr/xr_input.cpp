@@ -128,6 +128,10 @@ struct XrSystem::InputData {
     bool humming = false;
     // A pattern of pulses a hand plays over the hum - a refusal, say -
     // physical left and right; see playHaptic.
+    // The weapon's tip, as last seen, for its speed; see updateSwing.
+    glm::vec3 tip{0.0f};
+    XrTime tipAt = 0;
+    bool swingArmed = true;
     std::vector<HapticPulse> pattern[2];
     std::chrono::steady_clock::time_point patternStart[2]{};
     size_t patternNext[2] = {};
@@ -536,6 +540,37 @@ void XrSystem::updateLoadedAction(bool loaded, bool aimed) {
     }
 }
 
+// A swing of the hand that points - the weapon hand: its tip, half a metre
+// along the controller as a blade held in it would be, moving faster than
+// swingSpeed_. A wave of the wrist moves the tip as much as one of the arm.
+// One swing, then none until the hand has all but stopped, so that a stroke
+// and its follow-through are one. Not while the ray is on the interface.
+void XrSystem::updateSwing() {
+    InputData& in = *input_;
+    const XrTime time = frameTime();
+    glm::vec3 origin;
+    glm::vec3 along;
+    if (!handRay(pointingHandSpace(), localSpace_, time, origin, along)) {
+        in.tipAt = 0;
+        return;
+    }
+    constexpr float kTipReach = 0.5f;  // metres
+    const glm::vec3 tip = origin + along * kTipReach;
+    if (in.tipAt != 0 && time > in.tipAt) {
+        const float seconds = static_cast<float>(time - in.tipAt) * 1e-9f;
+        const float speed = glm::length(tip - in.tip) / seconds;
+        if (in.swingArmed && speed > swingSpeed_ && !pointerHasMouse_) {
+            in.swingArmed = false;
+            swingAsked_ = true;
+            LOG_INFO("VR: swing, the tip at ", speed, " m/s");
+        } else if (!in.swingArmed && speed < swingSpeed_ * 0.4f) {
+            in.swingArmed = true;
+        }
+    }
+    in.tip = tip;
+    in.tipAt = time;
+}
+
 void XrSystem::refuseLoadedAction(game::GameHandler& game, const char* message) {
     LOG_INFO("VR: loaded action refused - ", message);
     feel(HapticPattern::Refusal);
@@ -547,6 +582,10 @@ void XrSystem::feel(HapticPattern pattern) {
     const int casting = leftHanded_ ? 1 : 0;
     playHaptic(casting, pattern);
     if (pattern != HapticPattern::Refusal && !weaponDrawn_) playHaptic(1 - casting, pattern);
+}
+
+void XrSystem::feelWeapon(HapticPattern pattern) {
+    playHaptic(leftHanded_ ? 0 : 1, pattern);
 }
 
 void XrSystem::playHaptic(int hand, HapticPattern pattern) {
@@ -566,6 +605,15 @@ void XrSystem::playHaptic(int hand, HapticPattern pattern) {
             break;
         case HapticPattern::Pushback:
             input_->pattern[hand] = {{0, 60, 1.0f}};
+            break;
+        case HapticPattern::WeaponReady:
+            input_->pattern[hand] = {{0, 20, 0.3f}};
+            break;
+        case HapticPattern::Hit:
+            input_->pattern[hand] = {{0, 80, 1.0f}};
+            break;
+        case HapticPattern::Miss:
+            input_->pattern[hand] = {{0, 40, 0.45f}, {100, 40, 0.45f}};
             break;
     }
     input_->patternStart[hand] = std::chrono::steady_clock::now();
@@ -1354,6 +1402,7 @@ void XrSystem::updateControllers(rendering::CameraController* camera, bool inWor
                            keyWanted[static_cast<size_t>(ControlFunction::LoadedAction)],
                        keyWanted[static_cast<size_t>(ControlFunction::AimedLoadedAction)]);
     updateCastHaptics(core::Application::getInstance().getGameHandler());
+    updateSwing();
 
     // Escape is the interface's: it is asked of ImGui, which a held scancode
     // never reaches.

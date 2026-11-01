@@ -41,6 +41,14 @@ class VkTexture;
 class HiZSystem;
 class RtScene;
 
+/// A soft glow that belongs to no model; see M2Renderer::setFreeGlows. Size
+/// is half its side, in world units.
+struct FreeGlow {
+    glm::vec3 position;
+    glm::vec4 color;
+    float size;
+};
+
 // Ceiling on the bone matrices computed and uploaded for one M2 instance.
 // WoW models run well past a hundred bones - the largest shipped model has
 // 315 - and a vertex weighted to a bone above this ceiling would read outside
@@ -740,13 +748,8 @@ public:
     /// halos and the light they throw are stronger for it.
     void setNightGlow(float night) { nightGlow_ = std::clamp(night, 0.0f, 1.0f); }
     /// Soft glows that belong to no model - a spell made ready in the hands -
-    /// drawn with the lamps' sprites until set again. Size is half the side,
-    /// in world units.
-    struct FreeGlow {
-        glm::vec3 position;
-        glm::vec4 color;
-        float size;
-    };
+    /// drawn with the lamps' sprites until set again.
+    using FreeGlow = rendering::FreeGlow;
     void setFreeGlows(std::vector<FreeGlow> glows) { freeGlows_ = std::move(glows); }
 
     void setSuppressBakedStars(bool suppress) { suppressBakedStars_ = suppress; }

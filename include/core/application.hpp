@@ -31,7 +31,7 @@
 namespace wowee {
 
 // Forward declarations
-namespace rendering { class Renderer; }
+namespace rendering { class Renderer; struct FreeGlow; }
 namespace ui { class UIManager; class MapWindow; }
 namespace auth { class AuthHandler; }
 namespace game { class GameHandler; class World; class ExpansionRegistry; struct ExpansionProfile; }
@@ -415,6 +415,11 @@ private:
     float auraVisualTimer_ = 0.0f;
 #ifdef WOWEE_VR
     bool vrCrouchKneels_ = false;  // the kneel was asked for by the player crouching
+    // Strike by swinging (TASK_04 step 4): the swing seen by the headset
+    // turned into a strike, its feel, and the weapon's glow added to `glows`.
+    void updateVrStrike(std::vector<rendering::FreeGlow>& glows);
+    bool vrWeaponWasReady_ = false;
+    float vrStrikeFlash_ = 0.0f;  // seconds of the flash after a strike left
 #endif
 
     // Quest marker billboard sprites (above NPCs)

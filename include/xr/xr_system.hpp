@@ -378,7 +378,23 @@ public:
         Shot,         // a light tap: a wand's or a bow's shot
         Interrupted,  // two long, the second weaker
         Pushback,     // one hard jolt: a hit pushed the cast back
+        WeaponReady,  // a faint tap: the swing can go
+        Hit,          // a strong blow: the swing landed
+        Miss,         // two soft: missed, dodged, parried
     };
+    /// On the weapon hand - the one that points - alone.
+    void feelWeapon(HapticPattern pattern);
+    /// Strike by swinging (TASK_04 step 4): whether a swing of the weapon
+    /// hand strikes, and how fast its tip must move, in metres a second.
+    /// True once per swing seen; what it does is the game's to decide.
+    void setSwingStrike(bool on) { swingStrike_ = on; }
+    [[nodiscard]] bool swingStrike() const { return swingStrike_; }
+    void setSwingSpeed(float metresPerSecond) { swingSpeed_ = std::clamp(metresPerSecond, 1.0f, 8.0f); }
+    bool takeSwing() {
+        const bool swung = swingAsked_;
+        swingAsked_ = false;
+        return swung;
+    }
     /// On the casting hand - the one that does not point - and, for all but a
     /// refusal, on the other one too while it holds no weapon.
     void feel(HapticPattern pattern);
@@ -660,6 +676,10 @@ private:
     bool weaponDrawn_ = false;
     bool groundByOffHand_ = false;
     WristBars wristBars_;
+    bool swingStrike_ = true;
+    float swingSpeed_ = 2.5f;
+    bool swingAsked_ = false;
+    void updateSwing();
     bool groundCastAsked_ = false;
     float hapticStrength_ = 1.0f;
     // What the buttons do; read from vr_controls.cfg when the actions are made.

@@ -2299,6 +2299,11 @@ void Application::setState(AppState newState) {
                         case Event::Delayed: xr::system().feel(Pattern::Pushback); break;
                     }
                 });
+                // And the weapon's: a blow that lands, or one that does not.
+                gameHandler->setPlayerSwingCallback([](bool landed) {
+                    xr::system().feelWeapon(landed ? xr::XrSystem::HapticPattern::Hit
+                                                   : xr::XrSystem::HapticPattern::Miss);
+                });
 #endif
                 if (renderer && renderer->getAnimationController()) {
                     renderer->getAnimationController()->setRangedShotCompleteCallback([this]() {
@@ -3767,6 +3772,24 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
 #ifdef WOWEE_VR
 namespace {
 
+// How far the weapon is from its next swing, 1 when it is ready: the time
+// since the last swing the server reported over the weapon's speed
+// (UNIT_FIELD_BASEATTACKTIME, field 62, main hand). An estimate - the server
+// keeps the real timer and does not say it.
+float swingReadiness(const game::GameHandler& game) {
+    float speedMs = 0.0f;
+    if (auto self = game.getEntityManager().getEntity(game.getPlayerGuid())) {
+        constexpr uint16_t kBaseAttackTime = 62;
+        speedMs = static_cast<float>(self->getField(kBaseAttackTime));
+    }
+    if (speedMs <= 0.0f) speedMs = 2000.0f;  // not arrived yet, just after entering the world
+    const uint64_t last = game.getLastMeleeSwingMs();
+    if (last == 0) return 1.0f;
+    const uint64_t now = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
+    return now > last ? static_cast<float>(now - last) / speedMs : 0.0f;
+}
+
 // The rings round the wrists (TASK_04 step 3), as dots of light: blue round
 // the casting hand for the cast - filling with the server's cast, emptying
 // with a channel, and between casts the readiness of the spell in the glowing
@@ -3823,23 +3846,82 @@ void appendWristBars(game::GameHandler& game, ui::UIManager* ui,
         }
     }
 
-    // Red: the swing, while auto-attacking.
-    if (game.isAutoAttacking()) {
-        float speedMs = 0.0f;
-        if (auto self = game.getEntityManager().getEntity(game.getPlayerGuid())) {
-            constexpr uint16_t kBaseAttackTime = 62;  // UNIT_FIELD_BASEATTACKTIME, main hand
-            speedMs = static_cast<float>(self->getField(kBaseAttackTime));
-        }
-        if (speedMs <= 0.0f) speedMs = 2000.0f;  // not arrived yet, just after entering the world
-        const uint64_t last = game.getLastMeleeSwingMs();
-        const uint64_t now = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count());
-        const float fill = last == 0 ? 1.0f : static_cast<float>(now - last) / speedMs;
+    // Red: the swing, while auto-attacking or with a strike target.
+    if (game.isAutoAttacking() || game.getStrikeTarget() != 0) {
+        const float fill = swingReadiness(game);
         ring(false, fill, glm::vec3(1.0f, 0.25f, 0.2f), fill >= 1.0f ? 1.6f : 1.0f);
     }
 }
 
 }  // namespace
+
+// A swing of the weapon hand is a strike while the server's swing is not
+// done for it: one swing each, at the target, when the weapon is ready and
+// the target in reach - a swing too soon or too far does nothing but say so
+// in the hand. The weapon's glow grows as it readies and flares as it
+// strikes.
+void Application::updateVrStrike(std::vector<rendering::FreeGlow>& glows) {
+    game::GameHandler& game = *gameHandler;
+    xr::XrSystem& vr = xr::system();
+    game.setStrikeOnDemand(vr.sessionRunning() && vr.swingStrike());
+    const bool swung = vr.takeSwing();
+    if (!game.strikeOnDemand()) return;
+
+    const bool weaponOut = appearanceComposer_ && !appearanceComposer_->isWeaponsSheathed() &&
+                           !game.getInventory().getEquipSlot(game::EquipSlot::MAIN_HAND).empty();
+    const float readiness = swingReadiness(game);
+
+    if (swung && weaponOut) {
+        // At the target, if it is something alive to fight: the one chosen,
+        // or the one already struck at.
+        uint64_t target = game.getTargetGuid();
+        auto unit = std::dynamic_pointer_cast<game::Unit>(game.getEntityManager().getEntity(target));
+        if (!unit || target == game.getPlayerGuid() || unit->getHealth() == 0) {
+            target = game.getStrikeTarget();
+            unit = std::dynamic_pointer_cast<game::Unit>(game.getEntityManager().getEntity(target));
+        }
+        if (unit && unit->getHealth() > 0) {
+            if (game.getStrikeTarget() != target) game.startAutoAttack(target);
+            const glm::vec3 me(game.movementInfoRef().x, game.movementInfoRef().y, game.movementInfoRef().z);
+            const glm::vec3 them(unit->getLatestX(), unit->getLatestY(), unit->getLatestZ());
+            // The server's melee reach and a little: it decides.
+            constexpr float kReach = 6.0f;
+            const bool inReach = glm::distance(me, them) <= kReach;
+            if (game.getStrikeTarget() == target && inReach && readiness >= 0.95f && game.strike()) {
+                vrStrikeFlash_ = 0.25f;
+            } else {
+                LOG_INFO("VR: swing refused - ", !inReach ? "out of reach" : readiness < 0.95f ? "weapon not ready" : "no strike");
+                vr.feelWeapon(xr::XrSystem::HapticPattern::Refusal);
+            }
+        }
+    }
+
+    // A faint tap as the weapon readies, while there is something to strike.
+    const bool ready = game.getStrikeTarget() != 0 && readiness >= 1.0f;
+    if (ready && !vrWeaponWasReady_ && weaponOut) vr.feelWeapon(xr::XrSystem::HapticPattern::WeaponReady);
+    vrWeaponWasReady_ = ready;
+
+    // The glow, at the weapon hand's grip.
+    vrStrikeFlash_ = std::max(0.0f, vrStrikeFlash_ - ImGui::GetIO().DeltaTime);
+    if (!weaponOut || (game.getStrikeTarget() == 0 && vrStrikeFlash_ <= 0.0f) || !renderer) return;
+    auto* characters = renderer->getCharacterRenderer();
+    auto* svs = renderer->getSpellVisualSystem();
+    const uint32_t self = renderer->getCharacterInstanceId();
+    glm::mat4 grip(1.0f);
+    if (!characters || !svs || self == 0 || !characters->getAttachmentTransform(self, 1, grip)) return;
+    const glm::vec3 at = svs->kitPosition(self, 1, glm::vec3(grip[3]));
+    const float pulse = 0.85f + 0.15f * std::sin(static_cast<float>(ImGui::GetTime()) * 8.0f);
+    float alpha = ready ? 1.2f * pulse : 0.15f + 0.5f * std::clamp(readiness, 0.0f, 1.0f);
+    float size = 0.08f + 0.06f * std::clamp(readiness, 0.0f, 1.0f);
+    if (vrStrikeFlash_ > 0.0f) {
+        const float f = vrStrikeFlash_ / 0.25f;
+        alpha += 2.5f * f;
+        size += 0.15f * f;
+    }
+    const glm::vec3 colour(1.0f, 0.45f, 0.25f);
+    glows.push_back({at, glm::vec4(colour, alpha), size});
+    glows.push_back({at, glm::vec4(colour, alpha * 0.35f), size * 2.2f});
+}
 #endif
 
 void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
@@ -4100,6 +4182,7 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
             }
         }
         appendWristBars(*gameHandler, uiManager.get(), glows);
+        updateVrStrike(glows);
         if (auto* m2 = renderer->getM2Renderer()) m2->setFreeGlows(std::move(glows));
     }
 #endif

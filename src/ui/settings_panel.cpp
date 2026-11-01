@@ -885,7 +885,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "daylight", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrdrawbyreach", "vrkeepcasting", "vrhapticstrength", "vrbars", "vrbarsize", "vrbaropacity", "vrbarscombatonly", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrdrawbyreach", "vrkeepcasting", "vrhapticstrength", "vrswingstrike", "vrswingspeed", "vrbars", "vrbarsize", "vrbaropacity", "vrbarscombatonly", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1099,6 +1099,8 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrdrawbyreach",     .asBool  = &SettingsPanel::pendingVrDrawByReach},
     {.key = "vrkeepcasting",     .asBool  = &SettingsPanel::pendingVrKeepCasting},
     {.key = "vrhapticstrength",  .asFloat = &SettingsPanel::pendingVrHapticStrength},
+    {.key = "vrswingstrike",     .asBool  = &SettingsPanel::pendingVrSwingStrike},
+    {.key = "vrswingspeed",      .asFloat = &SettingsPanel::pendingVrSwingSpeed},
     {.key = "vrbars",            .asBool  = &SettingsPanel::pendingVrBars},
     {.key = "vrbarsize",         .asFloat = &SettingsPanel::pendingVrBarSize},
     {.key = "vrbaropacity",      .asFloat = &SettingsPanel::pendingVrBarOpacity},
@@ -1351,6 +1353,14 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     // The eye images are made before the settings are read; XrSystem reads
     // this one from the file itself, at the next start.
     if (key == "vreyescale") return;
+    if (key == "vrswingstrike") {
+        xr::system().setSwingStrike(pendingVrSwingStrike);
+        return;
+    }
+    if (key == "vrswingspeed") {
+        xr::system().setSwingSpeed(pendingVrSwingSpeed);
+        return;
+    }
     if (key == "vrbars" || key == "vrbarsize" || key == "vrbaropacity" || key == "vrbarscombatonly") {
         xr::XrSystem::WristBars& bars = xr::system().wristBars();
         bars.shown = pendingVrBars;

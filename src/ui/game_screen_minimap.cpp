@@ -1843,6 +1843,8 @@ void GameScreen::saveSettings() {
     out << "vr_draw_by_reach=" << (settingsPanel_.pendingVrDrawByReach ? 1 : 0) << "\n";
     out << "vr_keep_casting=" << (settingsPanel_.pendingVrKeepCasting ? 1 : 0) << "\n";
     out << "vr_haptic_strength=" << settingsPanel_.pendingVrHapticStrength << "\n";
+    out << "vr_swing_strike=" << (settingsPanel_.pendingVrSwingStrike ? 1 : 0) << "\n";
+    out << "vr_swing_speed=" << settingsPanel_.pendingVrSwingSpeed << "\n";
     out << "vr_bars=" << (settingsPanel_.pendingVrBars ? 1 : 0) << "\n";
     out << "vr_bar_size=" << settingsPanel_.pendingVrBarSize << "\n";
     out << "vr_bar_opacity=" << settingsPanel_.pendingVrBarOpacity << "\n";
@@ -2147,6 +2149,8 @@ void GameScreen::loadSettings() {
             else if (key == "vr_draw_by_reach") settingsPanel_.pendingVrDrawByReach = (val == "1");
             else if (key == "vr_keep_casting") settingsPanel_.pendingVrKeepCasting = (val == "1");
             else if (key == "vr_haptic_strength") settingsPanel_.pendingVrHapticStrength = std::clamp(std::stof(val), 0.0f, 1.0f);
+            else if (key == "vr_swing_strike") settingsPanel_.pendingVrSwingStrike = (val == "1");
+            else if (key == "vr_swing_speed") settingsPanel_.pendingVrSwingSpeed = std::clamp(std::stof(val), 1.5f, 5.0f);
             else if (key == "vr_bars") settingsPanel_.pendingVrBars = (val == "1");
             else if (key == "vr_bar_size") settingsPanel_.pendingVrBarSize = std::clamp(std::stof(val), 0.5f, 2.0f);
             else if (key == "vr_bar_opacity") settingsPanel_.pendingVrBarOpacity = std::clamp(std::stof(val), 0.1f, 1.0f);

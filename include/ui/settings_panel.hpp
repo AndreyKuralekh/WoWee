@@ -255,6 +255,8 @@ public:
     bool pendingVrDrawByReach = true;       // a reach to the sheath and the grip draws the weapon
     bool pendingVrKeepCasting = false;      // the loaded spell is cast again while its button is held
     float pendingVrHapticStrength = 1.0f;   // how strongly the controllers vibrate, 0 not at all
+    bool pendingVrSwingStrike = true;       // a swing of the weapon hand strikes; see xr::XrSystem::takeSwing
+    float pendingVrSwingSpeed = 2.5f;       // how fast the weapon tip must move, metres a second
     bool pendingVrBars = true;              // rings round the wrists for the cast and the swing
     float pendingVrBarSize = 1.0f;
     float pendingVrBarOpacity = 0.8f;
