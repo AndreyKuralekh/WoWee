@@ -3810,15 +3810,25 @@ void appendWristBars(game::GameHandler& game, ui::UIManager* ui,
         glm::vec3 up;
         if (!xr::system().wristInWorld(castingHand, centre, across, up)) return;
         const float radius = 0.045f * bars.size;    // metres
-        const float dotSize = 0.006f * bars.size * glm::length(across);
+        const float dotSize = 0.012f * bars.size * glm::length(across);
         fill = std::clamp(fill, 0.0f, 1.0f);
+        // Brighter than the first version, which read faintly in the headset:
+        // the lit dots have a pale core and a halo that runs them together.
+        constexpr float kBrighter = 1.5f;
+        const glm::vec3 core = glm::mix(colour, glm::vec3(1.0f), 0.3f);
         for (int i = 0; i < kDots; ++i) {
             // From the back of the hand, round over the thumb side.
             const float angle = glm::two_pi<float>() * (static_cast<float>(i) + 0.5f) / kDots;
             const glm::vec3 at = centre + radius * (std::cos(angle) * up + std::sin(angle) * across);
             const bool lit = (static_cast<float>(i) + 0.5f) / kDots <= fill;
-            const float alpha = (lit ? brightness : 0.15f) * bars.opacity;
-            glows.push_back({at, glm::vec4(colour, alpha), lit ? dotSize : dotSize * 0.7f});
+            if (!lit) {
+                glows.push_back({at, glm::vec4(colour, 0.35f * bars.opacity), dotSize * 0.8f});
+                continue;
+            }
+            const float alpha = brightness * kBrighter * bars.opacity;
+            glows.push_back({at, glm::vec4(core, alpha), dotSize * 0.6f});
+            glows.push_back({at, glm::vec4(colour, alpha), dotSize});
+            glows.push_back({at, glm::vec4(colour, alpha * 0.5f), dotSize * 2.0f});
         }
     };
 
