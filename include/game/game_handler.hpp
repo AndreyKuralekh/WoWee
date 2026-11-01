@@ -1025,6 +1025,11 @@ public:
     // Timestamp (ms since epoch) of the most recent player melee auto-attack.
     // Zero if no swing has occurred this session.
     uint64_t getLastMeleeSwingMs() const;
+    /// See CombatHandler::setStrikeOnDemand.
+    void setStrikeOnDemand(bool on);
+    bool strikeOnDemand() const;
+    bool strike();
+    uint64_t getStrikeTarget() const;
     const std::vector<CombatTextEntry>& getCombatText() const;
     void clearCombatText();
     void updateCombatText(float deltaTime);
@@ -2934,6 +2939,13 @@ public:
     void setPlayerSpellEventCallback(PlayerSpellEventCallback cb) { playerSpellEventCallback_ = std::move(cb); }
     void firePlayerSpellEvent(PlayerSpellEvent event, uint32_t spellId) {
         if (playerSpellEventCallback_) playerSpellEventCallback_(event, spellId);
+    }
+    // Each of the player's own melee swings as the server reports it, and
+    // whether it landed - did damage - or was missed, dodged or parried.
+    using PlayerSwingCallback = std::function<void(bool landed)>;
+    void setPlayerSwingCallback(PlayerSwingCallback cb) { playerSwingCallback_ = std::move(cb); }
+    void firePlayerSwing(bool landed) {
+        if (playerSwingCallback_) playerSwingCallback_(landed);
     }
     void addUIError(const std::string& msg) {
         if (uiErrorCallback_) uiErrorCallback_(msg);
@@ -5143,6 +5155,7 @@ private:
     // ---- UI error frame callback ----
     UIErrorCallback uiErrorCallback_;
     PlayerSpellEventCallback playerSpellEventCallback_;
+    PlayerSwingCallback playerSwingCallback_;
 
     // ---- Reputation change callback ----
     RepChangeCallback repChangeCallback_;

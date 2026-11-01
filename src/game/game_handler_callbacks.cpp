@@ -2151,6 +2151,22 @@ uint64_t GameHandler::getLastMeleeSwingMs() const {
     return combatHandler_ ? combatHandler_->getLastMeleeSwingMs() : 0;
 }
 
+void GameHandler::setStrikeOnDemand(bool on) {
+    if (combatHandler_) combatHandler_->setStrikeOnDemand(on);
+}
+
+bool GameHandler::strikeOnDemand() const {
+    return combatHandler_ && combatHandler_->strikeOnDemand();
+}
+
+bool GameHandler::strike() {
+    return combatHandler_ && combatHandler_->strike();
+}
+
+uint64_t GameHandler::getStrikeTarget() const {
+    return combatHandler_ ? combatHandler_->getStrikeTarget() : 0;
+}
+
 const std::vector<CombatTextEntry>& GameHandler::getCombatText() const {
     static const std::vector<CombatTextEntry> empty;
     return combatHandler_ ? combatHandler_->getCombatText() : empty;

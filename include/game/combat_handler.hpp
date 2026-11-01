@@ -43,6 +43,16 @@ public:
     [[nodiscard]] bool isAggressiveTowardPlayer(uint64_t guid) const { return hostileAttackers_.count(guid) > 0; }
     [[nodiscard]] uint64_t getLastMeleeSwingMs() const { return lastMeleeSwingMs_; }
 
+    // Strike on demand (a headset's swing, TASK_04 step 4): while on, an
+    // attack command only marks its target, and each strike() is one swing -
+    // CMSG_ATTACKSWING, then CMSG_ATTACKSTOP as soon as it lands or 0.3 s
+    // later. The server keeps the weapon's timer and lands a swing asked for
+    // early when the weapon is ready, so it is never asked early here.
+    void setStrikeOnDemand(bool on);
+    [[nodiscard]] bool strikeOnDemand() const { return strikeOnDemand_; }
+    [[nodiscard]] uint64_t getStrikeTarget() const { return strikeTarget_; }
+    bool strike();
+
     // Floating combat text
     [[nodiscard]] const std::vector<CombatTextEntry>& getCombatText() const { return combatText_; }
     void updateCombatText(float deltaTime);
@@ -218,6 +228,12 @@ private:
     std::deque<RecentSpellstealLogEntry> recentSpellstealLogs_;
 
     uint64_t lastMeleeSwingMs_ = 0;
+
+    bool strikeOnDemand_ = false;
+    uint64_t strikeTarget_ = 0;
+    bool strikeOut_ = false;  // an ATTACKSWING sent, its swing not yet seen
+    std::chrono::steady_clock::time_point strikeSentAt_{};
+    void endStrike();
 
     // unitGuid → sorted threat list (descending by threat value)
     std::unordered_map<uint64_t, std::vector<ThreatEntry>> threatLists_;

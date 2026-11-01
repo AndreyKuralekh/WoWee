@@ -341,6 +341,13 @@ void CombatHandler::startAutoAttack(uint64_t targetGuid) {
         owner_.dismount();
     }
 
+    // On demand, the command only names what the next strike is at.
+    if (strikeOnDemand_) {
+        if (strikeTarget_ != targetGuid) LOG_INFO("Strike on demand: target 0x", std::hex, targetGuid, std::dec);
+        strikeTarget_ = targetGuid;
+        return;
+    }
+
     autoAttackRequested_ = true;
     autoAttackRetryPending_ = true;
     // Keep combat animation/state server-authoritative. We only flip autoAttacking
@@ -376,7 +383,38 @@ void CombatHandler::startAutoAttack(uint64_t targetGuid) {
     LOG_INFO("Starting auto-attack on 0x", std::hex, targetGuid, std::dec);
 }
 
+void CombatHandler::setStrikeOnDemand(bool on) {
+    if (on == strikeOnDemand_) return;
+    // Whatever was going under the old way stops with it.
+    stopAutoAttack();
+    strikeOnDemand_ = on;
+    LOG_INFO("Strike on demand ", on ? "on" : "off");
+}
+
+bool CombatHandler::strike() {
+    if (!strikeOnDemand_ || strikeTarget_ == 0 || strikeOut_) return false;
+    if (owner_.getState() != WorldState::IN_WORLD || !owner_.getSocket()) return false;
+    owner_.getSocket()->send(AttackSwingPacket::build(strikeTarget_));
+    strikeOut_ = true;
+    strikeSentAt_ = std::chrono::steady_clock::now();
+    return true;
+}
+
+// The swing asked for has landed, or will not: the server is told to stop,
+// or it would go on swinging at the weapon's pace on its own.
+void CombatHandler::endStrike() {
+    if (!strikeOut_) return;
+    strikeOut_ = false;
+    if (owner_.getState() == WorldState::IN_WORLD && owner_.getSocket()) {
+        owner_.getSocket()->send(AttackStopPacket::build());
+    }
+}
+
 void CombatHandler::stopAutoAttack() {
+    if (strikeTarget_ != 0 || strikeOut_) {
+        endStrike();
+        strikeTarget_ = 0;
+    }
     if (!autoAttacking_ && !autoAttackRequested_) return;
     autoAttackRequested_ = false;
     autoAttacking_ = false;
@@ -598,7 +636,11 @@ void CombatHandler::handleAttackStart(network::Packet& packet) {
     revealCombatant(data.attackerGuid);
     revealCombatant(data.victimGuid);
 
-    if (data.attackerGuid == owner_.getPlayerGuid()) {
+    if (data.attackerGuid == owner_.getPlayerGuid() && strikeOnDemand_) {
+        // A strike's own start. Taken as an attack begun, it turned on the
+        // resend below and the server's next ATTACKSTOP brought a swing
+        // nobody made (TASK_04 step 0.1).
+    } else if (data.attackerGuid == owner_.getPlayerGuid()) {
         autoAttackRequested_ = true;
         autoAttacking_ = true;
         autoAttackRetryPending_ = false;
@@ -661,6 +703,11 @@ void CombatHandler::handleAttackerStateUpdate(network::Packet& packet) {
         lastMeleeSwingMs_ = static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count());
+        endStrike();
+        // Landed is a blow that did damage: a miss is flagged, and a dodge,
+        // a parry or a full block leave none.
+        constexpr uint32_t kHitInfoMiss = 0x10;
+        owner_.firePlayerSwing((data.hitInfo & kHitInfoMiss) == 0 && data.totalDamage > 0);
         // Skip melee animation if a ranged shot was just triggered from
         // SMSG_SPELL_GO (Auto Shot / Shoot / Throw).  The ranged animation
         // is already playing; firing the melee callback here would override it.
@@ -836,6 +883,22 @@ void CombatHandler::updateAutoAttack(float deltaTime) {
         autoAttackRangeWarnCooldown_ = std::max(0.0f, autoAttackRangeWarnCooldown_ - deltaTime);
     }
 
+    // A strike that has not landed in this long will not land as one: out of
+    // reach, facing away, or the server is holding it for the weapon - which
+    // would make it a swing long after the arm's.
+    if (strikeOut_ && std::chrono::steady_clock::now() - strikeSentAt_ > std::chrono::milliseconds(300)) {
+        LOG_INFO("Strike on demand: no swing in 0.3 s - stopped");
+        endStrike();
+    }
+    // A strike target that is gone or dead is no longer one.
+    if (strikeTarget_ != 0) {
+        auto target = std::dynamic_pointer_cast<Unit>(owner_.getEntityManager().getEntity(strikeTarget_));
+        if (!target || (target->getMaxHealth() > 0 && target->getHealth() == 0)) {
+            endStrike();
+            strikeTarget_ = 0;
+        }
+    }
+
     // Leave combat if auto-attack target is too far away (leash range)
     // and keep melee intent tightly synced while stationary.
     if (autoAttackRequested_ && autoAttackTarget_ != 0) {
@@ -932,6 +995,9 @@ void CombatHandler::resetAllCombatState() {
     autoAttackRangeWarnCooldown_ = 0.0f;
     autoAttackResendTimer_ = 0.0f;
     lastMeleeSwingMs_ = 0;
+    // Not endStrike: the world this was for is gone, and nothing is sent.
+    strikeTarget_ = 0;
+    strikeOut_ = false;
 }
 
 void CombatHandler::removeHostileAttacker(uint64_t guid) {
