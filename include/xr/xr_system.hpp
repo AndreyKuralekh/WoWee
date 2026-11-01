@@ -384,6 +384,12 @@ public:
     };
     /// On the weapon hand - the one that points - alone.
     void feelWeapon(HapticPattern pattern);
+    /// Whether the character can fight (TASK_04 step 5): alive, in the world,
+    /// not riding, flying a taxi or on a transport. Without it the hands are
+    /// silent, a swing is nothing and the glowing frame's button is a plain
+    /// key - no waiting, no refusing, no casting again.
+    void setCombatAllowed(bool allowed) { combatAllowed_ = allowed; }
+    [[nodiscard]] bool combatAllowed() const { return combatAllowed_; }
     /// Strike by swinging (TASK_04 step 4): whether a swing of the weapon
     /// hand strikes, and how fast its tip must move, in metres a second.
     /// True once per swing seen; what it does is the game's to decide.
@@ -676,6 +682,7 @@ private:
     bool weaponDrawn_ = false;
     bool groundByOffHand_ = false;
     WristBars wristBars_;
+    bool combatAllowed_ = true;
     bool swingStrike_ = true;
     float swingSpeed_ = 2.5f;
     bool swingAsked_ = false;

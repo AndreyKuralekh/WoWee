@@ -120,6 +120,7 @@ struct XrSystem::InputData {
     bool loadedRepress = false;    // the key is up for a frame, to go down again
     bool loadedOwnsCast = false;   // the cast going is the one the key began
     bool loadedSawCast = false;
+    std::chrono::steady_clock::time_point loadedUpSince{};  // the button seen up, not yet taken as let go
     std::chrono::steady_clock::time_point loadedFiredAt{};
     // Both controllers hum while a spell is made ready; see updateCastHaptics.
     XrAction hapticLeft = XR_NULL_HANDLE;
@@ -465,6 +466,17 @@ void XrSystem::updateLoadedAction(bool loaded, bool aimed) {
     const auto now = std::chrono::steady_clock::now();
     const bool casting = game && game->isCasting() && !game->isRestoring();
 
+    // Let go only once it has stayed let go for a moment: a trigger squeezed
+    // round the runtime's threshold can drop out for a frame, and a release
+    // cancels the cast (TASK_04 step 5). A real release is late by as much.
+    constexpr auto kReleaseSettle = std::chrono::milliseconds(60);
+    if (loaded) {
+        in.loadedUpSince = {};
+    } else if (in.loadedWanted) {
+        if (in.loadedUpSince == std::chrono::steady_clock::time_point{}) in.loadedUpSince = now;
+        if (now - in.loadedUpSince < kReleaseSettle) loaded = true;
+    }
+
     if (loaded && !in.loadedWanted) {
         in.loadedKey = kActionKeys[std::clamp(loadedSlot_, 0, 11)];
         if (aimed) targetByOffHandRay();
@@ -503,14 +515,16 @@ void XrSystem::updateLoadedAction(bool loaded, bool aimed) {
         }
     }
     // Held on after the spell went: again, if asked, at a target still alive.
-    if (loaded && keepCasting_ && in.loadedFired && !in.loadedOwnsCast && !in.loadedPending && game &&
+    if (loaded && keepCasting_ && combatAllowed_ && in.loadedFired && !in.loadedOwnsCast && !in.loadedPending && game &&
         targetAlive(*game) && now - in.loadedFiredAt > std::chrono::milliseconds(500)) {
         in.loadedPending = true;
         in.loadedRefusable = false;
     }
 
     if (loaded && in.loadedPending && !in.loadedAimFrame && game) {
-        const LoadedWait wait = loadedWait(*game, loadedBarSlot_);
+        // Out of a fight - riding, dead - the key is only a key: the game
+        // does with it what it does with the keyboard's.
+        const LoadedWait wait = combatAllowed_ ? loadedWait(*game, loadedBarSlot_) : LoadedWait{};
         const bool refusable = in.loadedRefusable;
         in.loadedRefusable = false;
         if (wait.empty) {
@@ -559,7 +573,7 @@ void XrSystem::updateSwing() {
     if (in.tipAt != 0 && time > in.tipAt) {
         const float seconds = static_cast<float>(time - in.tipAt) * 1e-9f;
         const float speed = glm::length(tip - in.tip) / seconds;
-        if (in.swingArmed && speed > swingSpeed_ && !pointerHasMouse_) {
+        if (in.swingArmed && speed > swingSpeed_ && !pointerHasMouse_ && combatAllowed_) {
             in.swingArmed = false;
             swingAsked_ = true;
             LOG_INFO("VR: swing, the tip at ", speed, " m/s");
@@ -578,6 +592,7 @@ void XrSystem::refuseLoadedAction(game::GameHandler& game, const char* message) 
 }
 
 void XrSystem::feel(HapticPattern pattern) {
+    if (!combatAllowed_) return;
     // Physical left is the casting hand unless the player is left-handed.
     const int casting = leftHanded_ ? 1 : 0;
     playHaptic(casting, pattern);
@@ -585,6 +600,7 @@ void XrSystem::feel(HapticPattern pattern) {
 }
 
 void XrSystem::feelWeapon(HapticPattern pattern) {
+    if (!combatAllowed_) return;
     playHaptic(leftHanded_ ? 0 : 1, pattern);
 }
 

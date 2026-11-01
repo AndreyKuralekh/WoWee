@@ -3865,7 +3865,11 @@ void Application::updateVrStrike(std::vector<rendering::FreeGlow>& glows) {
     xr::XrSystem& vr = xr::system();
     game.setStrikeOnDemand(vr.sessionRunning() && vr.swingStrike());
     const bool swung = vr.takeSwing();
-    if (!game.strikeOnDemand()) return;
+    if (!game.strikeOnDemand() || !vr.combatAllowed()) {
+        vrWeaponWasReady_ = false;
+        vrStrikeFlash_ = 0.0f;
+        return;
+    }
 
     const bool weaponOut = appearanceComposer_ && !appearanceComposer_->isWeaponsSheathed() &&
                            !game.getInventory().getEquipSlot(game::EquipSlot::MAIN_HAND).empty();
@@ -4135,6 +4139,10 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
     // the colour of its school with a paler core, growing as the cast does.
     // In a headset the hands are where the player looks.
     if (renderer && gameHandler) {
+        // Whether the character can fight at all; see XrSystem::setCombatAllowed.
+        xr::system().setCombatAllowed(gameHandler->isInWorld() && !gameHandler->isPlayerDead() &&
+                                      !gameHandler->isPlayerGhost() && !gameHandler->isMounted() &&
+                                      !gameHandler->isOnTaxiFlight() && !gameHandler->isOnTransport());
         std::vector<rendering::M2Renderer::FreeGlow> glows;
         auto* svs = renderer->getSpellVisualSystem();
         auto* characters = renderer->getCharacterRenderer();
@@ -4181,7 +4189,7 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
                 }
             }
         }
-        appendWristBars(*gameHandler, uiManager.get(), glows);
+        if (xr::system().combatAllowed()) appendWristBars(*gameHandler, uiManager.get(), glows);
         updateVrStrike(glows);
         if (auto* m2 = renderer->getM2Renderer()) m2->setFreeGlows(std::move(glows));
     }
