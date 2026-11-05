@@ -3796,7 +3796,7 @@ float swingReadiness(const game::GameHandler& game) {
 // frame, dim while it waits and bright once it can go - and red round the
 // other for the weapon's swing while auto-attacking, an estimate from its
 // speed and the last swing (the server does not say when the next is due).
-void appendWristBars(game::GameHandler& game, ui::UIManager* ui,
+void appendWristBars(game::GameHandler& game, ui::UIManager* ui, bool bodyShown,
                      std::vector<rendering::M2Renderer::FreeGlow>& glows) {
     const xr::XrSystem::WristBars& bars = xr::system().wristBars();
     if (!bars.shown || bars.opacity <= 0.0f) return;
@@ -3809,13 +3809,17 @@ void appendWristBars(game::GameHandler& game, ui::UIManager* ui,
         glm::vec3 across;
         glm::vec3 up;
         if (!xr::system().wristInWorld(castingHand, centre, across, up)) return;
-        const float radius = 0.045f * bars.size;    // metres
+        // Round the character's own forearm when its body is drawn: a man's in
+        // plate is far thicker than the player's, and a ring the size of a
+        // wrist went into it. Round the player's own hand otherwise.
+        const float radius = (bodyShown ? 0.1f : 0.045f) * bars.size;  // metres
         const float dotSize = 0.012f * bars.size * glm::length(across);
         fill = std::clamp(fill, 0.0f, 1.0f);
-        // Brighter than the first version, which read faintly in the headset:
-        // the lit dots have a pale core and a halo that runs them together.
-        constexpr float kBrighter = 1.5f;
-        const glm::vec3 core = glm::mix(colour, glm::vec3(1.0f), 0.3f);
+        // Bright enough to read in the headset, and still its colour: sprites
+        // laid over each other add up, and every channel that reaches one goes
+        // white - so a dot and a weaker halo, in a colour with little of the
+        // other two channels.
+        constexpr float kBrighter = 1.2f;
         for (int i = 0; i < kDots; ++i) {
             // From the back of the hand, round over the thumb side.
             const float angle = glm::two_pi<float>() * (static_cast<float>(i) + 0.5f) / kDots;
@@ -3826,14 +3830,13 @@ void appendWristBars(game::GameHandler& game, ui::UIManager* ui,
                 continue;
             }
             const float alpha = brightness * kBrighter * bars.opacity;
-            glows.push_back({at, glm::vec4(core, alpha), dotSize * 0.6f});
             glows.push_back({at, glm::vec4(colour, alpha), dotSize});
-            glows.push_back({at, glm::vec4(colour, alpha * 0.5f), dotSize * 2.0f});
+            glows.push_back({at, glm::vec4(colour, alpha * 0.35f), dotSize * 2.0f});
         }
     };
 
     // Blue: the cast, or the framed spell's readiness.
-    constexpr glm::vec3 kBlue(0.35f, 0.6f, 1.0f);
+    constexpr glm::vec3 kBlue(0.05f, 0.35f, 1.0f);
     if (casting) {
         const float progress = game.getCastProgress();
         ring(true, game.isChanneling() ? 1.0f - progress : progress, kBlue, 1.8f);
@@ -3859,7 +3862,7 @@ void appendWristBars(game::GameHandler& game, ui::UIManager* ui,
     // Red: the swing, while auto-attacking or with a strike target.
     if (game.isAutoAttacking() || game.getStrikeTarget() != 0) {
         const float fill = swingReadiness(game);
-        ring(false, fill, glm::vec3(1.0f, 0.25f, 0.2f), fill >= 1.0f ? 1.6f : 1.0f);
+        ring(false, fill, glm::vec3(1.0f, 0.1f, 0.05f), fill >= 1.0f ? 1.6f : 1.0f);
     }
 }
 
@@ -4199,7 +4202,9 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
                 }
             }
         }
-        if (xr::system().combatAllowed()) appendWristBars(*gameHandler, uiManager.get(), glows);
+        glm::vec3 eyes;
+        if (xr::system().combatAllowed())
+            appendWristBars(*gameHandler, uiManager.get(), renderer->vrEyesInBody(eyes), glows);
         updateVrStrike(glows);
         if (auto* m2 = renderer->getM2Renderer()) m2->setFreeGlows(std::move(glows));
     }
