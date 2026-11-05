@@ -1059,14 +1059,25 @@ void SpellVisualSystem::placeStateEffect(uint32_t charInstanceId, const UnitStat
             return;
         }
     }
-    // No such point on this model: its middle, or its feet for a base effect.
+    // A base effect - a shield round the feet - at the feet: the model's own
+    // origin. For the player's own character, where the character is, not
+    // where its body is drawn: in a headset the body is moved under the head
+    // every frame, with each lean and with the run's sway, and Liska's ice
+    // shield shook along with it as she walked.
+    if (effect.def->atFeet) {
+        glm::vec3 feet;
+        if (renderer_ && charInstanceId == renderer_->getCharacterInstanceId()) {
+            feet = renderer_->getCharacterPosition();
+        } else if (!charRenderer->getInstancePosition(charInstanceId, feet)) {
+            return;
+        }
+        m2Renderer_->setInstancePosition(effect.m2Instance, feet);
+        return;
+    }
+    // No such point on this model: its middle.
     glm::vec3 centre;
     float radius = 0.0f;
     if (!charRenderer->getInstanceBounds(charInstanceId, centre, radius)) return;
-    float height = 0.0f;
-    if (effect.def->atFeet && charRenderer->getInstanceHeight(charInstanceId, height)) {
-        centre.z -= height * 0.5f;
-    }
     m2Renderer_->setInstancePosition(effect.m2Instance, centre);
 }
 
