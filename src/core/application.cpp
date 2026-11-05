@@ -3370,28 +3370,32 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
             } else if (groundCreature && !creatureMount) {
                 // Standing still, on the ground too. A spawn's Z in the
                 // database is a little off the ground as often as not - in
-                // Northshire up to half a yard over it - and only a moving
+                // Northshire up to half a yard over it, and Eagan Peltskinner
+                // by the abbey 0.77 over the grass - and only a moving
                 // creature was put on the floor: the rest stood in the air.
-                // Looked up once a server position, and taken only within
-                // a little over half a yard, so a hovering one stays up.
+                // Looked up once a server position: the floor under the feet,
+                // as far as two yards down but no more than a little over
+                // half a yard up, so that a floor above - the storey over a
+                // room, the hill over a tunnel - is never the one stood on.
                 auto& rest = creatureRestFloor_[guid];
                 if (!rest.found || rest.server != renderPos) {
                     rest.server = renderPos;
                     rest.z = renderPos.z;
                     rest.found = false;
-                    // The closest of the three floors, without the moving
-                    // path's shortcut to the terrain: indoors the heightfield
-                    // under a building can be nearer than the building's own
-                    // floor, and a standing NPC would sink into it.
-                    constexpr float kRestWindow = 0.6f;
+                    // The highest of the three floors within that, without
+                    // the moving path's shortcut to the terrain: indoors the
+                    // heightfield under a building is below the building's
+                    // own floor, and a standing NPC would sink into it.
+                    constexpr float kRestAbove = 0.6f;
+                    constexpr float kRestBelow = 2.0f;
                     std::optional<float> best;
                     const auto consider = [&](const std::optional<float>& f) {
                         if (!f) return;
                         rest.found = true;
-                        if (std::abs(*f - renderPos.z) > kRestWindow) return;
-                        if (!best || std::abs(*f - renderPos.z) < std::abs(*best - renderPos.z)) best = f;
+                        if (*f > renderPos.z + kRestAbove || *f < renderPos.z - kRestBelow) return;
+                        if (!best || *f > *best) best = f;
                     };
-                    const float probeZ = renderPos.z + kRestWindow;
+                    const float probeZ = renderPos.z + kRestAbove;
                     if (auto* terrain = renderer->getTerrainManager()) consider(terrain->getHeightAt(renderPos.x, renderPos.y));
                     if (auto* wmo = renderer->getWMORenderer()) {
                         consider(wmo->getFloorHeight(renderPos.x, renderPos.y, probeZ, nullptr, renderPos.z));
