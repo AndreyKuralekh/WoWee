@@ -182,8 +182,9 @@ static bool looksLikeQuestDescriptionText(const std::string& s) {
 static bool isStrongQuestTitle(const std::string& s) {
     if (!isReadableQuestText(s, 6, 72)) return false;
     if (looksLikeQuestDescriptionText(s)) return false;
-    unsigned char first = static_cast<unsigned char>(s.front());
-    return std::isupper(first) != 0;
+    // Upper case in any of the locales' alphabets: a Russian title starts
+    // with a UTF-8 lead byte, which std::isupper never says is a capital.
+    return questTextFirstLetterCase(s) > 0;
 }
 
 static int scoreQuestTitle(const std::string& s) {
@@ -191,9 +192,9 @@ static int scoreQuestTitle(const std::string& s) {
     if (looksLikeQuestDescriptionText(s)) return -1000;
     int score = 0;
     score += static_cast<int>(std::min<size_t>(s.size(), 32));
-    unsigned char first = static_cast<unsigned char>(s.front());
-    if (std::isupper(first)) score += 20;
-    if (std::islower(first)) score -= 20;
+    const int firstCase = questTextFirstLetterCase(s);
+    if (firstCase > 0) score += 20;
+    if (firstCase < 0) score -= 20;
     if (s.find(' ') != std::string::npos) score += 8;
     if (s.find('.') != std::string::npos) score -= 18;
     if (s.find('!') != std::string::npos || s.find('?') != std::string::npos) score -= 6;
