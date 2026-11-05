@@ -3800,7 +3800,7 @@ float swingReadiness(const game::GameHandler& game) {
 // frame, dim while it waits and bright once it can go - and red round the
 // other for the weapon's swing while auto-attacking, an estimate from its
 // speed and the last swing (the server does not say when the next is due).
-void appendWristBars(game::GameHandler& game, ui::UIManager* ui, bool bodyShown,
+void appendWristBars(game::GameHandler& game, ui::UIManager* ui, bool bodyShown, bool femaleBody,
                      std::vector<rendering::M2Renderer::FreeGlow>& glows) {
     const xr::XrSystem::WristBars& bars = xr::system().wristBars();
     if (!bars.shown || bars.opacity <= 0.0f) return;
@@ -3813,10 +3813,13 @@ void appendWristBars(game::GameHandler& game, ui::UIManager* ui, bool bodyShown,
         glm::vec3 across;
         glm::vec3 up;
         if (!xr::system().wristInWorld(castingHand, centre, across, up)) return;
-        // Round the character's own forearm when its body is drawn: a man's in
-        // plate is far thicker than the player's, and a ring the size of a
-        // wrist went into it. Round the player's own hand otherwise.
-        const float radius = (bodyShown ? 0.1f : 0.045f) * bars.size;  // metres
+        // Round the character's own forearm when its body is drawn, as wide as
+        // that is: a man's - Dron's, a paladin - is far thicker than the
+        // player's, and a ring the size of a wrist went into it, while one
+        // that clears his sat loose round a woman's like a hoop rather than a
+        // bracelet. Round the player's own hand otherwise.
+        const float bodyRadius = femaleBody ? 0.06f : 0.1f;
+        const float radius = (bodyShown ? bodyRadius : 0.045f) * bars.size;  // metres
         const float dotSize = 0.012f * bars.size * glm::length(across);
         fill = std::clamp(fill, 0.0f, 1.0f);
         // Bright enough to read in the headset, and still its colour: sprites
@@ -4208,7 +4211,10 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
         }
         glm::vec3 eyes;
         if (xr::system().combatAllowed())
-            appendWristBars(*gameHandler, uiManager.get(), renderer->vrEyesInBody(eyes), glows);
+            appendWristBars(*gameHandler, uiManager.get(), renderer->vrEyesInBody(eyes),
+                            gameHandler->getActiveCharacter() &&
+                                gameHandler->getActiveCharacter()->gender == game::Gender::FEMALE,
+                            glows);
         updateVrStrike(glows);
         if (auto* m2 = renderer->getM2Renderer()) m2->setFreeGlows(std::move(glows));
     }
