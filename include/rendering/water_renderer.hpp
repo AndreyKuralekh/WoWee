@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <vector>
 #include <memory>
 #include <optional>
@@ -167,6 +168,9 @@ public:
     /// plane). The shader turns the depth copy into yards with them.
     void setDepthRange(float nearPlane, float farPlane) { depthRangeOverride_ = glm::vec2(nearPlane, farPlane); }
     void clearDepthRange() { depthRangeOverride_.reset(); }
+    /// How far into the water the bed shows (Water clarity): 1 as designed,
+    /// 2 through twice the depth.
+    void setClarity(float clarity) { clarity_ = std::clamp(clarity, 0.5f, 2.0f); }
 
     /// Where a point sits on a surface, if that surface has water there:
     /// the projection and the render mask, which every query asks first.
@@ -283,6 +287,7 @@ private:
     bool refractionEnabled = false;
     VkExtent2D renderExtent_{.width = 0, .height = 0};
     std::optional<glm::vec2> depthRangeOverride_;
+    float clarity_ = 1.3f;
     // The reflection pass ran this frame and set its matrix. Without it the
     // reflection texture holds whatever was last drawn into it, from another
     // camera and maybe another place, and the water is told to leave it out.

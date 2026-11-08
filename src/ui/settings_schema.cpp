@@ -91,6 +91,10 @@ constexpr SettingDesc kSchema[] = {
      "How much distant fog is tinted toward the sky behind it, so the\n"
      "horizon does not stand out pale against a dark sky. 0 uses the\n"
      "zone's fog colour alone; 1 matches the sky.", "", 0.7f},
+    {"waterclarity", "Water clarity", SettingKind::Float, 0.5f, 2.0f, 0.05f, "Graphics", "",
+     "How far into rivers and lakes the bed shows. 1 is the water as\n"
+     "designed; 2 sees through twice the depth, 0.5 half. The water's\n"
+     "colour and the haze under it follow together.", "", 1.3f},
     // The light shafts' own thickness. Their switch and its quality are on
     // the Detail page; see there.
     {"mistdensity", "Mist density", SettingKind::Float, 0, 3, 0.1f, "Graphics", "",

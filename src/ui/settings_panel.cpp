@@ -37,6 +37,7 @@
 #include "rendering/m2_renderer.hpp"
 #include "rendering/weather.hpp"
 #include "rendering/vk_context.hpp"
+#include "rendering/water_renderer.hpp"
 #include "rendering/wmo_renderer.hpp"
 #include "rendering/character_renderer.hpp"
 #include "game/zone_manager.hpp"
@@ -882,7 +883,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "grassdistance", "waterrefraction", "upscaling", "fsrquality",
     "fsrsharpness", "framegen", "brightness", "uiopacity", "minimapsquare",
     "minimapnpcdots", "minimapclock", "minimapcoords", "minimaprotate", "latencymeter",
-    "fogskyblend", "fogstrength", "daylight", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
+    "fogskyblend", "fogstrength", "daylight", "waterclarity", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
     "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrdrawbyreach", "vrkeepcasting", "vrhapticstrength", "vrswingstrike", "vrswingspeed", "vrbars", "vrbarsize", "vrbaropacity", "vrbarscombatonly", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
@@ -1029,6 +1030,7 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "fogskyblend",    .asFloat = &SettingsPanel::pendingFogSkyBlend},
     {.key = "fogstrength",    .asFloat = &SettingsPanel::pendingFogStrength},
     {.key = "daylight",       .asFloat = &SettingsPanel::pendingLightCeiling},
+    {.key = "waterclarity",   .asFloat = &SettingsPanel::pendingWaterClarity},
     {.key = "lightshafts",    .asInt   = &SettingsPanel::pendingVolumetricFog},
     {.key = "raytracedlighting", .asInt = &SettingsPanel::pendingRtLighting},
     {.key = "mistdensity",    .asFloat = &SettingsPanel::pendingVolumetricDensity},
@@ -1593,6 +1595,8 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
                 lighting->setFogStrength(pendingFogStrength);
             }
         }
+    } else if (key == "waterclarity") {
+        if (renderer && renderer->getWaterRenderer()) renderer->getWaterRenderer()->setClarity(pendingWaterClarity);
     } else if (key == "daylight") {
         if (renderer) {
             if (auto* lighting = renderer->getLightingManager()) {

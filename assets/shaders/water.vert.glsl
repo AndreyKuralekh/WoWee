@@ -29,7 +29,8 @@ layout(push_constant) uniform Push {
     vec2 screenSize;
     vec2 depthRange;
     float sceneValid;
-    float pad0, pad1, pad2;
+    float clarity;
+    float pad1, pad2;
 } push;
 
 layout(location = 0) in vec3 aPos;

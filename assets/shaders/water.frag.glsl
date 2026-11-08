@@ -30,7 +30,8 @@ layout(push_constant) uniform Push {
     vec2 screenSize;  // size of the target being drawn into
     vec2 depthRange;  // the camera's own near and far, for linearising SceneDepth
     float sceneValid; // 1 once the refraction capture holds a frame, 0 before it
-    float pad0, pad1, pad2;
+    float clarity;    // how far the eye sees into the water, 1 as designed (Water clarity)
+    float pad1, pad2;
 } push;
 
 layout(set = 1, binding = 0) uniform WaterMaterial {
@@ -391,17 +392,21 @@ void main() {
     if (basicType > 0.5 && basicType < 1.5) {
         absorptionCoeff = vec3(0.35, 0.06, 0.04);
     }
-    vec3 absorbed = exp(-absorptionCoeff * verticalDepth);
+    // Clarity stretches every depth the water clouds over: at 2 the bed shows
+    // through twice the depth it did. One factor for all of them, so the colour
+    // and the haze keep the balance they were tuned to.
+    float clearDepth = verticalDepth / max(push.clarity, 0.1);
+    vec3 absorbed = exp(-absorptionCoeff * clearDepth);
 
     // Underwater blue fog - geometry below the waterline fades to a blue haze
     // with depth, masking occlusion edge artifacts and giving a natural look.
     vec3 underwaterFogColor = waterColor.rgb * 0.5 + vec3(0.04, 0.10, 0.20);
-    float underwaterFogFade = 1.0 - exp(-verticalDepth * 0.35);
+    float underwaterFogFade = 1.0 - exp(-clearDepth * 0.35);
     vec3 foggedScene = mix(sceneRefract, underwaterFogColor, underwaterFogFade);
 
     vec3 shallowColor = waterColor.rgb * 1.2;
     vec3 deepColor = waterColor.rgb * vec3(0.3, 0.5, 0.7);
-    float depthFade = max(1.0 - exp(-verticalDepth * 0.15), bodyFloor);
+    float depthFade = max(1.0 - exp(-clearDepth * 0.15), bodyFloor);
     vec3 waterBody = mix(shallowColor, deepColor, depthFade);
 
     // Whether the refraction capture holds a frame is a fact the renderer
@@ -709,6 +714,8 @@ void main() {
     // ============================================================
     float baseAlpha = mix(waterAlpha, min(1.0, waterAlpha * 1.5), depthFade);
     float alpha = mix(baseAlpha, min(1.0, baseAlpha * 1.3), fresnel) * alphaScale;
+    // ...and the surface itself lets a little more through, half as much again.
+    alpha /= mix(1.0, max(push.clarity, 0.1), 0.5);
     alpha = clamp(alpha, 0.15, 0.92);
     // Wet sand is a band on the beach, not a film of water, so it needs enough
     // presence to darken what is under it; foam has to be close to opaque or it
