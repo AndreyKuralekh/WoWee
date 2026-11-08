@@ -3319,7 +3319,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
             if (weather && camera) weather->render(cmd, perFrameSet);
             if (lightning && camera && lightning->isEnabled()) lightning->render(cmd, perFrameSet);
             if (swimEffects && camera && !swimEffectsDrawWithWater_) {
-                swimEffects->render(cmd, perFrameSet);
+                swimEffects->render(cmd, perFrameSet, static_cast<float>(activeRenderExtent_.height));
             }
             if (mountDust && camera) mountDust->render(cmd, perFrameSet);
             if (chargeEffect && camera) chargeEffect->render(cmd, perFrameSet);
@@ -3541,7 +3541,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
         if (weather && camera) weather->render(currentCmd, perFrameSet);
         if (lightning && camera && lightning->isEnabled()) lightning->render(currentCmd, perFrameSet);
         if (swimEffects && camera && !swimEffectsDrawWithWater_) {
-            swimEffects->render(currentCmd, perFrameSet);
+            swimEffects->render(currentCmd, perFrameSet, static_cast<float>(activeRenderExtent_.height));
         }
         if (mountDust && camera) mountDust->render(currentCmd, perFrameSet);
         if (chargeEffect && camera) chargeEffect->render(currentCmd, perFrameSet);
@@ -3626,7 +3626,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
         // barely at the shore where alpha sits near its floor, completely in the
         // deeper water you swim in.
         if (swimEffects && camera && swimEffectsDrawWithWater_) {
-            swimEffects->render(currentCmd, perFrameSet);
+            swimEffects->render(currentCmd, perFrameSet, static_cast<float>(waterExtent.height));
         }
 
         // And the minimap, last of all: it is the interface rather than the

@@ -716,7 +716,7 @@ void Renderer::vrDrawEyeWater(uint32_t eye, VkDescriptorSet perFrameSet) {
     waterRenderer->clearDepthRange();
     // The splashes go on the surface they are thrown off; set up to be drawn
     // with the water, they were drawn nowhere in the eyes.
-    if (swimEffects && swimEffectsDrawWithWater_) swimEffects->render(currentCmd, perFrameSet);
+    if (swimEffects && swimEffectsDrawWithWater_) swimEffects->render(currentCmd, perFrameSet, static_cast<float>(vrEyes_->extent.height));
 
     vkCmdEndRenderPass(currentCmd);
     vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkWater));

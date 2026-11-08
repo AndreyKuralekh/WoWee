@@ -49,7 +49,9 @@ public:
     }
     void update(const Camera& camera, const CameraController& cc,
                 const WaterRenderer& water, float deltaTime);
-    void render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet);
+    /// targetHeight: the height in pixels of the image drawn into; the drops are
+    /// sized in the world and turned into pixels with it.
+    void render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, float targetHeight);
     void spawnFootSplash(const glm::vec3& footPos, float waterH);
     void setM2Renderer(M2Renderer* renderer) { m2Renderer = renderer; }
 

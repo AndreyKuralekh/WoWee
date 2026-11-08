@@ -17,6 +17,9 @@
 namespace wowee {
 namespace rendering {
 
+// Half the target's height, for the drops' size in the world (swim_ripple.vert).
+static constexpr VkPushConstantRange kDropSizeRange{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float)};
+
 static std::mt19937& rng() {
     static std::random_device rd;
     static std::mt19937 gen(rd());
@@ -126,7 +129,7 @@ bool SwimEffects::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayou
         const auto& vertStage = shaders.vertStage;
         const auto& fragStage = shaders.fragStage;
 
-        ripplePipelineLayout = createPipelineLayout(device, {perFrameLayout}, {});
+        ripplePipelineLayout = createPipelineLayout(device, {perFrameLayout}, {kDropSizeRange});
         if (ripplePipelineLayout == VK_NULL_HANDLE) {
             LOG_ERROR("Failed to create ripple pipeline layout");
             return false;
@@ -148,7 +151,7 @@ bool SwimEffects::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayou
         const auto& vertStage = shaders.vertStage;
         const auto& fragStage = shaders.fragStage;
 
-        bubblePipelineLayout = createPipelineLayout(device, {perFrameLayout}, {});
+        bubblePipelineLayout = createPipelineLayout(device, {perFrameLayout}, {kDropSizeRange});
         if (bubblePipelineLayout == VK_NULL_HANDLE) {
             LOG_ERROR("Failed to create bubble pipeline layout");
             return false;
@@ -170,7 +173,7 @@ bool SwimEffects::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayou
         const auto& vertStage = shaders.vertStage;
         const auto& fragStage = shaders.fragStage;
 
-        insectPipelineLayout = createPipelineLayout(device, {perFrameLayout}, {});
+        insectPipelineLayout = createPipelineLayout(device, {perFrameLayout}, {kDropSizeRange});
         if (insectPipelineLayout == VK_NULL_HANDLE) {
             LOG_ERROR("Failed to create insect pipeline layout");
             return false;
@@ -656,7 +659,8 @@ void SwimEffects::update(const Camera& camera, const CameraController& cc,
     }
 }
 
-void SwimEffects::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet) {
+void SwimEffects::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, float targetHeight) {
+    const float halfHeight = 0.5f * targetHeight;
     if (rippleVertexData.empty() && bubbleVertexData.empty() && insectVertexData.empty()) return;
 
     VkDeviceSize offset = 0;
@@ -671,6 +675,7 @@ void SwimEffects::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ripplePipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ripplePipelineLayout,
             0, 1, &perFrameSet, 0, nullptr);
+        vkCmdPushConstants(cmd, ripplePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &halfHeight);
         vkCmdBindVertexBuffers(cmd, 0, 1, &rippleDynamicVB, &offset);
         vkCmdDraw(cmd, static_cast<uint32_t>(rippleVertexData.size() / 5), 1, 0, 0);
     }
@@ -685,6 +690,7 @@ void SwimEffects::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bubblePipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bubblePipelineLayout,
             0, 1, &perFrameSet, 0, nullptr);
+        vkCmdPushConstants(cmd, bubblePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &halfHeight);
         vkCmdBindVertexBuffers(cmd, 0, 1, &bubbleDynamicVB, &offset);
         vkCmdDraw(cmd, static_cast<uint32_t>(bubbleVertexData.size() / 5), 1, 0, 0);
     }
@@ -699,6 +705,7 @@ void SwimEffects::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, insectPipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, insectPipelineLayout,
             0, 1, &perFrameSet, 0, nullptr);
+        vkCmdPushConstants(cmd, insectPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &halfHeight);
         vkCmdBindVertexBuffers(cmd, 0, 1, &insectDynamicVB, &offset);
         vkCmdDraw(cmd, static_cast<uint32_t>(insectVertexData.size() / 5), 1, 0, 0);
     }
