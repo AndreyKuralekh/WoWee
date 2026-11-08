@@ -286,6 +286,14 @@ BLPImage AssetManager::loadTexture(const std::string& path, bool keepCompressed)
     }
 
     std::string normalizedPath = normalizePath(path);
+    // A model may name its texture without the extension - Project Reforged's
+    // Redridge tree canopies do - and the original client reads that as the
+    // .blp. Asked for as written, the file was never found.
+    {
+        const size_t slash = normalizedPath.find_last_of("\\/");
+        const size_t dot = normalizedPath.find_last_of('.');
+        if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) normalizedPath += ".blp";
+    }
 
     LOG_DEBUG("Loading texture: ", normalizedPath);
 
