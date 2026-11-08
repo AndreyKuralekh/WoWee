@@ -190,8 +190,9 @@ public:
     /// of the palm. False with the body drawn, whose hands are where the
     /// player's are already.
     bool vrHandInWorld(int hand, glm::vec3& position) const;
-    /// Whether the last stereo frame was seen from the character's own eyes.
-    bool vrInCharacterEyes() const { return vrInCharacterEyes_; }
+    /// Whether the headset sees from the character's own eyes, as of the last
+    /// frame it drew - steady through the frames it skips.
+    bool vrInCharacterEyes() const { return vrSeenFromEyes_; }
 #endif
     /// What a per-frame set allocated elsewhere binds at binding 2: a fog
     /// volume of clear air, for a set whose block leaves the fog off.
@@ -532,6 +533,7 @@ private:
     bool vrBodyShown_ = false;
     // The last stereo frame looked out of the character's own eyes.
     bool vrInCharacterEyes_ = false;
+    bool vrSeenFromEyes_ = false;  // vrInCharacterEyes_ as of the last frame drawn
     glm::vec2 vrHeadOffset_{0.0f};
     glm::vec2 vrHeadForward_{1.0f, 0.0f};
     glm::vec2 vrBodyOffset_{0.0f};                    // where the body stands from the character

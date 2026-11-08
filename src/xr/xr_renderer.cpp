@@ -307,6 +307,8 @@ void Renderer::vrBeginViews() {
     vrInCharacterEyes_ = false;
     if (camera) camera->clearPickRay();
     if (!vrGameHandler_) vrInWorld_ = false;
+    // No headset at all, rather than a frame skipped: nothing is seen from the eyes.
+    if (!vrGameHandler_ || (!xr::system().sessionRunning() && !xr::system().fakeHeadset())) vrSeenFromEyes_ = false;
     if (!vrGameHandler_ || !camera || currentCmd == VK_NULL_HANDLE || !xr::system().stereoFrame()) return;
 
     if (vkCtx->getMsaaSamples() != VK_SAMPLE_COUNT_1_BIT) {
@@ -361,6 +363,10 @@ void Renderer::vrBeginViews() {
         // still, and here that would turn the world round the player's head.
         if (cameraController->isIdleOrbitEnabled()) cameraController->setIdleOrbitEnabled(false);
     }
+    // Kept through frames the headset skips, which return above with
+    // vrInCharacterEyes_ cleared: what asks between frames - an aura ring
+    // round the player - jumped to the body on every one of them.
+    vrSeenFromEyes_ = vrInCharacterEyes_;
     const glm::vec3 forward = camera->getForward();
     const float yawDegrees = (std::abs(forward.x) + std::abs(forward.y) > 1e-4f)
                                  ? glm::degrees(std::atan2(forward.y, forward.x))
