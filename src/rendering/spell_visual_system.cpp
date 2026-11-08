@@ -673,7 +673,12 @@ glm::vec3 SpellVisualSystem::kitPosition(uint32_t attachInstanceId, uint32_t att
     // halo. Brought towards the eyes, the flame is in front of the hand
     // however it is turned.
     const bool hand = attachmentId == 1 || attachmentId == 2 || attachmentId == 21 || attachmentId == 22;
-    const bool ownHand = hand && renderer_ && attachInstanceId == renderer_->getCharacterInstanceId();
+    const bool own = renderer_ && attachInstanceId == renderer_->getCharacterInstanceId();
+    // The Base point of the player's own body sways with the head; an effect
+    // at the feet stands where the character is (see placeStateEffect).
+    constexpr uint32_t kBase = 19;
+    if (own && attachmentId == kBase) return renderer_->getCharacterPosition();
+    const bool ownHand = hand && own;
     // Without the body (Hands only) its hands are wherever its animation has
     // them, by the waist: the player's own hand instead. 1 is the right
     // hand, 22 the right hand's spell point.
@@ -1052,6 +1057,15 @@ void SpellVisualSystem::cancelAllPrecastVisuals() {
 void SpellVisualSystem::placeStateEffect(uint32_t charInstanceId, const UnitStateEffect& effect) {
     auto* charRenderer = renderer_ ? renderer_->getCharacterRenderer() : nullptr;
     if (!charRenderer || !m2Renderer_ || !effect.def) return;
+    // A base effect - a shield round the feet - on the player's own character
+    // stands where the character is, before any point on its body is asked:
+    // in a headset the body is moved under the head every frame, with each
+    // lean and with the run's sway, and its Base point with it - Liska's ice
+    // shield tilted as she nodded and shook as she ran.
+    if (effect.def->atFeet && renderer_ && charInstanceId == renderer_->getCharacterInstanceId()) {
+        m2Renderer_->setInstancePosition(effect.m2Instance, renderer_->getCharacterPosition());
+        return;
+    }
     glm::mat4 attachMat;
     for (uint32_t attachment : effect.def->attachments) {
         if (charRenderer->getAttachmentTransform(charInstanceId, attachment, attachMat)) {
@@ -1059,18 +1073,11 @@ void SpellVisualSystem::placeStateEffect(uint32_t charInstanceId, const UnitStat
             return;
         }
     }
-    // A base effect - a shield round the feet - at the feet: the model's own
-    // origin. For the player's own character, where the character is, not
-    // where its body is drawn: in a headset the body is moved under the head
-    // every frame, with each lean and with the run's sway, and Liska's ice
-    // shield shook along with it as she walked.
+    // A base effect on a model with no Base point: at its feet, the model's
+    // own origin.
     if (effect.def->atFeet) {
         glm::vec3 feet;
-        if (renderer_ && charInstanceId == renderer_->getCharacterInstanceId()) {
-            feet = renderer_->getCharacterPosition();
-        } else if (!charRenderer->getInstancePosition(charInstanceId, feet)) {
-            return;
-        }
+        if (!charRenderer->getInstancePosition(charInstanceId, feet)) return;
         m2Renderer_->setInstancePosition(effect.m2Instance, feet);
         return;
     }
