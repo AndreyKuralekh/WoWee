@@ -3884,6 +3884,9 @@ void Application::updateVrStrike(std::vector<rendering::FreeGlow>& glows) {
     game::GameHandler& game = *gameHandler;
     xr::XrSystem& vr = xr::system();
     game.setStrikeOnDemand(vr.sessionRunning() && vr.swingStrike());
+    if (renderer && renderer->getCameraController()) {
+        renderer->getCameraController()->setGroundEveryFrame(vr.sessionRunning() || vr.fakeHeadset());
+    }
     const bool swung = vr.takeSwing();
     if (!game.strikeOnDemand() || !vr.combatAllowed()) {
         vrWeaponWasReady_ = false;

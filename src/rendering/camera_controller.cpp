@@ -900,7 +900,11 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
     float dmy = targetPos.y - lastCollisionCheckPos_.y;
     float distMovedSq = dmx * dmx + dmy * dmy;
     constexpr float kCollisionCacheDistSq = COLLISION_CACHE_DISTANCE * COLLISION_CACHE_DISTANCE;
-    bool useCached = grounded && hasCachedFloor_ && distMovedSq < kCollisionCacheDistSq;
+    // Not while moving, if asked: the cache holds the floor's height flat for
+    // every other frame of a run, and a headset shows the step - the ground,
+    // and what stands on it, jerking up and down in time with the frames.
+    bool useCached = grounded && hasCachedFloor_ && distMovedSq < kCollisionCacheDistSq &&
+                     !(groundEveryFrame_ && distMovedSq > 1e-6f);
     if (useCached) {
         // Never trust cached ground while actively descending or when
         // vertical drift from cached floor is meaningful.

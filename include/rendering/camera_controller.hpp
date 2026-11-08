@@ -124,6 +124,10 @@ public:
     /// over the head bone, which sits at the base of the skull, and the pivot
     /// where no head bone was measured. On a mount, as much higher as the
     /// pivot is.
+    /// The floor under a moving character looked up every frame rather than
+    /// every 15 cm. A monitor does not show the difference; a headset shows
+    /// the ground step up and down with the frames of a run.
+    void setGroundEveryFrame(bool on) { groundEveryFrame_ = on; }
     [[nodiscard]] float followedEyeHeight() const {
         const float eyes = followedHeadZ_ > 0.01f ? followedHeadZ_ * 1.06f : followedPivotHeight();
         return eyes + (mounted_ ? mountHeightOffset_ : 0.0f);
@@ -876,6 +880,7 @@ private:
     float cachedFloorHeight_ = 0.0f;
     bool hasCachedFloor_ = false;
     static constexpr float COLLISION_CACHE_DISTANCE = 0.15f;  // Re-check every 15cm
+    bool groundEveryFrame_ = false;  // see setGroundEveryFrame
 
     // Server-driven knockback state.
     // When the server sends SMSG_MOVE_KNOCK_BACK, we apply horizontal + vertical
