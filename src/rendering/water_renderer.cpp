@@ -1098,6 +1098,22 @@ void WaterRenderer::clear() {
 
 void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
                             const Camera& camera, float /*time*/, bool use1x, uint32_t frameIndex) {
+    // What this draw was handed is used up by it, whichever way it returns. A
+    // scene copy counts for the draw that follows it, not for every frame
+    // after: once refraction was switched off, or the frame stopped taking
+    // copies (a headset's eyes), the flag stayed set and the water went on
+    // refracting the last picture it had been given. Likewise the reflection.
+    struct UsedUp {
+        WaterRenderer* water;
+        ~UsedUp() {
+            water->sceneHistoryReady = false;
+            water->reflectionFresh_ = false;
+        }
+    } usedUp{this};
+
+    // No reflection drawn for this frame: a matrix with no w puts every
+    // fragment behind its camera, and the shader skips the lookup.
+    if (!reflectionFresh_) frameUBO_.reflViewProj = glm::mat4(0.0f);
     // The wake as it stands, into this frame's slot - safe now, the frame has
     // waited for the GPU to finish with it.
     uploadFrameUBO();
@@ -1176,7 +1192,7 @@ void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
         // Asked of the camera rather than written out in the shader, which is
         // how the two came to disagree: the shader linearised the depth buffer
         // against a near plane of 0.05 while the camera's is 0.5.
-        push.depthRange = glm::vec2(camera.getNearPlane(), camera.getFarPlane());
+        push.depthRange = depthRangeOverride_.value_or(glm::vec2(camera.getNearPlane(), camera.getFarPlane()));
         push.sceneValid = sceneHistoryReady ? 1.0f : 0.0f;
 
         vkCmdPushConstants(cmd, pipelineLayout,
@@ -1871,6 +1887,7 @@ void WaterRenderer::endReflectionPass(VkCommandBuffer cmd) {
 
 void WaterRenderer::updateReflectionUBO(const glm::mat4& reflViewProj) {
     frameUBO_.reflViewProj = reflViewProj;
+    reflectionFresh_ = true;
     uploadFrameUBO();
 }
 

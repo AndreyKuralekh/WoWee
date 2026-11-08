@@ -151,6 +151,11 @@ public:
     // their UVs from this rather than from the refraction texture's own size,
     // which is deliberately smaller than the frame.
     void setRenderExtent(VkExtent2D e) { renderExtent_ = e; }
+    /// The near and far planes of the projection the water is drawn through,
+    /// when that is not the camera's own (a headset's eyes have their own near
+    /// plane). The shader turns the depth copy into yards with them.
+    void setDepthRange(float nearPlane, float farPlane) { depthRangeOverride_ = glm::vec2(nearPlane, farPlane); }
+    void clearDepthRange() { depthRangeOverride_.reset(); }
 
     /// Where a point sits on a surface, if that surface has water there:
     /// the projection and the render mask, which every query asks first.
@@ -261,6 +266,11 @@ private:
     bool renderingEnabled = true;
     bool refractionEnabled = false;
     VkExtent2D renderExtent_{.width = 0, .height = 0};
+    std::optional<glm::vec2> depthRangeOverride_;
+    // The reflection pass ran this frame and set its matrix. Without it the
+    // reflection texture holds whatever was last drawn into it, from another
+    // camera and maybe another place, and the water is told to leave it out.
+    bool reflectionFresh_ = false;
 };
 
 } // namespace rendering
