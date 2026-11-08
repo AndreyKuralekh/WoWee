@@ -16,7 +16,9 @@
 #include "rendering/sun_shafts.hpp"
 #include "rendering/m2_renderer.hpp"
 #include "rendering/overlay_system.hpp"
+#include "rendering/swim_effects.hpp"
 #include "rendering/terrain_manager.hpp"
+#include "rendering/water_renderer.hpp"
 #include "rendering/wmo_renderer.hpp"
 #include "rendering/vk_context.hpp"
 #include "rendering/vk_utils.hpp"
@@ -34,6 +36,10 @@
 #include <utility>
 
 namespace wowee::rendering {
+
+// The eyes' near plane: nearer than the flat client's half a yard, since a head
+// gets closer to things. The water turns its depth copy into yards with it.
+constexpr float kVrNearPlane = 0.1f;
 
 struct Renderer::VrEyes {
     static constexpr uint32_t kEyeCount = 2;
@@ -134,8 +140,10 @@ bool Renderer::vrEnsureEyes() {
                                           vkCtx->getSwapchainFormat(),
                                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                                               VK_IMAGE_USAGE_SAMPLED_BIT);
+        // Copied from too: the water refracts a copy of the eye's scene.
         vrEyes_->depth[eye] = createImage(device, allocator, wanted.width, wanted.height, vkCtx->getDepthFormat(),
-                                          VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+                                          VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                                              VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
         if (!vrEyes_->color[eye].imageView || !vrEyes_->depth[eye].imageView) {
             vrDestroyEyes();
             return false;
@@ -371,9 +379,7 @@ void Renderer::vrBeginViews() {
     const float yawDegrees = (std::abs(forward.x) + std::abs(forward.y) > 1e-4f)
                                  ? glm::degrees(std::atan2(forward.y, forward.x))
                                  : 0.0f;
-    // Nearer than the flat client's half a yard: a head gets closer to things.
-    constexpr float kNearPlane = 0.1f;
-    if (!xr::system().stereoViews(reference, yawDegrees, kNearPlane, camera->getFarPlane(), vrEyes_->views)) return;
+    if (!xr::system().stereoViews(reference, yawDegrees, kVrNearPlane, camera->getFarPlane(), vrEyes_->views)) return;
     vrEyes_->viewsValid = true;
 
     const xr::EyeView& center = vrEyes_->views.center;
@@ -658,9 +664,62 @@ void Renderer::vrReplayWorldForEye(uint32_t eye) {
     }
     vrRecordHands(eye, true);
     vkCmdEndRenderPass(currentCmd);
-    if (vrEyes_->handsThisFrame) xr::system().recordHandsCopy(currentCmd, eye, vrEyes_->color[eye].image);
     vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkWorld));
+    vrDrawEyeWater(eye, vrEyes_->sharedSet[frame]);
+    if (vrEyes_->handsThisFrame) xr::system().recordHandsCopy(currentCmd, eye, vrEyes_->color[eye].image);
     vrFinishEye(eye);
+}
+
+// The water goes over an eye's finished scene the way it goes over the
+// window's: out of the pass, a copy of the scene so far, then on in a
+// continuation of the pass. It refracts that copy and reads the depth under
+// it, which is what the bed, the wet shore and the foam are drawn from; drawn
+// inside the eye's pass it had none, and was a flat sheet. Without a
+// continuation pass (MSAA) it stays where it was, in the scene pass.
+bool Renderer::vrEyeWaterAfterPass() const {
+    return vkCtx && vkCtx->getSceneContinueRenderPass() != VK_NULL_HANDLE && waterRenderer;
+}
+
+void Renderer::vrDrawEyeWater(uint32_t eye, VkDescriptorSet perFrameSet) {
+    if (!vrEyeWaterAfterPass() || !camera || !waterRenderer->hasSurfaces()) {
+        vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkWater));
+        return;
+    }
+    const uint32_t frame = vkCtx->getCurrentFrame();
+
+    // One copy for both eyes, in turn: the copy's barrier waits for the first
+    // eye's water to have read it before the second eye's scene goes in.
+    if (waterRenderer->isRefractionEnabled()) {
+        waterRenderer->captureSceneHistory(currentCmd, vrEyes_->color[eye].image, vrEyes_->depth[eye].image,
+                                           vrEyes_->extent, false, frame, WaterRenderer::SceneTarget::Eyes);
+    }
+
+    VkRenderPassBeginInfo passInfo{};
+    passInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    passInfo.renderPass = vkCtx->getSceneContinueRenderPass();
+    passInfo.framebuffer = vrEyes_->framebuffer[eye];
+    passInfo.renderArea.extent = vrEyes_->extent;
+    vkCmdBeginRenderPass(currentCmd, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
+    VkViewport viewport{};
+    viewport.width = static_cast<float>(vrEyes_->extent.width);
+    viewport.height = static_cast<float>(vrEyes_->extent.height);
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(currentCmd, 0, 1, &viewport);
+    VkRect2D scissor{};
+    scissor.extent = vrEyes_->extent;
+    vkCmdSetScissor(currentCmd, 0, 1, &scissor);
+
+    waterRenderer->setRenderExtent(vrEyes_->extent);
+    waterRenderer->setDepthRange(kVrNearPlane, camera->getFarPlane());
+    waterRenderer->render(currentCmd, perFrameSet, *camera, globalTime, false, frame,
+                          WaterRenderer::SceneTarget::Eyes);
+    waterRenderer->clearDepthRange();
+    // The splashes go on the surface they are thrown off; set up to be drawn
+    // with the water, they were drawn nowhere in the eyes.
+    if (swimEffects && swimEffectsDrawWithWater_) swimEffects->render(currentCmd, perFrameSet);
+
+    vkCmdEndRenderPass(currentCmd);
+    vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkWater));
 }
 
 // GPU marks of an eye's stages, outside its pass so that they read true: this
@@ -668,8 +727,8 @@ void Renderer::vrReplayWorldForEye(uint32_t eye) {
 // "post-process" mark otherwise took in the second eye's world.
 const char* Renderer::vrEyeMark(uint32_t eye, uint32_t stage) {
     static constexpr const char* kMarks[VrEyes::kEyeCount][kEyeMarkCount] = {
-        {"eye 0 fog", "eye 0 world", "eye 0 shafts", "eye 0 glow", "eye 0 to headset"},
-        {"eye 1 fog", "eye 1 world", "eye 1 shafts", "eye 1 glow", "eye 1 to headset"},
+        {"eye 0 fog", "eye 0 world", "eye 0 water", "eye 0 shafts", "eye 0 glow", "eye 0 to headset"},
+        {"eye 1 fog", "eye 1 world", "eye 1 water", "eye 1 shafts", "eye 1 glow", "eye 1 to headset"},
     };
     return kMarks[eye][stage];
 }
@@ -889,8 +948,9 @@ void Renderer::vrRenderEyes() {
 
         vkCmdEndRenderPass(currentCmd);
         if (threaded) swapSecondaries();
-        if (vrEyes_->handsThisFrame) xr::system().recordHandsCopy(currentCmd, eye, vrEyes_->color[eye].image);
         vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkWorld));
+        vrDrawEyeWater(eye, set);
+        if (vrEyes_->handsThisFrame) xr::system().recordHandsCopy(currentCmd, eye, vrEyes_->color[eye].image);
         vrFinishEye(eye);
     }
 

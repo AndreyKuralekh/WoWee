@@ -263,6 +263,9 @@ private:
     // True when water is drawn in the scene continuation pass rather than in
     // the scene pass itself (see renderWorld).
     bool waterDrawsInContinuePass() const;
+    // True when renderWorld draws the water inside the scene pass: neither in
+    // the continuation nor, for a headset's eye, after the eye's pass.
+    bool waterDrawsInScenePass() const;
 
     /// Ghost tint, brightness and the minimap, in that order, at the end of
     /// the scene pass. The threaded and single-threaded paths both finish this
@@ -502,7 +505,11 @@ private:
     void vrReplayWorldForEye(uint32_t eye);
     void vrRecordHands(uint32_t eye, bool secondaryOnly);
     void vrFinishEye(uint32_t eye);
-    enum : uint32_t { kEyeMarkFog, kEyeMarkWorld, kEyeMarkShafts, kEyeMarkGlow, kEyeMarkCopy, kEyeMarkCount };
+    bool vrEyeWaterAfterPass() const;
+    void vrDrawEyeWater(uint32_t eye, VkDescriptorSet perFrameSet);
+    enum : uint32_t {
+        kEyeMarkFog, kEyeMarkWorld, kEyeMarkWater, kEyeMarkShafts, kEyeMarkGlow, kEyeMarkCopy, kEyeMarkCount
+    };
     static const char* vrEyeMark(uint32_t eye, uint32_t stage);
     bool vrLastHeadView(glm::vec3& position, glm::mat4& viewProjection) const;
     void vrPlaceBody(float torsoYawDeg);

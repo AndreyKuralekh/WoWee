@@ -104,13 +104,24 @@ public:
         return index < water1xFramebuffers.size() ? water1xFramebuffers[index] : VK_NULL_HANDLE;
     }
 
-    void render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const Camera& camera, float time, bool use1x = false, uint32_t frameIndex = 0);
+    /// Which picture the water refracts. The window's copy is the size of the
+    /// window; a headset's eyes are another size and shape, so they have a
+    /// copy of their own, made the first time an eye is copied. Both eyes go
+    /// through the one copy in turn: an eye copies, draws its water, and the
+    /// next eye's copy waits for that draw to have read it.
+    enum class SceneTarget : uint32_t { Window = 0, Eyes = 1 };
+
+    void render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const Camera& camera, float time, bool use1x = false,
+                uint32_t frameIndex = 0, SceneTarget target = SceneTarget::Window);
+    /// The source is left in the layouts a scene pass ends with: colour in
+    /// PRESENT_SRC, depth in DEPTH_STENCIL_ATTACHMENT_OPTIMAL.
     void captureSceneHistory(VkCommandBuffer cmd,
                              VkImage srcColorImage,
                              VkImage srcDepthImage,
                              VkExtent2D srcExtent,
                              bool srcDepthIsMsaa,
-                             uint32_t frameIndex = 0);
+                             uint32_t frameIndex = 0,
+                             SceneTarget target = SceneTarget::Window);
 
     // --- Planar reflection pass ---
     // Call sequence: beginReflectionPass → [render scene] → endReflectionPass
@@ -182,8 +193,8 @@ private:
     void updateMaterialUBO(WaterSurface& surface);
     VkDescriptorSet allocateMaterialSet();
     VkExtent2D refractionCaptureExtent() const;
-    void createSceneHistoryResources(VkExtent2D extent, VkFormat colorFormat, VkFormat depthFormat);
-    void destroySceneHistoryResources();
+    void createSceneHistoryResources(SceneTarget target, VkExtent2D extent, VkFormat colorFormat, VkFormat depthFormat);
+    void destroySceneHistoryResources(SceneTarget target);
 
     // Reflection pass resources
     void createReflectionResources();
@@ -197,7 +208,6 @@ private:
     VkDescriptorSetLayout materialSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool materialDescPool = VK_NULL_HANDLE;
     VkDescriptorSetLayout sceneSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool sceneDescPool = VK_NULL_HANDLE;
     static constexpr uint32_t MAX_WATER_SETS = 16384;
 
     VkSampler sceneColorSampler = VK_NULL_HANDLE;
@@ -217,9 +227,15 @@ private:
         VkImageView depthView = VK_NULL_HANDLE;
         VkDescriptorSet sceneSet = VK_NULL_HANDLE;
     };
-    PerFrameSceneHistory sceneHistory[SCENE_HISTORY_FRAMES];
-    VkExtent2D sceneHistoryExtent = {.width = 0, .height = 0};
-    bool sceneHistoryReady = false;
+    struct SceneHistoryTarget {
+        PerFrameSceneHistory frames[SCENE_HISTORY_FRAMES];
+        VkExtent2D extent = {.width = 0, .height = 0};
+        bool ready = false;  // copied for the draw that comes next
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+    };
+    static constexpr uint32_t kSceneTargets = 2;
+    SceneHistoryTarget sceneTargets_[kSceneTargets];
+    SceneHistoryTarget& sceneTarget(SceneTarget t) { return sceneTargets_[static_cast<uint32_t>(t)]; }
     mutable uint32_t renderDiagCounter_ = 0;
 
     // Planar reflection resources

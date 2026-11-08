@@ -125,7 +125,8 @@ bool WaterRenderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLay
         return false;
     }
 
-    // Pool needs 3 combined image samplers + 1 uniform buffer per frame
+    // Pool needs 3 combined image samplers + 1 uniform buffer per frame. One
+    // pool for each copy, since a copy resets its pool when it is remade.
     std::array<VkDescriptorPoolSize, 2> scenePoolSizes{};
     scenePoolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     scenePoolSizes[0].descriptorCount = 3 * SCENE_HISTORY_FRAMES;
@@ -136,9 +137,11 @@ bool WaterRenderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLay
     scenePoolInfo.maxSets = SCENE_HISTORY_FRAMES;
     scenePoolInfo.poolSizeCount = static_cast<uint32_t>(scenePoolSizes.size());
     scenePoolInfo.pPoolSizes = scenePoolSizes.data();
-    if (vkCreateDescriptorPool(device, &scenePoolInfo, nullptr, &sceneDescPool) != VK_SUCCESS) {
-        LOG_ERROR("WaterRenderer: failed to create scene descriptor pool");
-        return false;
+    for (auto& target : sceneTargets_) {
+        if (vkCreateDescriptorPool(device, &scenePoolInfo, nullptr, &target.pool) != VK_SUCCESS) {
+            LOG_ERROR("WaterRenderer: failed to create scene descriptor pool");
+            return false;
+        }
     }
 
     // --- Pipeline layout ---
@@ -158,7 +161,7 @@ bool WaterRenderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLay
     // createSceneHistoryResources writes descriptor binding 3
     createReflectionResources();
 
-    createSceneHistoryResources(refractionCaptureExtent(),
+    createSceneHistoryResources(SceneTarget::Window, refractionCaptureExtent(),
                                 vkCtx->getSwapchainFormat(),
                                 vkCtx->getDepthFormat());
 
@@ -220,7 +223,10 @@ void WaterRenderer::recreatePipelines() {
 
     destroyReflectionResources();
     createReflectionResources();
-    createSceneHistoryResources(refractionCaptureExtent(),
+    // The eyes' copy points at the reflection just destroyed; it is made again
+    // by the next eye that is copied.
+    destroySceneHistoryResources(SceneTarget::Eyes);
+    createSceneHistoryResources(SceneTarget::Window, refractionCaptureExtent(),
                                 vkCtx->getSwapchainFormat(),
                                 vkCtx->getDepthFormat());
 
@@ -282,7 +288,8 @@ void WaterRenderer::setRefractionEnabled(bool enabled) {
     // detects "no data" and uses the non-refraction path.
     if (!enabled && vkCtx) {
         vkCtx->immediateSubmit([&](VkCommandBuffer cmd) {
-            for (auto& sh : sceneHistory) {
+            for (auto& target : sceneTargets_)
+            for (auto& sh : target.frames) {
                 if (!sh.colorImage) continue;
 
                 VkImageMemoryBarrier2 toTransfer{};
@@ -337,10 +344,11 @@ void WaterRenderer::shutdown() {
 
     destroyWater1xResources();
     destroyReflectionResources();
-    destroySceneHistoryResources();
+    destroySceneHistoryResources(SceneTarget::Window);
+    destroySceneHistoryResources(SceneTarget::Eyes);
     destroy(device, waterPipeline);
     destroy(device, pipelineLayout);
-    destroy(device, sceneDescPool);
+    for (auto& target : sceneTargets_) destroy(device, target.pool);
     destroy(device, sceneSetLayout);
     destroy(device, materialDescPool);
     destroy(device, materialSetLayout);
@@ -362,20 +370,21 @@ VkDescriptorSet WaterRenderer::allocateMaterialSet() {
     return set;
 }
 
-void WaterRenderer::destroySceneHistoryResources() {
+void WaterRenderer::destroySceneHistoryResources(SceneTarget which) {
     if (!vkCtx) return;
     VkDevice device = vkCtx->getDevice();
-    for (auto& sh : sceneHistory) {
+    SceneHistoryTarget& target = sceneTarget(which);
+    for (auto& sh : target.frames) {
         if (sh.colorView) { vkDestroyImageView(device, sh.colorView, nullptr); sh.colorView = VK_NULL_HANDLE; }
         if (sh.depthView) { vkDestroyImageView(device, sh.depthView, nullptr); sh.depthView = VK_NULL_HANDLE; }
         if (sh.colorImage) { vmaDestroyImage(vkCtx->getAllocator(), sh.colorImage, sh.colorAlloc); sh.colorImage = VK_NULL_HANDLE; sh.colorAlloc = VK_NULL_HANDLE; }
         if (sh.depthImage) { vmaDestroyImage(vkCtx->getAllocator(), sh.depthImage, sh.depthAlloc); sh.depthImage = VK_NULL_HANDLE; sh.depthAlloc = VK_NULL_HANDLE; }
         sh.sceneSet = VK_NULL_HANDLE;
     }
-    sceneColorSampler = VK_NULL_HANDLE; // Owned by VkContext sampler cache
-    sceneDepthSampler = VK_NULL_HANDLE; // Owned by VkContext sampler cache
-    sceneHistoryExtent = {.width = 0, .height = 0};
-    sceneHistoryReady = false;
+    // The samplers are the VkContext's cache's, shared by both copies; they
+    // are looked up again when a copy is made.
+    target.extent = {.width = 0, .height = 0};
+    target.ready = false;
 }
 
 // Full resolution, deliberately.
@@ -394,13 +403,15 @@ VkExtent2D WaterRenderer::refractionCaptureExtent() const {
     return { .width = std::max(1u, full.width), .height = std::max(1u, full.height) };
 }
 
-void WaterRenderer::createSceneHistoryResources(VkExtent2D extent, VkFormat colorFormat, VkFormat depthFormat) {
-    if (!vkCtx || extent.width == 0 || extent.height == 0 || !sceneSetLayout || !sceneDescPool) return;
+void WaterRenderer::createSceneHistoryResources(SceneTarget which, VkExtent2D extent, VkFormat colorFormat,
+                                                VkFormat depthFormat) {
+    SceneHistoryTarget& target = sceneTarget(which);
+    if (!vkCtx || extent.width == 0 || extent.height == 0 || !sceneSetLayout || !target.pool) return;
     VkDevice device = vkCtx->getDevice();
 
-    destroySceneHistoryResources();
-    vkResetDescriptorPool(device, sceneDescPool, 0);
-    sceneHistoryExtent = extent;
+    destroySceneHistoryResources(which);
+    vkResetDescriptorPool(device, target.pool, 0);
+    target.extent = extent;
 
     // Create shared samplers
     VkSamplerCreateInfo sampCI{};
@@ -443,7 +454,7 @@ void WaterRenderer::createSceneHistoryResources(VkExtent2D extent, VkFormat colo
 
     // Create per-frame images, views, and descriptor sets
     for (uint32_t f = 0; f < SCENE_HISTORY_FRAMES; f++) {
-        auto& sh = sceneHistory[f];
+        auto& sh = target.frames[f];
 
         if (vmaCreateImage(vkCtx->getAllocator(), &colorImgInfo, &allocCI, &sh.colorImage, &sh.colorAlloc, nullptr) != VK_SUCCESS) {
             LOG_ERROR("WaterRenderer: failed to create scene color history image [", f, "]");
@@ -479,7 +490,7 @@ void WaterRenderer::createSceneHistoryResources(VkExtent2D extent, VkFormat colo
         // Allocate descriptor set for this frame
         VkDescriptorSetAllocateInfo ai{};
         ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        ai.descriptorPool = sceneDescPool;
+        ai.descriptorPool = target.pool;
         ai.descriptorSetCount = 1;
         ai.pSetLayouts = &sceneSetLayout;
         if (vkAllocateDescriptorSets(device, &ai, &sh.sceneSet) != VK_SUCCESS) {
@@ -555,7 +566,7 @@ void WaterRenderer::createSceneHistoryResources(VkExtent2D extent, VkFormat colo
     // Initialize all per-frame history images to shader-read layout
     vkCtx->immediateSubmit([&](VkCommandBuffer cmd) {
         std::vector<VkImageMemoryBarrier2> barriers;
-        for (auto& sh : sceneHistory) {
+        for (auto& sh : target.frames) {
             VkImageMemoryBarrier2 b{};
             b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
             b.srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
@@ -1097,7 +1108,16 @@ void WaterRenderer::clear() {
 // ==============================================================
 
 void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
-                            const Camera& camera, float /*time*/, bool use1x, uint32_t frameIndex) {
+                            const Camera& camera, float /*time*/, bool use1x, uint32_t frameIndex,
+                            SceneTarget targetWanted) {
+    uint32_t fi = frameIndex % SCENE_HISTORY_FRAMES;
+    // The eyes' copy before the first eye has been copied, or with refraction
+    // off, does not exist yet: the water is still drawn, through the window's
+    // sets, and told it has no scene to refract.
+    SceneHistoryTarget* target = &sceneTarget(targetWanted);
+    if (!target->frames[fi].sceneSet) target = &sceneTarget(SceneTarget::Window);
+    const bool sceneValid = target->ready && target == &sceneTarget(targetWanted);
+
     // What this draw was handed is used up by it, whichever way it returns. A
     // scene copy counts for the draw that follows it, not for every frame
     // after: once refraction was switched off, or the frame stopped taking
@@ -1105,11 +1125,12 @@ void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
     // refracting the last picture it had been given. Likewise the reflection.
     struct UsedUp {
         WaterRenderer* water;
+        SceneHistoryTarget* target;
         ~UsedUp() {
-            water->sceneHistoryReady = false;
+            target->ready = false;
             water->reflectionFresh_ = false;
         }
-    } usedUp{this};
+    } usedUp{this, &sceneTarget(targetWanted)};
 
     // No reflection drawn for this frame: a matrix with no w puts every
     // fragment behind its camera, and the shader skips the lookup.
@@ -1127,8 +1148,7 @@ void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
         }
         return;
     }
-    uint32_t fi = frameIndex % SCENE_HISTORY_FRAMES;
-    VkDescriptorSet activeSceneSet = sceneHistory[fi].sceneSet;
+    VkDescriptorSet activeSceneSet = target->frames[fi].sceneSet;
     if (!activeSceneSet) {
         if (renderDiagCounter_++ % 300 == 0) {
             LOG_WARNING("Water: render skipped - sceneSet is null, surfaces=", surfaces.size());
@@ -1193,7 +1213,7 @@ void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
         // how the two came to disagree: the shader linearised the depth buffer
         // against a near plane of 0.05 while the camera's is 0.5.
         push.depthRange = depthRangeOverride_.value_or(glm::vec2(camera.getNearPlane(), camera.getFarPlane()));
-        push.sceneValid = sceneHistoryReady ? 1.0f : 0.0f;
+        push.sceneValid = sceneValid ? 1.0f : 0.0f;
 
         vkCmdPushConstants(cmd, pipelineLayout,
                             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -1215,12 +1235,23 @@ void WaterRenderer::captureSceneHistory(VkCommandBuffer cmd,
                                         VkImage srcDepthImage,
                                         VkExtent2D srcExtent,
                                         bool srcDepthIsMsaa,
-                                        uint32_t frameIndex) {
-    uint32_t fi = frameIndex % SCENE_HISTORY_FRAMES;
-    auto& sh = sceneHistory[fi];
-    if (!vkCtx || !cmd || !sh.colorImage || !sh.depthImage || srcExtent.width == 0 || srcExtent.height == 0) {
-        return;
+                                        uint32_t frameIndex,
+                                        SceneTarget which) {
+    if (!vkCtx || !cmd || srcExtent.width == 0 || srcExtent.height == 0) return;
+    SceneHistoryTarget& target = sceneTarget(which);
+    // The eyes' copy is made at the eyes' size, the first time and whenever
+    // that changes (the eye resolution setting). The frames in flight may
+    // still read the old one, so they are waited out; it is rare.
+    if (which == SceneTarget::Eyes &&
+        (target.extent.width != srcExtent.width || target.extent.height != srcExtent.height)) {
+        vkDeviceWaitIdle(vkCtx->getDevice());
+        createSceneHistoryResources(which, srcExtent, vkCtx->getSwapchainFormat(), vkCtx->getDepthFormat());
+        LOG_INFO("Water: eye scene copy ", srcExtent.width, "x", srcExtent.height);
     }
+    uint32_t fi = frameIndex % SCENE_HISTORY_FRAMES;
+    auto& sh = target.frames[fi];
+    const VkExtent2D sceneHistoryExtent = target.extent;
+    if (!sh.colorImage || !sh.depthImage) return;
 
     // The scene is not always rendered at the history's resolution - FSR renders
     // smaller and upscales later. Copying the smaller image into the corner of a
@@ -1351,7 +1382,7 @@ void WaterRenderer::captureSceneHistory(VkCommandBuffer cmd,
                  VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
     }
 
-    sceneHistoryReady = true;
+    target.ready = true;
 }
 
 // ==============================================================
@@ -1867,6 +1898,7 @@ void WaterRenderer::endReflectionPass(VkCommandBuffer cmd) {
     // other frame's descriptor set bound.
     if (reflectionColorView && reflectionSampler && vkCtx) {
         uint32_t fi = vkCtx->getCurrentFrame() % SCENE_HISTORY_FRAMES;
+        auto& sceneHistory = sceneTarget(SceneTarget::Window).frames;
         if (sceneHistory[fi].sceneSet) {
             VkDescriptorImageInfo reflInfo{};
             reflInfo.sampler = reflectionSampler;

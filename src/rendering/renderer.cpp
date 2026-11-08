@@ -3312,7 +3312,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
             auto t0 = std::chrono::steady_clock::now();
             VkCommandBuffer cmd = beginSecondary(SEC_POST);
             setSecondaryViewportScissor(cmd);
-            if (waterRenderer && camera && !waterDrawsInContinuePass()) {
+            if (waterRenderer && camera && waterDrawsInScenePass()) {
                 waterRenderer->setRenderExtent(activeRenderExtent_);
                 waterRenderer->render(cmd, perFrameSet, *camera, globalTime, false, frameIdx);
             }
@@ -3533,7 +3533,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
                 std::chrono::steady_clock::now() - m2Start).count();
         }
 
-        if (waterRenderer && camera && !waterDrawsInContinuePass()) {
+        if (waterRenderer && camera && waterDrawsInScenePass()) {
             waterRenderer->setRenderExtent(activeRenderExtent_);
             waterRenderer->render(currentCmd, perFrameSet, *camera, globalTime, false, frameIdx);
             if (vkCtx) vkCtx->gpuMark(currentCmd, "water");
@@ -3859,6 +3859,13 @@ bool Renderer::waterDrawsInContinuePass() const {
         return !offscreenScene && waterRenderer->hasWater1xPass();
     }
     return vkCtx->getSceneContinueRenderPass() != VK_NULL_HANDLE;
+}
+
+bool Renderer::waterDrawsInScenePass() const {
+#ifdef WOWEE_VR
+    if (vrEyePass_ && vrEyeWaterAfterPass()) return false;
+#endif
+    return !waterDrawsInContinuePass();
 }
 
 // initPostProcess(), resizePostProcess(), shutdownPostProcess() removed -
