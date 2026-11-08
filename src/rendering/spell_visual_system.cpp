@@ -1069,18 +1069,22 @@ void SpellVisualSystem::placeStateEffect(uint32_t charInstanceId, const UnitStat
         constexpr float kTurnRadiansPerSecond = 0.35f;  // a turn in eighteen seconds
         const float seconds = std::chrono::duration<float>(std::chrono::steady_clock::now().time_since_epoch()).count();
         const float turn = std::fmod(seconds * kTurnRadiansPerSecond, glm::two_pi<float>());
-        // The middle of the model at that height, wherever the model has its
-        // shape round its origin: the mod's frost armour draws its ring a
-        // yard over its own origin, which put it at the eyes.
-        float lift = 0.0f;
+        // Laid flat, its middle at that height: such a model is made to face
+        // the camera - the mod's frost armour is a disc on a billboard bone,
+        // drawn a yard over its own origin, facing along its X - and this
+        // client draws no billboards, so it stood upright and, turned, swept
+        // round the player. Its face turned up, it is a ring round the feet.
+        glm::vec3 middle(0.0f);
         glm::vec3 boundMin;
         glm::vec3 boundMax;
-        if (m2Renderer_->getInstanceModelBounds(effect.m2Instance, boundMin, boundMax) && boundMax.z > boundMin.z) {
-            lift = 0.5f * (boundMin.z + boundMax.z);
+        if (m2Renderer_->getInstanceModelBounds(effect.m2Instance, boundMin, boundMax)) {
+            middle = 0.5f * (boundMin + boundMax);
         }
         glm::mat4 transform = glm::translate(glm::mat4(1.0f),
-                                             renderer_->getCharacterPosition() + glm::vec3(0.0f, 0.0f, kAboveGround - lift));
+                                             renderer_->getCharacterPosition() + glm::vec3(0.0f, 0.0f, kAboveGround));
         transform = glm::rotate(transform, turn, glm::vec3(0.0f, 0.0f, 1.0f));
+        transform = glm::rotate(transform, -glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));  // its X up
+        transform = glm::translate(transform, -middle);
         m2Renderer_->setInstanceTransform(effect.m2Instance, transform);
         return;
     }
