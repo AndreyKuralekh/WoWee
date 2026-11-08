@@ -78,7 +78,7 @@ private:
         float heightOffset; // height above plant
     };
 
-    static constexpr int MAX_RIPPLE_PARTICLES = 200;
+    static constexpr int MAX_RIPPLE_PARTICLES = 600;
     static constexpr int MAX_BUBBLE_PARTICLES = 150;
     static constexpr int MAX_INSECT_PARTICLES = 50;
 

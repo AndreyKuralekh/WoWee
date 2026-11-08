@@ -356,7 +356,7 @@ void SwimEffects::spawnRipple(const glm::vec3& pos, const glm::vec3& moveDir, fl
 
 void SwimEffects::spawnFootSplash(const glm::vec3& footPos, float waterH) {
     // Small burst of splash droplets at foot position (for wading)
-    constexpr int splashCount = 5;
+    constexpr int splashCount = 12;
     for (int i = 0; i < splashCount; ++i) {
         if (static_cast<int>(ripples.size()) >= MAX_RIPPLE_PARTICLES) break;
         Particle p;
@@ -460,7 +460,9 @@ void SwimEffects::update(const Camera& camera, const CameraController& cc,
     // --- Ripple/splash spawning ---
     if (swimming && charWaterH) {
         float wh = *charWaterH;
-        float spawnRate = moving ? 40.0f : 8.0f;
+        // Three times what it was: seen from the eyes in a headset, a yard off,
+        // forty drops a second read as a stray few rather than spray.
+        float spawnRate = moving ? 120.0f : 24.0f;
         rippleSpawnAccum += spawnRate * deltaTime;
 
         // Compute movement direction from camera yaw
@@ -496,7 +498,7 @@ void SwimEffects::update(const Camera& camera, const CameraController& cc,
             // Its own accumulator: the swim branch above zeroes rippleSpawnAccum
             // on every frame it is not swimming, so a wading rate of 30/s could
             // only ever reach 0.5 in a frame and never crossed the threshold.
-            wadeSpawnAccum += 30.0f * depthScale * deltaTime;
+            wadeSpawnAccum += 90.0f * depthScale * deltaTime;
 
             // Forward from yaw is (cos, sin) - the same derivation the camera
             // controller uses to move the character.
