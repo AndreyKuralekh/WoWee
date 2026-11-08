@@ -12,6 +12,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <random>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 namespace wowee {
@@ -434,6 +435,27 @@ void SwimEffects::update(const Camera& camera, const CameraController& cc,
 
     bool swimming = cc.isSwimming();
     bool moving = cc.isMoving();
+
+    // WOWEE_SWIM_DIAG=1: spray thrown round the character all the time, as if
+    // swimming on the spot, so the drops can be looked at without a swim.
+    static const bool diag = [] {
+        const char* v = std::getenv("WOWEE_SWIM_DIAG");
+        return v && *v == '1';
+    }();
+    if (diag && !swimming) {
+        charWaterH = charPos.z;  // at the feet, wherever they are: on a bank the water is under the ground
+        swimming = true;
+        moving = true;
+    }
+    if (diag) {
+        static float sinceSaid = 0.0f;
+        sinceSaid += deltaTime;
+        if (sinceSaid > 2.0f) {
+            sinceSaid = 0.0f;
+            LOG_WARNING("Swim diag: ", ripples.size(), " drops, ", bubbles.size(), " bubbles at (", charPos.x, ", ",
+                        charPos.y, ", ", charPos.z, ") surface ", *charWaterH, " dt ", deltaTime);
+        }
+    }
 
     // --- Ripple/splash spawning ---
     if (swimming && charWaterH) {

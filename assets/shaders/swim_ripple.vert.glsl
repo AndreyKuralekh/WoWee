@@ -21,9 +21,9 @@ layout(push_constant) uniform Push {
 } push;
 
 // aSize keeps its old meaning - pixels on a 1080-line screen with the camera's
-// 45 degrees, at the third-person camera's eight yards - turned into yards:
-// 8 / (540 / tan(22.5)) per unit, a drop of 3 to 7 units being 2 to 4 cm.
-const float kYardsPerUnit = 8.0 / (540.0 * 2.41421);
+// 45 degrees, at twelve yards (the third-person camera's distance) - in yards:
+// 12 / (540 / tan(22.5)) per unit, a drop of 2 to 5 units being 3 to 6 cm.
+const float kYardsPerUnit = 12.0 / (540.0 * 2.41421);
 
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in float aSize;
@@ -34,6 +34,7 @@ layout(location = 0) out float vAlpha;
 void main() {
     vAlpha = aAlpha;
     gl_Position = projection * view * vec4(aPos, 1.0);
-    float pixels = aSize * kYardsPerUnit * projection[1][1] * push.halfHeight / max(gl_Position.w, 0.05);
+    // abs: a Vulkan projection flips y, and [1][1] comes negative.
+    float pixels = aSize * kYardsPerUnit * abs(projection[1][1]) * push.halfHeight / max(gl_Position.w, 0.05);
     gl_PointSize = clamp(pixels, 1.0, 64.0);
 }
