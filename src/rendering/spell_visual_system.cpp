@@ -154,7 +154,7 @@ void SpellVisualSystem::loadSpellVisualDbc() {
             std::string path = missilePath(effect);
             if (path.empty()) continue;
             defs.push_back({.path = std::move(path), .attachments = kSlotAttachments[slot],
-                            .atFeet = slot == 1});
+                            .atFeet = slot == 1, .aroundBody = slot == 0 || slot == 1 || slot == 4});
         }
         return defs;
     };
@@ -677,7 +677,7 @@ glm::vec3 SpellVisualSystem::kitPosition(uint32_t attachInstanceId, uint32_t att
     // The Base point of the player's own body sways with the head; an effect
     // at the feet stands where the character is (see placeStateEffect).
     constexpr uint32_t kBase = 19;
-    if (own && attachmentId == kBase) return renderer_->getCharacterPosition();
+    if (own && attachmentId == kBase && renderer_->vrInCharacterEyes()) return renderer_->getCharacterPosition();
     const bool ownHand = hand && own;
     // Without the body (Hands only) its hands are wherever its animation has
     // them, by the waist: the player's own hand instead. 1 is the right
@@ -1057,15 +1057,34 @@ void SpellVisualSystem::cancelAllPrecastVisuals() {
 void SpellVisualSystem::placeStateEffect(uint32_t charInstanceId, const UnitStateEffect& effect) {
     auto* charRenderer = renderer_ ? renderer_->getCharacterRenderer() : nullptr;
     if (!charRenderer || !m2Renderer_ || !effect.def) return;
-    // A base effect - a shield round the feet - on the player's own character
-    // stands where the character is, before any point on its body is asked:
-    // in a headset the body is moved under the head every frame, with each
-    // lean and with the run's sway, and its Base point with it - Liska's ice
-    // shield tilted as she nodded and shook as she ran.
-    if (effect.def->atFeet && renderer_ && charInstanceId == renderer_->getCharacterInstanceId()) {
-        m2Renderer_->setInstancePosition(effect.m2Instance, renderer_->getCharacterPosition());
+#ifdef WOWEE_VR
+    // Round the player's own body, seen from its eyes: where the character
+    // is, half a metre off the ground, turning slowly - not on a point of the
+    // body. In a headset the body is moved under the head every frame, with
+    // each lean and the run's sway, and its chest bobs with every step: Liska's
+    // frost armour tilted as she nodded and jumped as she ran.
+    if (effect.def->aroundBody && renderer_ && renderer_->vrInCharacterEyes() &&
+        charInstanceId == renderer_->getCharacterInstanceId()) {
+        constexpr float kAboveGround = 0.55f;          // yards, half a metre
+        constexpr float kTurnRadiansPerSecond = 0.35f;  // a turn in eighteen seconds
+        const float seconds = std::chrono::duration<float>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        const float turn = std::fmod(seconds * kTurnRadiansPerSecond, glm::two_pi<float>());
+        // The middle of the model at that height, wherever the model has its
+        // shape round its origin: the mod's frost armour draws its ring a
+        // yard over its own origin, which put it at the eyes.
+        float lift = 0.0f;
+        glm::vec3 boundMin;
+        glm::vec3 boundMax;
+        if (m2Renderer_->getInstanceModelBounds(effect.m2Instance, boundMin, boundMax) && boundMax.z > boundMin.z) {
+            lift = 0.5f * (boundMin.z + boundMax.z);
+        }
+        glm::mat4 transform = glm::translate(glm::mat4(1.0f),
+                                             renderer_->getCharacterPosition() + glm::vec3(0.0f, 0.0f, kAboveGround - lift));
+        transform = glm::rotate(transform, turn, glm::vec3(0.0f, 0.0f, 1.0f));
+        m2Renderer_->setInstanceTransform(effect.m2Instance, transform);
         return;
     }
+#endif
     glm::mat4 attachMat;
     for (uint32_t attachment : effect.def->attachments) {
         if (charRenderer->getAttachmentTransform(charInstanceId, attachment, attachMat)) {

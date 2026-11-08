@@ -61,6 +61,16 @@ void M2Renderer::setInstancePosition(uint32_t instanceId, const glm::vec3& posit
                  inst.worldBoundsMin, inst.worldBoundsMax, instanceId);
 }
 
+bool M2Renderer::getInstanceModelBounds(uint32_t instanceId, glm::vec3& outMin, glm::vec3& outMax) const {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end()) return false;
+    const M2ModelGPU* model = instances[idxIt->second].cachedModel;
+    if (!model) return false;
+    outMin = model->boundMin;
+    outMax = model->boundMax;
+    return true;
+}
+
 void M2Renderer::setInstanceFade(uint32_t instanceId, float alpha) {
     auto idxIt = instanceIndexById.find(instanceId);
     if (idxIt == instanceIndexById.end()) return;

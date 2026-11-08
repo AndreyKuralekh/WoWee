@@ -638,6 +638,9 @@ public:
     /// that origin, which is why standing beside an Undercity lift shaft
     /// attaches you to the car.
     bool getInstanceWorldBounds(uint32_t instanceId, glm::vec3& outMin, glm::vec3& outMax) const;
+    /// The box of an instance's model in the model's own space, unscaled and
+    /// unturned: where a model's shape sits round its origin.
+    bool getInstanceModelBounds(uint32_t instanceId, glm::vec3& outMin, glm::vec3& outMax) const;
 
     /// The floor one named instance offers under a point, ignoring every other.
     ///

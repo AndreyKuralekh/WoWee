@@ -136,6 +136,9 @@ private:
         std::string path;
         std::vector<uint32_t> attachments;
         bool atFeet = false;
+        // Round the whole body rather than on a limb: the base, chest and
+        // special slots - a frost armour's ring, a shield.
+        bool aroundBody = false;
     };
     struct UnitStateEffect {
         uint32_t visualId = 0;
