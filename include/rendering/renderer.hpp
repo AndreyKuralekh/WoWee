@@ -445,6 +445,11 @@ public:
     void setFSR2Enabled(bool enabled);
 
     void setWaterRefractionEnabled(bool enabled);
+    /// Water reflections: 0 off, 1 the sky (the sky probe), 2 the sky and,
+    /// on a monitor, the world through the planar reflection pass. A
+    /// headset's eyes take 2 as 1: the planar pass is a second scene pass.
+    void setWaterReflections(int mode);
+    int getWaterReflections() const { return waterReflections_; }
 
 private:
     void applyMsaaChange();
@@ -581,6 +586,17 @@ private:
     void updatePerFrameUBO();
     void setupWater1xPass();
     void renderReflectionPass();
+    // One face of the water's sky probe a frame, through a set 0 of its own.
+    void renderSkyProbeFace();
+    VkBuffer skyProbeUBO_[MAX_FRAMES] = {};
+    VmaAllocation skyProbeUBOAlloc_[MAX_FRAMES] = {};
+    void* skyProbeUBOMapped_[MAX_FRAMES] = {};
+    VkDescriptorSet skyProbeDescSet_[MAX_FRAMES] = {};
+    uint32_t skyProbeFace_ = 0;
+    // The sky as the world pass last drew it, for the probe's faces.
+    SkyParams lastSkyParams_{};
+    bool lastSkyParamsValid_ = false;
+    int waterReflections_ = 2;
 
     // ── Multithreaded secondary command buffer recording ──
     // Indices into secondaryCmds_ arrays

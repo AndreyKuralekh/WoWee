@@ -330,13 +330,13 @@ bool Renderer::createPerFrameResources() {
     // --- Create descriptor pool for UBO + image sampler (normal frames + reflection) ---
     VkDescriptorPoolSize poolSizes[2]{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = MAX_FRAMES * 2; // normal frames + reflection frames
+    poolSizes[0].descriptorCount = MAX_FRAMES * 3; // normal frames + reflection frames + sky probe
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = MAX_FRAMES * 2 * 4;  // shadow, fog, two RT results, per set
+    poolSizes[1].descriptorCount = MAX_FRAMES * 3 * 4;  // shadow, fog, two RT results, per set
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.maxSets = MAX_FRAMES * 2; // normal frames + reflection frames
+    poolInfo.maxSets = MAX_FRAMES * 3; // normal frames + reflection frames + sky probe
     poolInfo.poolSizeCount = 2;
     poolInfo.pPoolSizes = poolSizes;
 
@@ -522,6 +522,56 @@ bool Renderer::createPerFrameResources() {
         }
     }
 
+    // --- The sky probe's set 0: a buffer for each frame in flight, since one
+    // face is drawn a frame and its matrices change with the face. The other
+    // bindings are the reflection's: neutral fog and lighting, the frame's
+    // shadow map, none of which the sky reads.
+    for (uint32_t i = 0; i < MAX_FRAMES; i++) {
+        VkBufferCreateInfo bufInfo{};
+        bufInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufInfo.size = sizeof(GPUPerFrameData);
+        bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+        allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VmaAllocationInfo mapInfo{};
+        if (vmaCreateBuffer(vkCtx->getAllocator(), &bufInfo, &allocInfo, &skyProbeUBO_[i], &skyProbeUBOAlloc_[i],
+                            &mapInfo) != VK_SUCCESS) {
+            LOG_WARNING("Sky probe: no buffer - the water reflects no sky");
+            break;
+        }
+        skyProbeUBOMapped_[i] = mapInfo.pMappedData;
+        VkDescriptorSetAllocateInfo setAlloc{};
+        setAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        setAlloc.descriptorPool = sceneDescriptorPool;
+        setAlloc.descriptorSetCount = 1;
+        setAlloc.pSetLayouts = &perFrameSetLayout;
+        if (vkAllocateDescriptorSets(device, &setAlloc, &skyProbeDescSet_[i]) != VK_SUCCESS) {
+            LOG_WARNING("Sky probe: no descriptor set - the water reflects no sky");
+            skyProbeDescSet_[i] = VK_NULL_HANDLE;
+            break;
+        }
+        VkDescriptorBufferInfo descBuf{};
+        descBuf.buffer = skyProbeUBO_[i];
+        descBuf.range = sizeof(GPUPerFrameData);
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = skyProbeDescSet_[i];
+        write.dstBinding = 0;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        write.pBufferInfo = &descBuf;
+        VkCopyDescriptorSet copies[4]{};
+        for (uint32_t b = 1; b <= 4; ++b) {
+            copies[b - 1].sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+            copies[b - 1].srcSet = reflPerFrameDescSet[i];
+            copies[b - 1].srcBinding = b;
+            copies[b - 1].dstSet = skyProbeDescSet_[i];
+            copies[b - 1].dstBinding = b;
+            copies[b - 1].descriptorCount = 1;
+        }
+        vkUpdateDescriptorSets(device, 1, &write, 4, copies);
+    }
     // The compute side. Not fatal: without it the fog simply stays off, and
     // applyPendingQuality says so when it is asked for.
     if (!volumetricFog_->createPipelines(perFrameSetLayout, shadowDepthView)) {
@@ -539,6 +589,12 @@ void Renderer::destroyPerFrameResources() {
 
     for (uint32_t i = 0; i < MAX_FRAMES; i++) {
         destroy(vkCtx->getAllocator(), perFrameUBOs[i], perFrameUBOAllocs[i]);
+    }
+    for (uint32_t i = 0; i < MAX_FRAMES; i++) {
+        if (skyProbeUBO_[i]) vmaDestroyBuffer(vkCtx->getAllocator(), skyProbeUBO_[i], skyProbeUBOAlloc_[i]);
+        skyProbeUBO_[i] = VK_NULL_HANDLE;
+        skyProbeUBOMapped_[i] = nullptr;
+        skyProbeDescSet_[i] = VK_NULL_HANDLE;  // freed with the pool
     }
     if (reflPerFrameUBO) {
         vmaDestroyBuffer(vkCtx->getAllocator(), reflPerFrameUBO, reflPerFrameUBOAlloc);
@@ -3270,6 +3326,8 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
                     lightingManager ? &lightingManager->getLightingParams() : nullptr,
                     useOriginalSkybox);
                 skyParams.sunOcclusion = sunOcclusion_;
+                lastSkyParams_ = skyParams;
+                lastSkyParamsValid_ = true;
                 skySystem->render(cmd, perFrameSet, *camera, skyParams);
                 if (drawSkyModels) {
                     skyboxModelRenderer_->render(cmd, perFrameSet, *camera);
@@ -3486,6 +3544,8 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
                 lightingManager ? &lightingManager->getLightingParams() : nullptr,
                 useOriginalSkybox);
             skyParams.sunOcclusion = sunOcclusion_;
+                lastSkyParams_ = skyParams;
+                lastSkyParamsValid_ = true;
             skySystem->render(currentCmd, perFrameSet, *camera, skyParams);
             if (drawSkyModels) {
                 skyboxModelRenderer_->prepareRender(frameIdx, *camera);
@@ -4619,6 +4679,7 @@ void Renderer::setSecondaryViewportScissor(VkCommandBuffer cmd) {
 void Renderer::renderReflectionPass() {
     if (!waterRenderer || !camera || !waterRenderer->hasReflectionPass() || !waterRenderer->hasSurfaces()) return;
     if (vrLeanFrame()) return;
+    if (waterReflections_ < 2) return;
     if (currentCmd == VK_NULL_HANDLE || !reflPerFrameUBOMapped) return;
 
     // Select the current frame's pre-bound reflection descriptor set
@@ -4701,6 +4762,44 @@ void Renderer::renderReflectionPass() {
     waterRenderer->endReflectionPass(currentCmd);
 }
 
+// One face of the water's sky probe: the sky alone, round the camera, into the
+// reflection pass. A face a frame, so the whole cube is six frames old at most
+// and costs a few sky draws at 256 a side; the water reads it in the window
+// and in both of a headset's eyes alike. The sky as the world pass last drew
+// it, so its colours, clouds and sun are the frame before's.
+void Renderer::renderSkyProbeFace() {
+    if (!waterRenderer || !camera || !skySystem || !waterRenderer->hasSkyProbe() || !waterRenderer->hasSurfaces()) {
+        return;
+    }
+    if (waterReflections_ < 1 || !lastSkyParamsValid_ || currentCmd == VK_NULL_HANDLE) return;
+    // The sky's pipelines are the scene pass's, single-sampled.
+    if (vkCtx->getMsaaSamples() != VK_SAMPLE_COUNT_1_BIT) return;
+    const uint32_t frame = vkCtx->getCurrentFrame();
+    if (!skyProbeUBOMapped_[frame] || !skyProbeDescSet_[frame]) return;
+
+    const uint32_t face = skyProbeFace_;
+    skyProbeFace_ = (skyProbeFace_ + 1) % WaterRenderer::kSkyProbeFaces;
+
+    const glm::vec3 position = camera->getPosition();
+    GPUPerFrameData data = currentFrameData;
+    data.view = WaterRenderer::skyProbeFaceView(face, position);
+    data.projection = WaterRenderer::skyProbeProjection(camera->getNearPlane(), camera->getFarPlane());
+    data.viewPos = glm::vec4(position, 1.0f);
+    data.volumetricParams = glm::vec4(0.0f);
+    data.rtParams = glm::vec4(0.0f);
+    std::memcpy(skyProbeUBOMapped_[frame], &data, sizeof(GPUPerFrameData));
+
+    if (!waterRenderer->beginSkyProbeFace(currentCmd, face)) return;
+    SkyParams params = lastSkyParams_;
+    params.sunOcclusion = 1.0f;  // a lens flare belongs to the camera, not to the sky
+    skySystem->render(currentCmd, skyProbeDescSet_[frame], *camera, params);
+    waterRenderer->endSkyProbeFace(currentCmd, face);
+}
+
+void Renderer::setWaterReflections(int mode) {
+    waterReflections_ = std::clamp(mode, 0, 2);
+    if (waterRenderer) waterRenderer->setSkyReflection(waterReflections_ >= 1);
+}
 void Renderer::renderShadowPass() {
     ZoneScopedN("Renderer::renderShadowPass");
     static const bool skipShadows = (std::getenv("WOWEE_SKIP_SHADOWS") != nullptr);
@@ -5243,6 +5342,7 @@ void Renderer::buildFrameGraph(game::GameHandler* gameHandler) {
     // Reflection pre-pass → outputs reflection_texture (reads scene, so after shadow)
     renderGraph_->addPass("reflection_pass", {shadowDepth}, {reflTex},
         [this](VkCommandBuffer) {
+            renderSkyProbeFace();
             renderReflectionPass();
         });
 

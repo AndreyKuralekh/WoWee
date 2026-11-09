@@ -147,6 +147,26 @@ public:
     void updateWake(float deltaTime, const glm::vec2& pos, const glm::vec2& travelDir,
                     float intensity, bool wading);
 
+    // --- Sky probe ---
+    // The sky round the camera as a cube, for a reflection that needs no
+    // second pass over the scene: one face a frame, drawn by the sky system
+    // into the reflection pass, then the whole cube's mips after the sixth.
+    // It holds sky only - no buildings, no shore - and is the same for both
+    // of a headset's eyes, so nothing in it differs between them.
+    static constexpr uint32_t kSkyProbeFaces = 6;
+    static constexpr uint32_t kSkyProbeSize = 256;
+    bool hasSkyProbe() const { return skyProbeImage_ != VK_NULL_HANDLE; }
+    /// Opens the reflection pass on one face of the cube. Outside any pass.
+    bool beginSkyProbeFace(VkCommandBuffer cmd, uint32_t face);
+    /// Closes it; after the last face, rebuilds the mips and the cube counts.
+    void endSkyProbeFace(VkCommandBuffer cmd, uint32_t face);
+    /// A face's camera: 90 degrees, square, looking down an axis of the world
+    /// the way a cube map is read (no y flip - the sky draws without culling).
+    static glm::mat4 skyProbeFaceView(uint32_t face, const glm::vec3& position);
+    static glm::mat4 skyProbeProjection(float nearPlane, float farPlane);
+    /// Whether the water reads the sky probe at all (Water reflections).
+    void setSkyReflection(bool on) { skyReflection_ = on; }
+
     VkRenderPass getReflectionRenderPass() const { return reflectionRenderPass; }
     VkExtent2D getReflectionExtent() const { return {.width = REFLECTION_WIDTH, .height = REFLECTION_HEIGHT}; }
     bool hasReflectionPass() const { return reflectionRenderPass != VK_NULL_HANDLE; }
@@ -203,6 +223,22 @@ private:
     // Reflection pass resources
     void createReflectionResources();
     void destroyReflectionResources();
+    void createSkyProbeResources();
+    void destroySkyProbeResources();
+
+    VkImage skyProbeImage_ = VK_NULL_HANDLE;
+    VmaAllocation skyProbeAlloc_ = VK_NULL_HANDLE;
+    VkImageView skyProbeCubeView_ = VK_NULL_HANDLE;
+    VkImageView skyProbeFaceViews_[kSkyProbeFaces] = {};
+    VkFramebuffer skyProbeFramebuffers_[kSkyProbeFaces] = {};
+    VkImage skyProbeDepthImage_ = VK_NULL_HANDLE;
+    VmaAllocation skyProbeDepthAlloc_ = VK_NULL_HANDLE;
+    VkImageView skyProbeDepthView_ = VK_NULL_HANDLE;
+    VkSampler skyProbeSampler_ = VK_NULL_HANDLE;
+    uint32_t skyProbeMips_ = 1;
+    uint32_t skyProbeFacesDrawn_ = 0;  // since the probe was made, up to six
+    bool skyProbeReady_ = false;       // every face drawn and the mips built
+    bool skyReflection_ = true;
 
     VkContext* vkCtx = nullptr;
 

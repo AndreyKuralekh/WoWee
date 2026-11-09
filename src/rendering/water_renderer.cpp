@@ -44,7 +44,8 @@ struct WaterPushConstants {
     glm::vec2 depthRange;  // camera near, far - the shader linearises SceneDepth with these
     float sceneValid = 0.0f; // 1 once captureSceneHistory has run; the shader used to guess this per pixel
     float clarity = 1.0f;  // Water clarity: depths the water clouds over are divided by it
-    float pad1 = 0.0f, pad2 = 0.0f;
+    float skyProbe = 0.0f; // 1 when the sky probe holds all six faces and reflections want it
+    float pad2 = 0.0f;
 };
 static_assert(sizeof(WaterPushConstants) == 112, "the two shader declarations of this range are laid out for 112 bytes");
 
@@ -119,8 +120,14 @@ bool WaterRenderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLay
     reflUBOBinding.descriptorCount = 1;
     reflUBOBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+    VkDescriptorSetLayoutBinding skyProbeBinding{};
+    skyProbeBinding.binding = 4;
+    skyProbeBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    skyProbeBinding.descriptorCount = 1;
+    skyProbeBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
     sceneSetLayout = createDescriptorSetLayout(device,
-        {sceneColorBinding, sceneDepthBinding, reflColorBinding, reflUBOBinding});
+        {sceneColorBinding, sceneDepthBinding, reflColorBinding, reflUBOBinding, skyProbeBinding});
     if (!sceneSetLayout) {
         LOG_ERROR("WaterRenderer: failed to create scene set layout");
         return false;
@@ -130,7 +137,7 @@ bool WaterRenderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLay
     // pool for each copy, since a copy resets its pool when it is remade.
     std::array<VkDescriptorPoolSize, 2> scenePoolSizes{};
     scenePoolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    scenePoolSizes[0].descriptorCount = 3 * SCENE_HISTORY_FRAMES;
+    scenePoolSizes[0].descriptorCount = 4 * SCENE_HISTORY_FRAMES;  // scene, depth, reflection, sky probe
     scenePoolSizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     scenePoolSizes[1].descriptorCount = SCENE_HISTORY_FRAMES;
     VkDescriptorPoolCreateInfo scenePoolInfo{};
@@ -161,6 +168,8 @@ bool WaterRenderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLay
     // Create reflection resources FIRST so reflectionUBO exists when
     // createSceneHistoryResources writes descriptor binding 3
     createReflectionResources();
+    // Before the scene copies: their sets point at it.
+    createSkyProbeResources();
 
     createSceneHistoryResources(SceneTarget::Window, refractionCaptureExtent(),
                                 vkCtx->getSwapchainFormat(),
@@ -222,8 +231,11 @@ void WaterRenderer::recreatePipelines() {
     if (!vkCtx) return;
     VkDevice device = vkCtx->getDevice();
 
+    // The probe's framebuffers are the reflection pass's; they go with it.
+    destroySkyProbeResources();
     destroyReflectionResources();
     createReflectionResources();
+    createSkyProbeResources();
     // The eyes' copy points at the reflection just destroyed; it is made again
     // by the next eye that is copied.
     destroySceneHistoryResources(SceneTarget::Eyes);
@@ -344,6 +356,7 @@ void WaterRenderer::shutdown() {
     vkCtx->flushDeferredCleanup();
 
     destroyWater1xResources();
+    destroySkyProbeResources();
     destroyReflectionResources();
     destroySceneHistoryResources(SceneTarget::Window);
     destroySceneHistoryResources(SceneTarget::Eyes);
@@ -549,6 +562,21 @@ void WaterRenderer::createSceneHistoryResources(SceneTarget which, VkExtent2D ex
         w2.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         w2.pImageInfo = &reflColorInfo;
         writes.push_back(w2);
+
+        VkDescriptorImageInfo skyProbeInfo{};
+        skyProbeInfo.sampler = skyProbeSampler_ ? skyProbeSampler_ : sceneColorSampler;
+        skyProbeInfo.imageView = skyProbeCubeView_;
+        skyProbeInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        if (skyProbeCubeView_) {
+            VkWriteDescriptorSet w4{};
+            w4.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            w4.dstSet = sh.sceneSet;
+            w4.dstBinding = 4;
+            w4.descriptorCount = 1;
+            w4.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w4.pImageInfo = &skyProbeInfo;
+            writes.push_back(w4);
+        }
 
         if (reflectionUBO) {
             VkWriteDescriptorSet w3{};
@@ -1216,6 +1244,7 @@ void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
         push.depthRange = depthRangeOverride_.value_or(glm::vec2(camera.getNearPlane(), camera.getFarPlane()));
         push.sceneValid = sceneValid ? 1.0f : 0.0f;
         push.clarity = clarity_;
+        push.skyProbe = (skyProbeReady_ && skyReflection_) ? 1.0f : 0.0f;
 
         vkCmdPushConstants(cmd, pipelineLayout,
                             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -2255,5 +2284,274 @@ void WaterRenderer::destroyWater1xResources() {
     destroy(device, water1xPipeline);
     if (water1xRenderPass) { vkDestroyRenderPass(device, water1xRenderPass, nullptr); water1xRenderPass = VK_NULL_HANDLE; }
 }
+// ==============================================================
+// Sky probe
+// ==============================================================
+
+void WaterRenderer::createSkyProbeResources() {
+    if (!vkCtx || !reflectionRenderPass) return;
+    VkDevice device = vkCtx->getDevice();
+    VmaAllocator allocator = vkCtx->getAllocator();
+    const VkFormat colorFormat = vkCtx->getSwapchainFormat();
+
+    // Down to 8 pixels a side: past that a mip is blur the water never asks for.
+    skyProbeMips_ = 1;
+    for (uint32_t s = kSkyProbeSize; s > 8; s >>= 1) ++skyProbeMips_;
+
+    VkImageCreateInfo ci{};
+    ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ci.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = colorFormat;
+    ci.extent = {.width = kSkyProbeSize, .height = kSkyProbeSize, .depth = 1};
+    ci.mipLevels = skyProbeMips_;
+    ci.arrayLayers = kSkyProbeFaces;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+               VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VmaAllocationCreateInfo allocCI{};
+    allocCI.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    if (vmaCreateImage(allocator, &ci, &allocCI, &skyProbeImage_, &skyProbeAlloc_, nullptr) != VK_SUCCESS) {
+        LOG_ERROR("WaterRenderer: failed to create the sky probe");
+        skyProbeImage_ = VK_NULL_HANDLE;
+        return;
+    }
+
+    VkImageViewCreateInfo vci{};
+    vci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    vci.image = skyProbeImage_;
+    vci.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+    vci.format = colorFormat;
+    vci.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0,
+                            .levelCount = skyProbeMips_, .baseArrayLayer = 0, .layerCount = kSkyProbeFaces};
+    if (vkCreateImageView(device, &vci, nullptr, &skyProbeCubeView_) != VK_SUCCESS) {
+        LOG_ERROR("WaterRenderer: failed to create the sky probe's cube view");
+        destroySkyProbeResources();
+        return;
+    }
+
+    VkImageCreateInfo dci = ci;
+    dci.flags = 0;
+    dci.format = vkCtx->getDepthFormat();
+    dci.mipLevels = 1;
+    dci.arrayLayers = 1;
+    dci.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    if (vmaCreateImage(allocator, &dci, &allocCI, &skyProbeDepthImage_, &skyProbeDepthAlloc_, nullptr) != VK_SUCCESS) {
+        LOG_ERROR("WaterRenderer: failed to create the sky probe's depth");
+        skyProbeDepthImage_ = VK_NULL_HANDLE;
+        destroySkyProbeResources();
+        return;
+    }
+    VkImageViewCreateInfo dvci{};
+    dvci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    dvci.image = skyProbeDepthImage_;
+    dvci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    dvci.format = vkCtx->getDepthFormat();
+    dvci.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .baseMipLevel = 0, .levelCount = 1,
+                             .baseArrayLayer = 0, .layerCount = 1};
+    if (vkCreateImageView(device, &dvci, nullptr, &skyProbeDepthView_) != VK_SUCCESS) {
+        destroySkyProbeResources();
+        return;
+    }
+
+    for (uint32_t face = 0; face < kSkyProbeFaces; ++face) {
+        VkImageViewCreateInfo fvci = vci;
+        fvci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        fvci.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1,
+                                 .baseArrayLayer = face, .layerCount = 1};
+        if (vkCreateImageView(device, &fvci, nullptr, &skyProbeFaceViews_[face]) != VK_SUCCESS) {
+            destroySkyProbeResources();
+            return;
+        }
+        const VkImageView attachments[2] = {skyProbeFaceViews_[face], skyProbeDepthView_};
+        VkFramebufferCreateInfo fbci{};
+        fbci.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fbci.renderPass = reflectionRenderPass;
+        fbci.attachmentCount = 2;
+        fbci.pAttachments = attachments;
+        fbci.width = kSkyProbeSize;
+        fbci.height = kSkyProbeSize;
+        fbci.layers = 1;
+        if (vkCreateFramebuffer(device, &fbci, nullptr, &skyProbeFramebuffers_[face]) != VK_SUCCESS) {
+            destroySkyProbeResources();
+            return;
+        }
+    }
+
+    VkSamplerCreateInfo sci{};
+    sci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sci.magFilter = VK_FILTER_LINEAR;
+    sci.minFilter = VK_FILTER_LINEAR;
+    sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sci.maxLod = static_cast<float>(skyProbeMips_);
+    skyProbeSampler_ = vkCtx->getOrCreateSampler(sci);
+
+    // Every level of every face readable from the start; the water is told
+    // not to read it until all six faces are in.
+    vkCtx->immediateSubmit([&](VkCommandBuffer cmd) {
+        VkImageMemoryBarrier2 b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        b.dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = skyProbeImage_;
+        b.subresourceRange = vci.subresourceRange;
+        b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers = &b;
+        cmdPipelineBarrier2(cmd, dep);
+    });
+    skyProbeFacesDrawn_ = 0;
+    skyProbeReady_ = false;
+    LOG_INFO("Water: sky probe ", kSkyProbeSize, "x", kSkyProbeSize, ", ", skyProbeMips_, " mips");
+}
+
+void WaterRenderer::destroySkyProbeResources() {
+    if (!vkCtx) return;
+    VkDevice device = vkCtx->getDevice();
+    VmaAllocator allocator = vkCtx->getAllocator();
+    for (uint32_t face = 0; face < kSkyProbeFaces; ++face) {
+        if (skyProbeFramebuffers_[face]) vkDestroyFramebuffer(device, skyProbeFramebuffers_[face], nullptr);
+        if (skyProbeFaceViews_[face]) vkDestroyImageView(device, skyProbeFaceViews_[face], nullptr);
+        skyProbeFramebuffers_[face] = VK_NULL_HANDLE;
+        skyProbeFaceViews_[face] = VK_NULL_HANDLE;
+    }
+    if (skyProbeCubeView_) vkDestroyImageView(device, skyProbeCubeView_, nullptr);
+    if (skyProbeDepthView_) vkDestroyImageView(device, skyProbeDepthView_, nullptr);
+    if (skyProbeImage_) vmaDestroyImage(allocator, skyProbeImage_, skyProbeAlloc_);
+    if (skyProbeDepthImage_) vmaDestroyImage(allocator, skyProbeDepthImage_, skyProbeDepthAlloc_);
+    skyProbeCubeView_ = VK_NULL_HANDLE;
+    skyProbeDepthView_ = VK_NULL_HANDLE;
+    skyProbeImage_ = VK_NULL_HANDLE;
+    skyProbeDepthImage_ = VK_NULL_HANDLE;
+    skyProbeSampler_ = VK_NULL_HANDLE;  // the VkContext's cache's
+    skyProbeFacesDrawn_ = 0;
+    skyProbeReady_ = false;
+}
+
+// The faces in the order a cube map stores them (+X, -X, +Y, -Y, +Z, -Z),
+// each looking down its axis with the up a cube map expects of it. With no y
+// flip in the projection, the face's first row is the cube's first row.
+glm::mat4 WaterRenderer::skyProbeFaceView(uint32_t face, const glm::vec3& position) {
+    static const glm::vec3 kForward[kSkyProbeFaces] = {
+        {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    static const glm::vec3 kUp[kSkyProbeFaces] = {
+        {0, -1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}, {0, -1, 0}, {0, -1, 0}};
+    face %= kSkyProbeFaces;
+    return glm::lookAt(position, position + kForward[face], kUp[face]);
+}
+
+glm::mat4 WaterRenderer::skyProbeProjection(float nearPlane, float farPlane) {
+    return glm::perspective(glm::radians(90.0f), 1.0f, nearPlane, farPlane);
+}
+
+bool WaterRenderer::beginSkyProbeFace(VkCommandBuffer cmd, uint32_t face) {
+    if (!cmd || !skyProbeImage_ || face >= kSkyProbeFaces || !skyProbeFramebuffers_[face]) return false;
+
+    // The water of the frame before may still be reading this face.
+    VkImageMemoryBarrier2 b{};
+    b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    b.srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    b.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    b.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    b.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    b.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    b.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = skyProbeImage_;
+    b.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1,
+                          .baseArrayLayer = face, .layerCount = 1};
+    VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &b;
+    cmdPipelineBarrier2(cmd, dep);
+
+    VkRenderPassBeginInfo rp{};
+    rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rp.renderPass = reflectionRenderPass;
+    rp.framebuffer = skyProbeFramebuffers_[face];
+    rp.renderArea.extent = {.width = kSkyProbeSize, .height = kSkyProbeSize};
+    VkClearValue clears[2]{};
+    clears[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    clears[1].depthStencil = {.depth = 1.0f, .stencil = 0};
+    rp.clearValueCount = 2;
+    rp.pClearValues = clears;
+    vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+    VkViewport vp{.x = 0, .y = 0, .width = static_cast<float>(kSkyProbeSize),
+                  .height = static_cast<float>(kSkyProbeSize), .minDepth = 0.0f, .maxDepth = 1.0f};
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+    VkRect2D sc{.offset = {.x = 0, .y = 0}, .extent = {.width = kSkyProbeSize, .height = kSkyProbeSize}};
+    vkCmdSetScissor(cmd, 0, 1, &sc);
+    return true;
+}
+
+void WaterRenderer::endSkyProbeFace(VkCommandBuffer cmd, uint32_t face) {
+    if (!cmd) return;
+    vkCmdEndRenderPass(cmd);  // the face's top level is shader-readable again
+    if (skyProbeFacesDrawn_ < kSkyProbeFaces) ++skyProbeFacesDrawn_;
+    if (face != kSkyProbeFaces - 1 || skyProbeFacesDrawn_ < kSkyProbeFaces) return;
+
+    // All six are in: each level from the one above it, every face at once.
+    auto barrier = [&](uint32_t mip, VkImageLayout from, VkImageLayout to, VkPipelineStageFlags2 srcStage,
+                       VkAccessFlags2 srcAccess, VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess) {
+        VkImageMemoryBarrier2 b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcStageMask = srcStage;
+        b.srcAccessMask = srcAccess;
+        b.dstStageMask = dstStage;
+        b.dstAccessMask = dstAccess;
+        b.oldLayout = from;
+        b.newLayout = to;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = skyProbeImage_;
+        b.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = mip, .levelCount = 1,
+                              .baseArrayLayer = 0, .layerCount = kSkyProbeFaces};
+        VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers = &b;
+        cmdPipelineBarrier2(cmd, dep);
+    };
+    barrier(0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            VK_ACCESS_2_TRANSFER_READ_BIT);
+    int32_t size = static_cast<int32_t>(kSkyProbeSize);
+    for (uint32_t mip = 1; mip < skyProbeMips_; ++mip) {
+        barrier(mip, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        VkImageBlit blit{};
+        blit.srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = mip - 1, .baseArrayLayer = 0,
+                               .layerCount = kSkyProbeFaces};
+        blit.dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = mip, .baseArrayLayer = 0,
+                               .layerCount = kSkyProbeFaces};
+        blit.srcOffsets[1] = {.x = size, .y = size, .z = 1};
+        blit.dstOffsets[1] = {.x = size / 2, .y = size / 2, .z = 1};
+        vkCmdBlitImage(cmd, skyProbeImage_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, skyProbeImage_,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+        barrier(mip, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                VK_ACCESS_2_TRANSFER_READ_BIT);
+        size /= 2;
+    }
+    for (uint32_t mip = 0; mip < skyProbeMips_; ++mip) {
+        barrier(mip, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    }
+    skyProbeReady_ = true;
+}
+
 } // namespace rendering
 } // namespace wowee

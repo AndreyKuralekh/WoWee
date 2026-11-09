@@ -31,7 +31,8 @@ layout(push_constant) uniform Push {
     vec2 depthRange;  // the camera's own near and far, for linearising SceneDepth
     float sceneValid; // 1 once the refraction capture holds a frame, 0 before it
     float clarity;    // how far the eye sees into the water, 1 as designed (Water clarity)
-    float pad1, pad2;
+    float skyProbe;   // 1 when SkyProbe holds the whole sky and reflections want it
+    float pad2;
 } push;
 
 layout(set = 1, binding = 0) uniform WaterMaterial {
@@ -45,6 +46,10 @@ layout(set = 1, binding = 0) uniform WaterMaterial {
 layout(set = 2, binding = 0) uniform sampler2D SceneColor;
 layout(set = 2, binding = 1) uniform sampler2D SceneDepth;
 layout(set = 2, binding = 2) uniform sampler2D ReflectionColor;
+// The sky round the camera, a face a frame (WaterRenderer, sky probe). Sky
+// only: no second pass over the scene, so it is what a headset's eyes get, the
+// same in both, and what the water falls back to where the planar one is not.
+layout(set = 2, binding = 4) uniform samplerCube SkyProbe;
 // Wake points are laid down behind anything wading through the shallows. Each
 // is a churn site that spreads and dies, so a running character leaves a trail
 // of froth rather than a disc stuck under its feet.
@@ -483,6 +488,21 @@ void main() {
     float reflAmount = 0.0;
     vec3 envReflect = vec3(0.0);
 
+    // The sky first, where the probe has it. The view reflected off the wave
+    // normal, kept above the horizon (a ripple can tip it under, and the cube's
+    // lower half is not the sky the water faces), blurred with distance where
+    // the detail normals fade and a sharp sky would only shimmer. Toward the
+    // horizon it goes to the fog, so no sky shows under the far shore.
+    if (push.skyProbe > 0.5) {
+        vec3 R = reflect(-viewDir, norm);
+        R.z = abs(R.z);
+        float lod = mix(4.0, 1.0, detailFade);
+        vec3 sky = textureLod(SkyProbe, R, lod).rgb;
+        sky = mix(fogColor.rgb, sky, smoothstep(0.02, 0.25, R.z));
+        envReflect = sky * 0.8;
+        reflAmount = 0.5;
+    }
+
     vec4 reflClip = reflViewProj * vec4(FragPos, 1.0);
     if (reflClip.w > 0.1) {
         vec2 reflUV = reflClip.xy / reflClip.w * 0.5 + 0.5;
@@ -499,8 +519,10 @@ void main() {
         float reflBrightness = dot(texReflect, vec3(0.299, 0.587, 0.114));
         float reflValidity = smoothstep(0.002, 0.05, reflBrightness) * edgeFade;
 
-        envReflect = texReflect * 0.5;
-        reflAmount = reflValidity * 0.4;
+        // The planar one over the sky where it holds something: it has the
+        // buildings and the shore the sky probe cannot.
+        envReflect = mix(envReflect, texReflect * 0.5, reflValidity);
+        reflAmount = mix(reflAmount, 0.4, reflValidity);
     }
 
     // ============================================================
