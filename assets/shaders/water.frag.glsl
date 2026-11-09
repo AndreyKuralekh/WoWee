@@ -84,11 +84,13 @@ vec3 dualScrollWaveNormal(vec2 p, float time) {
     vec2 d3 = normalize(vec2(0.32, -0.95));  // ~-71° (third axis for variety)
     float f1 = 0.19, f2 = 0.43, f3 = 0.72;  // spatial frequency (higher = tighter ripples)
     float s1 = 0.95, s2 = 1.73, s3 = 2.40;  // scroll speed (higher octaves move faster)
-    float a1 = 0.22, a2 = 0.10, a3 = 0.05;  // amplitude (decreasing for natural falloff)
+    // Half what they were (09.11.2026): seen from a yard off in a headset the
+    // surface read as choppy and hurried for a river or a canal.
+    float a1 = 0.11, a2 = 0.05, a3 = 0.025; // amplitude (decreasing for natural falloff)
 
-    vec2 p1 = p + d1 * (time * s1 * 4.0);
-    vec2 p2 = p + d2 * (time * s2 * 4.0);
-    vec2 p3 = p + d3 * (time * s3 * 4.0);
+    vec2 p1 = p + d1 * (time * s1 * 2.0);
+    vec2 p2 = p + d2 * (time * s2 * 2.0);
+    vec2 p3 = p + d3 * (time * s3 * 2.0);
 
     // Bend the wave fronts. Each octave on its own is a pure cosine, which is a
     // set of infinitely long straight ridges - in perspective those read as
@@ -97,7 +99,7 @@ vec3 dualScrollWaveNormal(vec2 p, float time) {
     // makes the crests wander, at the same wavelength, amplitude and speed. The
     // noise is much coarser than the waves, so it curves them rather than
     // roughening them.
-    float warp = noiseValue(p * 0.018 + vec2(time * 0.015)) * 6.28318;
+    float warp = noiseValue(p * 0.018 + vec2(time * 0.0075)) * 6.28318;
     float c1 = cos(dot(p1, d1) * f1 + warp);
     float c2 = cos(dot(p2, d2) * f2 + warp * 1.7);
     float c3 = cos(dot(p3, d3) * f3 + warp * 2.6);

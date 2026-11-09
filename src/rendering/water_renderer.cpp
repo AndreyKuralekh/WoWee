@@ -1226,9 +1226,10 @@ void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
         uint8_t basicType = (surface.liquidType == 0) ? 0 : ((surface.liquidType - 1) % 4);
         // WMO water gets no wave displacement - prevents visible slosh at
         // geometry edges (bridges, docks) where water is far below the surface.
-        float waveAmp = isWmoWater ? 0.0f : (basicType == 1 ? 0.35f : 0.08f);
+        // Height and speed halved (09.11.2026), with the shader's ripples.
+        float waveAmp = isWmoWater ? 0.0f : (basicType == 1 ? 0.175f : 0.04f);
         float waveFreq = canalProfile ? 0.35f : (basicType == 1 ? 0.20f : 0.30f);
-        float waveSpeed = canalProfile ? 1.00f : (basicType == 1 ? 1.20f : 1.40f);
+        float waveSpeed = canalProfile ? 0.50f : (basicType == 1 ? 0.60f : 0.70f);
 
         WaterPushConstants push{};
         push.model = glm::mat4(1.0f);
