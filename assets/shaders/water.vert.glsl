@@ -187,7 +187,9 @@ void main() {
     ShoreDist = shoreD;
     if (sea && shoreD < 130.0) {
         float env = smoothstep(130.0, 45.0, shoreD) * smoothstep(1.0, 10.0, shoreD);
-        float A = push.waveAmp * 0.85 * env;
+        // A metre at its height (09.11.2026), whatever the open sea's swell.
+        const float kSurfHeight = 1.1;  // yards
+        float A = kSurfHeight * env;
         float s = sin(phase), c = cos(phase);
         vec2 toShore = aShore.yz;
         // Points either side of a crest drawn in toward it (Gerstner), which
