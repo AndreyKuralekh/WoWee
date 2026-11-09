@@ -167,8 +167,14 @@ void main() {
     float ripple = rippleStrength * 0.12 * exp(-d * 0.12) * sin(d * 2.5 - time * 6.0);
     worldPos.z += ripple;
 
-    // Analytical normal from Gerstner tangent/binormal (cross product gives Z-up normal)
-    Normal = normalize(cross(waves.binormal, waves.tangent));
+    // Analytical normal from Gerstner tangent/binormal. Tangent before binormal:
+    // cross(x, y) is +z. The other way round it was -z, a normal pointing into
+    // the water, and the fragment stage's mix with the up-facing ripple normal
+    // nearly cancelled - what normalize() was left with was the ripples' sideways
+    // part blown up, so the surface read as choppy, and the slightest difference
+    // between two neighbouring surfaces' meshes showed as a step in the specular,
+    // the Fresnel and the opacity: the chunks drawn out as rectangles.
+    Normal = normalize(cross(waves.tangent, waves.binormal));
 
     FragPos = worldPos.xyz;
     TexCoord = aTexCoord;

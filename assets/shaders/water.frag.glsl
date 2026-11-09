@@ -347,6 +347,13 @@ void main() {
     // --- Schlick Fresnel ---
     const vec3 F0 = vec3(0.02);
     float fresnel = F0.x + (1.0 - F0.x) * pow(1.0 - NdotV, 5.0);
+    // The same off the ripples alone. The mesh normal carries the Gerstner
+    // waves, whose height differs from one surface to the next (none on WMO
+    // water), so it steps at every surface's edge; what is laid over the scene
+    // by weight - the sky's reflection, the sheet's opacity - is weighted by
+    // this one instead, or the chunks show through as rectangles.
+    vec3 calmNorm = normalize(mix(vec3(0.0, 0.0, 1.0), detailNorm, 0.55 * detailFade));
+    float calmFresnel = F0.x + (1.0 - F0.x) * pow(1.0 - max(dot(calmNorm, viewDir), 0.001), 5.0);
 
     // ============================================================
     // Refraction (screen-space from scene history)
@@ -495,14 +502,22 @@ void main() {
     // lower half is not the sky the water faces), blurred with distance where
     // the detail normals fade and a sharp sky would only shimmer. Toward the
     // horizon it goes to the fog, so no sky shows under the far shore.
+    //
+    // Off the ripple normal alone, not the mesh's. The mesh normal carries the
+    // Gerstner waves, whose height differs from one surface to the next (none
+    // on WMO water, more on the sea), so it steps at every surface's edge - and
+    // the reflected sky stepped with it, drawing the chunks out as rectangles.
+    // The ripples are a function of the world position and the time only, the
+    // same on every surface. The Fresnel weight is taken off the same normal and
+    // handed on through reflAmount, so it does not step either.
     if (push.skyProbe > 0.5) {
-        vec3 R = reflect(-viewDir, norm);
+        vec3 R = reflect(-viewDir, calmNorm);
         R.z = abs(R.z);
         float lod = mix(4.0, 1.0, detailFade);
         vec3 sky = textureLod(SkyProbe, R, lod).rgb;
         sky = mix(fogColor.rgb, sky, smoothstep(0.02, 0.25, R.z));
         envReflect = sky * 0.8;
-        reflAmount = 0.5;
+        reflAmount = 0.5 * calmFresnel / max(fresnel, 0.001);
     }
 
     vec4 reflClip = reflViewProj * vec4(FragPos, 1.0);
@@ -737,7 +752,7 @@ void main() {
     // Alpha and fog
     // ============================================================
     float baseAlpha = mix(waterAlpha, min(1.0, waterAlpha * 1.5), depthFade);
-    float alpha = mix(baseAlpha, min(1.0, baseAlpha * 1.3), fresnel) * alphaScale;
+    float alpha = mix(baseAlpha, min(1.0, baseAlpha * 1.3), calmFresnel) * alphaScale;
     // ...and the surface itself lets a little more through, half as much again.
     alpha /= mix(1.0, max(push.clarity, 0.1), 0.5);
     alpha = clamp(alpha, 0.15, 0.92);
