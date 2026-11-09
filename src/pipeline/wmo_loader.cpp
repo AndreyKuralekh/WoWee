@@ -437,6 +437,15 @@ bool WMOLoader::loadGroup(const std::vector<uint8_t>& groupData,
         uint32_t chunkSize = read<uint32_t>(groupData, offset);
         uint32_t chunkEnd = offset + chunkSize;
 
+        // MOGP is the last chunk of a group file and holds everything to its
+        // end; the client reads it that way and never trusts its size. Some
+        // modded WMOs (the Stormwind harbour's lion steam tanks) store only
+        // the 64-byte header size there, and the whole group was dropped.
+        if (chunkId == MOGP && chunkSize < groupData.size() - offset) {
+            chunkSize = static_cast<uint32_t>(groupData.size() - offset);
+            chunkEnd = static_cast<uint32_t>(groupData.size());
+        }
+
         if (chunkEnd > groupData.size()) {
             break;
         }
