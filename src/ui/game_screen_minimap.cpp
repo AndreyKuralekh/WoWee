@@ -1819,6 +1819,7 @@ void GameScreen::saveSettings() {
     out << "fog_strength=" << settingsPanel_.pendingFogStrength << "\n";
     out << "daylight=" << settingsPanel_.pendingLightCeiling << "\n";
     out << "water_clarity=" << settingsPanel_.pendingWaterClarity << "\n";
+    out << "water_reflections=" << settingsPanel_.pendingWaterReflections << "\n";
     out << "light_shafts=" << settingsPanel_.pendingVolumetricFog << "\n";
     out << "ray_traced_lighting=" << settingsPanel_.pendingRtLighting << "\n";
     out << "mist_density=" << settingsPanel_.pendingVolumetricDensity << "\n";
@@ -2126,6 +2127,7 @@ void GameScreen::loadSettings() {
             else if (key == "fog_strength") settingsPanel_.pendingFogStrength = std::clamp(std::stof(val), 0.0f, 2.0f);
             else if (key == "daylight") settingsPanel_.pendingLightCeiling = std::clamp(std::stof(val), 1.0f, 1.5f);
             else if (key == "water_clarity") settingsPanel_.pendingWaterClarity = std::clamp(std::stof(val), 0.5f, 2.0f);
+            else if (key == "water_reflections") settingsPanel_.pendingWaterReflections = std::clamp(std::stoi(val), 0, 2);
             else if (key == "light_shafts") settingsPanel_.pendingVolumetricFog = std::clamp(std::stoi(val), 0, 3);
             else if (key == "ray_traced_lighting") settingsPanel_.pendingRtLighting = std::clamp(std::stoi(val), 0, 3);
             else if (key == "mist_density") settingsPanel_.pendingVolumetricDensity = std::clamp(std::stof(val), 0.0f, 3.0f);

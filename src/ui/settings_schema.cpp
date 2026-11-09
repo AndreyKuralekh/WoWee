@@ -95,6 +95,12 @@ constexpr SettingDesc kSchema[] = {
      "How far into rivers and lakes the bed shows. 1 is the water as\n"
      "designed; 2 sees through twice the depth, 0.5 half. The water's\n"
      "colour and the haze under it follow together.", "", 1.3f},
+    {"waterreflections", "Water reflections", SettingKind::Enum, 0, 2, 1, "Graphics", "",
+     "What still water mirrors. Sky reflects the sky round you, cheaply.\n"
+     "Sky and world adds the buildings and the shore through a second\n"
+     "pass over the scene, which costs several milliseconds in a city.\n"
+     "A headset always shows Sky: a second pass there is too dear.",
+     "Off|Sky|Sky and world", 2},
     // The light shafts' own thickness. Their switch and its quality are on
     // the Detail page; see there.
     {"mistdensity", "Mist density", SettingKind::Float, 0, 3, 0.1f, "Graphics", "",
