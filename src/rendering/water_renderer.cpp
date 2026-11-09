@@ -638,7 +638,8 @@ void WaterRenderer::updateMaterialUBO(WaterSurface& surface) {
         }
     }
 
-    bool canalProfile = (surface.wmoId != 0) || (surface.liquidType == 5);
+    const uint8_t liquidBasic = (surface.liquidType == 0) ? 0 : ((surface.liquidType - 1) % 4);
+    bool canalProfile = (surface.wmoId != 0 && liquidBasic == 0) || (surface.liquidType == 5);
     float shimmerStrength = canalProfile ? 0.95f : 0.50f;
     // A canal is a couple of yards deep, and the water's colour is weighted by
     // depth - so it came out as clear glass over the stone bed. Its own colour
@@ -649,6 +650,10 @@ void WaterRenderer::updateMaterialUBO(WaterSurface& surface) {
     if (canalProfile && (surface.liquidType == 0 || (surface.liquidType - 1) % 4 < 2)) {
         color = glm::vec4(0.08f, 0.30f, 0.40f, 1.0f);
         bodyFloor = 0.45f;
+    } else if (surface.liquidType != 0 && (surface.liquidType - 1) % 4 == 1) {
+        // The sea keeps its own deep colour even where it is shallow: it is
+        // darker than a river or a canal, not clear glass over the sand.
+        bodyFloor = 0.55f;
     }
 
     WaterMaterialUBO mat{};
@@ -1222,14 +1227,19 @@ void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
         }
 
         bool isWmoWater = (surface.wmoId != 0);
-        bool canalProfile = isWmoWater || (surface.liquidType == 5);
         uint8_t basicType = (surface.liquidType == 0) ? 0 : ((surface.liquidType - 1) % 4);
+        // A canal is fresh water: WMO sea (a harbour) is the sea, in waves and
+        // colour, or its edge against the open sea shows as a line.
+        bool canalProfile = (isWmoWater && basicType == 0) || (surface.liquidType == 5);
         // WMO water gets no wave displacement - prevents visible slosh at
         // geometry edges (bridges, docks) where water is far below the surface.
-        // Height and speed halved (09.11.2026), with the shader's ripples.
-        float waveAmp = isWmoWater ? 0.0f : (basicType == 1 ? 0.175f : 0.04f);
+        // Heights asked for in a headset (09.11.2026), where a few centimetres
+        // read as a flat sheet: rivers and canals some 20 cm at the crests, the
+        // sea half a metre to a metre. WMO water (city canals) had none, against
+        // slosh at bridge and quay edges; 20 cm against a wall reads as a wave.
+        float waveAmp = basicType == 1 ? (isWmoWater ? 0.45f : 0.60f) : (isWmoWater ? 0.20f : 0.25f);
         float waveFreq = canalProfile ? 0.35f : (basicType == 1 ? 0.20f : 0.30f);
-        float waveSpeed = canalProfile ? 0.50f : (basicType == 1 ? 0.60f : 0.70f);
+        float waveSpeed = canalProfile ? 0.50f : (basicType == 1 ? 0.90f : 0.70f);
 
         WaterPushConstants push{};
         push.model = glm::mat4(1.0f);
@@ -1647,7 +1657,7 @@ glm::vec4 WaterRenderer::getLiquidColor(uint16_t liquidType) const {
     uint8_t basicType = (liquidType == 0) ? 0 : ((liquidType - 1) % 4);
     switch (basicType) {
         case 0:  return glm::vec4(0.10f, 0.28f, 0.55f, 1.0f); // inland: richer blue
-        case 1:  return glm::vec4(0.04f, 0.16f, 0.38f, 1.0f); // ocean: deep blue
+        case 1:  return glm::vec4(0.02f, 0.10f, 0.24f, 1.0f); // ocean: deep blue, darker than a river
         case 2:  return glm::vec4(0.9f, 0.3f, 0.05f, 1.0f);   // magma
         case 3:  return glm::vec4(0.2f, 0.6f, 0.1f, 1.0f);    // slime
         default: return glm::vec4(0.10f, 0.28f, 0.55f, 1.0f);
@@ -1657,7 +1667,7 @@ glm::vec4 WaterRenderer::getLiquidColor(uint16_t liquidType) const {
 float WaterRenderer::getLiquidAlpha(uint16_t liquidType) const {
     uint8_t basicType = (liquidType == 0) ? 0 : ((liquidType - 1) % 4);
     switch (basicType) {
-        case 1:  return 0.72f;  // ocean
+        case 1:  return 0.80f;  // ocean
         case 2:  return 0.75f;  // magma
         case 3:  return 0.65f;  // slime
         default: return 0.48f;  // inland water

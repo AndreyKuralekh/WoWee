@@ -405,7 +405,7 @@ void main() {
     // ============================================================
     vec3 absorptionCoeff = vec3(0.46, 0.09, 0.06);
     if (basicType > 0.5 && basicType < 1.5) {
-        absorptionCoeff = vec3(0.35, 0.06, 0.04);
+        absorptionCoeff = vec3(0.60, 0.15, 0.10);  // the sea: darker with depth than a river
     }
     // Clarity stretches every depth the water clouds over: at 2 the bed shows
     // through twice the depth it did. One factor for all of them, so the colour
@@ -573,7 +573,9 @@ void main() {
     // Subsurface scattering
     // ============================================================
     float sssBase = pow(max(dot(viewDir, -ldir), 0.0), 4.0);
-    float sss = sssBase * max(0.0, WaveOffset * 3.0) * 0.25;
+    // Held at the height of a river's crest: on a metre-high sea swell the
+    // crests lit up green.
+    float sss = sssBase * clamp(WaveOffset * 3.0, 0.0, 1.0) * 0.25;
     vec3 sssColor = vec3(0.05, 0.55, 0.35) * sss * lightColor.rgb;
 
     // ============================================================
@@ -685,6 +687,7 @@ void main() {
     // enough to stand in, which is not only at the beach.
     // ============================================================
     float wakeFoam = 0.0;
+    float seaCrestFoam = 0.0;
     if (wakeBounds.w > 0.5) {
         // One cheap reject for the whole trail keeps this off every other water
         // pixel on screen - the trail covers a few yards, the sheet covers miles.
@@ -741,8 +744,10 @@ void main() {
     // ============================================================
     // Only on a crest: the mask is zero below half wave height, and the
     // cellular field it would multiply is the expensive part.
-    if (basicType > 0.5 && basicType < 1.5 && push.waveAmp > 0.0 && WaveOffset > 0.5) {
-        float crestMask = smoothstep(0.5, 1.0, WaveOffset);
+    // Relative to the sea's own wave height: a fixed half yard was reached by
+    // a swell's crests only now and then, and by a calm sea's never.
+    if (basicType > 0.5 && basicType < 1.5 && push.waveAmp > 0.0 && WaveOffset > 0.6 * push.waveAmp) {
+        float crestMask = smoothstep(0.6 * push.waveAmp, 1.3 * push.waveAmp, WaveOffset);
         vec2 crestWarp = vec2(
             noiseValue(FragPos.xy * 1.8 + time * 0.1) - 0.5,
             noiseValue(FragPos.xy * 1.8 + vec2(53.0) + time * 0.07) - 0.5
@@ -751,7 +756,8 @@ void main() {
         float crestFoam = (1.0 - smoothstep(0.0, 0.18, crestCells)) * crestMask;
         float crestNoise = noiseValue(FragPos.xy * 3.0 - time * 0.3);
         crestFoam *= smoothstep(0.3, 0.6, crestNoise);
-        color = mix(color, vec3(0.68, 0.78, 0.88), crestFoam * 0.30);
+        color = mix(color, vec3(0.80, 0.86, 0.92), crestFoam * 0.65);
+        seaCrestFoam = crestFoam;
     }
 
     // ============================================================
@@ -771,6 +777,7 @@ void main() {
     // leaves the foam as opaque as it was and merely paler.
     alpha = max(alpha, shorelineFoam * 0.58);
     alpha = max(alpha, wakeFoam * 0.55);
+    alpha = max(alpha, seaCrestFoam * 0.75);
     // Dissolve the sheet before the water geometry runs out, so the ocean fades
     // into the horizon haze instead of ending on a hard line. This has to come
     // after the clamp - clamping afterwards restored the 0.15 floor and put the
