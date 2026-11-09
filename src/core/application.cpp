@@ -3378,7 +3378,10 @@ void Application::syncRenderInstancesToEntities(float deltaTime) {
                 // half a yard up, so that a floor above - the storey over a
                 // room, the hill over a tunnel - is never the one stood on.
                 auto& rest = creatureRestFloor_[guid];
-                if (!rest.found || rest.server != renderPos) {
+                const double restNow = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
+                if (!rest.found || rest.server != renderPos || restNow - rest.lookedUpAt > 2.0) {
+                    rest.lookedUpAt = restNow;
                     rest.server = renderPos;
                     rest.z = renderPos.z;
                     rest.found = false;

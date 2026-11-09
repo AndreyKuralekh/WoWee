@@ -409,6 +409,10 @@ private:
         glm::vec3 server{0.0f};
         float z = 0.0f;
         bool found = false;
+        // When it was looked up. Looked up again now and then: the floor of
+        // a building can arrive after the creature standing on it, and the
+        // terrain under the building is all there is until then.
+        double lookedUpAt = 0.0;
     };
     std::unordered_map<uint64_t, CreatureRestFloor> creatureRestFloor_;
     // Since units' auras were last handed to the spell visuals.
