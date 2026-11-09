@@ -208,7 +208,10 @@ public:
     int getSurfaceCount() const { return static_cast<int>(surfaces.size()); }
 
 private:
-    void createWaterMesh(WaterSurface& surface);
+    // How far each point of a tile's sea is from its shore, and which way the
+    // shore lies: the surf's wave fronts run along the coast and toward it.
+    struct ShoreField;
+    void createWaterMesh(WaterSurface& surface, const ShoreField* shore = nullptr);
     void destroyWaterMesh(WaterSurface& surface);
 
     glm::vec4 getLiquidColor(uint16_t liquidType) const;

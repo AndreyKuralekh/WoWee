@@ -36,12 +36,17 @@ layout(push_constant) uniform Push {
 
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec2 aTexCoord;
+// The sea's shore: x yards to it, yz the way to it (render XY). Far off (1000)
+// for anything but the sea near a coast.
+layout(location = 2) in vec3 aShore;
 
 layout(location = 0) out vec3 FragPos;
 layout(location = 1) out vec3 Normal;
 layout(location = 2) out vec2 TexCoord;
 layout(location = 3) out float WaveOffset;
 layout(location = 4) out vec2 ScreenUV;
+layout(location = 5) out float SurfPhase;  // the surf's phase here, for the run-up on the sand
+layout(location = 6) out float ShoreDist;  // yards to the shore
 
 // --- Gerstner wave ---
 // Coordinate system: X,Y = horizontal plane, Z = up (height)
@@ -148,10 +153,15 @@ void main() {
     float time = fogParams.z;
     vec4 worldPos = push.model * vec4(aPos, 1.0);
 
+    const float shoreD = aShore.x;
+    const bool sea = push.liquidBasicType > 0.5 && push.liquidBasicType < 1.5;
+    // Toward a coast the open sea's swell gives way to the surf.
+    const float swellScale = sea ? mix(0.45, 1.0, smoothstep(10.0, 90.0, shoreD)) : 1.0;
+
     // Evaluate Gerstner waves using X,Y horizontal plane
     GerstnerResult waves = evaluateGerstnerWaves(
         vec2(worldPos.x, worldPos.y), time,
-        push.waveAmp, push.waveFreq, push.waveSpeed, push.liquidBasicType
+        push.waveAmp * swellScale, push.waveFreq, push.waveSpeed, push.liquidBasicType
     );
 
     // Apply displacement: xy = horizontal, z = vertical (up)
@@ -160,6 +170,36 @@ void main() {
     worldPos.z += waves.displacement.z;
     WaveOffset = waves.waveHeight; // raw wave height for fragment shader foam
 
+    // The surf: wave fronts along the coast, running in on it at 5 m/s. Its
+    // phase is the distance to the shore, so a front keeps the coast's shape
+    // round a headland and into a bay; as the time grows a point of equal
+    // phase moves to smaller distances - shoreward. It builds over the last
+    // hundred yards and dies in the last few, so the water does not climb far
+    // up the beach.
+    // The phase everywhere, not only where there is surf: a triangle with a
+    // corner past the surf's reach otherwise interpolated from 0 to the phase
+    // of its other corners, through hundreds of cycles.
+    const float kSurfSpeed = 5.47;   // yards a second: 5 m/s
+    const float kSurfLength = 24.0;  // yards between crests (some 22 m)
+    const float k = 6.28318 / kSurfLength;
+    float phase = k * (min(shoreD, 200.0) + kSurfSpeed * time);
+    SurfPhase = phase;
+    ShoreDist = shoreD;
+    if (sea && shoreD < 130.0) {
+        float env = smoothstep(130.0, 45.0, shoreD) * smoothstep(1.0, 10.0, shoreD);
+        float A = push.waveAmp * 0.85 * env;
+        float s = sin(phase), c = cos(phase);
+        vec2 toShore = aShore.yz;
+        // Points either side of a crest drawn in toward it (Gerstner), which
+        // sharpens the crest and flattens the trough.
+        worldPos.xy -= toShore * (0.6 * A * c);
+        worldPos.z += A * s;
+        // Height A sin(k (d + v t)): its slope is A cos * k * grad d, and grad
+        // d points away from the shore.
+        waves.tangent.z -= A * c * k * toShore.x;
+        waves.binormal.z -= A * c * k * toShore.y;
+        WaveOffset += A * s;
+    }
     // Player interaction ripples - concentric waves emanating from player position
     vec2 rippleOrigin = playerPos.xy;
     float rippleStrength = fogParams.w;

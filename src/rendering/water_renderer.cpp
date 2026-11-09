@@ -196,7 +196,7 @@ bool WaterRenderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLay
     // (normal is computed in shader from wave derivatives)
     std::vector<VkVertexInputAttributeDescription> vertAttribs = {
         { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 },                     // aPos
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = 6 * sizeof(float) },        // aTexCoord (skip normal)
+        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = 6 * sizeof(float) }, { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 3 * sizeof(float) },  // aShore        // aTexCoord (skip normal)
     };
 
     VkRenderPass mainPass = vkCtx->getImGuiRenderPass();
@@ -266,7 +266,7 @@ void WaterRenderer::recreatePipelines() {
 
     std::vector<VkVertexInputAttributeDescription> vertAttribs = {
         { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = 6 * sizeof(float) },
+        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = 6 * sizeof(float) }, { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 3 * sizeof(float) },  // aShore
     };
 
     VkRenderPass mainPass = vkCtx->getImGuiRenderPass();
@@ -706,6 +706,43 @@ void WaterRenderer::updateMaterialUBO(WaterSurface& surface) {
 // Data loading (preserved from GL version - no GL calls)
 // ==============================================================
 
+// The sea's distance to its shore over one tile: a grid point per terrain
+// vertex (129 a side, 4.17 yards apart), land where the terrain stands above
+// the sea, and the distance in yards out from the nearest land, capped. The
+// surf's phase is taken off it, so its wave fronts follow the coast - round
+// a headland, into a bay - and its gradient is the way to the shore.
+struct WaterRenderer::ShoreField {
+    static constexpr int kGrid = 129;
+    static constexpr float kCap = 130.0f;
+    float originX = 0.0f, originY = 0.0f;  // render position of grid point (0, 0)
+    float step = 1.0f;                     // yards between grid points
+    std::vector<float> dist;               // [gy * kGrid + gx]
+
+    float at(int gx, int gy) const {
+        gx = std::clamp(gx, 0, kGrid - 1);
+        gy = std::clamp(gy, 0, kGrid - 1);
+        return dist[static_cast<size_t>(gy) * kGrid + gx];
+    }
+    // Grid x runs toward lower render X and grid y toward lower render Y, as
+    // the merged water surface's own steps do.
+    float sample(float x, float y, glm::vec2& towardShore) const {
+        const float fx = std::clamp((originX - x) / step, 0.0f, float(kGrid - 1));
+        const float fy = std::clamp((originY - y) / step, 0.0f, float(kGrid - 1));
+        const int ix = std::min(int(fx), kGrid - 2), iy = std::min(int(fy), kGrid - 2);
+        const float tx = fx - float(ix), ty = fy - float(iy);
+        const float d = glm::mix(glm::mix(at(ix, iy), at(ix + 1, iy), tx),
+                                 glm::mix(at(ix, iy + 1), at(ix + 1, iy + 1), tx), ty);
+        const int nx = int(std::round(fx)), ny = int(std::round(fy));
+        const float dgx = (at(nx + 1, ny) - at(nx - 1, ny)) * 0.5f;
+        const float dgy = (at(nx, ny + 1) - at(nx, ny - 1)) * 0.5f;
+        // Toward the shore is down the distance: -grad, and the grid's axes
+        // run against render X and Y, so the two signs cancel.
+        glm::vec2 g(dgx, dgy);
+        const float len = glm::length(g);
+        towardShore = len > 1e-4f ? g / len : glm::vec2(0.0f);
+        return d;
+    }
+};
 void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool append,
                                      int tileX, int tileY) {
     constexpr float TILE_SIZE = 33.33333f / 8.0f;
@@ -754,6 +791,75 @@ void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool ap
     // Tile origin = NW corner = chunk(0,0) position
     const auto& chunk00 = terrain.getChunk(0, 0);
 
+    // ── The sea's distance to its shore, for the surf ──
+    std::optional<ShoreField> shoreField;
+    {
+        float seaLevel = std::numeric_limits<float>::max();
+        for (const auto& [key, layers] : mergeGroups) {
+            const uint8_t basic = (key.liquidType == 0) ? 0 : ((key.liquidType - 1) % 4);
+            if (basic == 1) seaLevel = std::min(seaLevel, key.roundedHeight / 2.0f);
+        }
+        if (seaLevel < std::numeric_limits<float>::max()) {
+            constexpr int N = ShoreField::kGrid;
+            ShoreField field;
+            field.originX = chunk00.position[0];
+            field.originY = chunk00.position[1];
+            field.step = TILE_SIZE;
+            field.dist.assign(static_cast<size_t>(N) * N, ShoreField::kCap);
+            bool anyLand = false;
+            for (int cy = 0; cy < 16; ++cy) {
+                for (int cx = 0; cx < 16; ++cx) {
+                    const auto& chunk = terrain.getChunk(cx, cy);
+                    if (!chunk.hasHeightMap()) continue;
+                    for (int row = 0; row <= 8; ++row) {
+                        for (int col = 0; col <= 8; ++col) {
+                            // Rows run along render X (grid x), columns along
+                            // render Y (grid y), as in terrain_mesh.cpp.
+                            const float h = chunk.position[2] + chunk.heightMap.getHeight(col, row);
+                            if (std::isfinite(h) && h > seaLevel + 0.1f) {
+                                field.dist[static_cast<size_t>(cx * 8 + col) * N + (cy * 8 + row)] = 0.0f;
+                                anyLand = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if (anyLand) {
+                // Chamfer distance, a pass each way.
+                const float s = TILE_SIZE, sd = TILE_SIZE * 1.41421f;
+                auto d = [&](int x, int y) -> float& { return field.dist[static_cast<size_t>(y) * N + x]; };
+                for (int y = 0; y < N; ++y) {
+                    for (int x = 0; x < N; ++x) {
+                        float v = d(x, y);
+                        if (x > 0) v = std::min(v, d(x - 1, y) + s);
+                        if (y > 0) {
+                            v = std::min(v, d(x, y - 1) + s);
+                            if (x > 0) v = std::min(v, d(x - 1, y - 1) + sd);
+                            if (x < N - 1) v = std::min(v, d(x + 1, y - 1) + sd);
+                        }
+                        d(x, y) = v;
+                    }
+                }
+                for (int y = N - 1; y >= 0; --y) {
+                    for (int x = N - 1; x >= 0; --x) {
+                        float v = d(x, y);
+                        if (x < N - 1) v = std::min(v, d(x + 1, y) + s);
+                        if (y < N - 1) {
+                            v = std::min(v, d(x, y + 1) + s);
+                            if (x < N - 1) v = std::min(v, d(x + 1, y + 1) + sd);
+                            if (x > 0) v = std::min(v, d(x - 1, y + 1) + sd);
+                        }
+                        d(x, y) = std::min(v, ShoreField::kCap);
+                    }
+                }
+                size_t land = 0, surf = 0;
+                for (float v : field.dist) { if (v <= 0.0f) ++land; else if (v < ShoreField::kCap) ++surf; }
+                LOG_INFO("Water: shore for tile [", tileX, ",", tileY, "]: ", land, " land points, ", surf,
+                         " sea points within ", int(ShoreField::kCap), " yards");
+                shoreField = std::move(field);
+            }
+        }
+    }
     // Stormwind water lowering check
     bool isStormwindArea = (tileX >= 28 && tileX <= 50 && tileY >= 28 && tileY <= 52);
     float tileWorldX = 0, tileWorldY = 0;
@@ -773,6 +879,9 @@ void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool ap
 
     // ── Pass 2: create surfaces ──
     for (auto& [key, chunkLayers] : mergeGroups) {
+        // The surf is the sea's: rivers and lakes get none.
+        const bool seaGroup = key.liquidType != 0 && (key.liquidType - 1) % 4 == 1;
+        const ShoreField* shoreFor = (seaGroup && shoreField) ? &*shoreField : nullptr;
 
         // ── Small group → per-chunk surfaces (original code path) ──
         if (chunkLayers.size() <= MERGE_THRESHOLD) {
@@ -834,7 +943,7 @@ void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool ap
                 surface.tileX = tileX;
                 surface.tileY = tileY;
 
-                createWaterMesh(surface);
+                createWaterMesh(surface, shoreFor);
                 if (surface.indexCount > 0 && vkCtx) {
                     updateMaterialUBO(surface);
                 }
@@ -963,7 +1072,7 @@ void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool ap
             }
         }
 
-        createWaterMesh(surface);
+        createWaterMesh(surface, shoreFor);
         if (surface.indexCount > 0 && vkCtx) {
             updateMaterialUBO(surface);
         }
@@ -1431,7 +1540,7 @@ void WaterRenderer::captureSceneHistory(VkCommandBuffer cmd,
 // Mesh creation (Vulkan upload instead of GL)
 // ==============================================================
 
-void WaterRenderer::createWaterMesh(WaterSurface& surface) {
+void WaterRenderer::createWaterMesh(WaterSurface& surface, const ShoreField* shore) {
     const int gridWidth = surface.width + 1;
     const int gridHeight = surface.height + 1;
     constexpr float VISUAL_WATER_Z_BIAS = 0.02f;
@@ -1454,10 +1563,14 @@ void WaterRenderer::createWaterMesh(WaterSurface& surface) {
             vertices.push_back(pos.x);
             vertices.push_back(pos.y);
             vertices.push_back(pos.z);
-            // normal (3 floats) - up
-            vertices.push_back(0.0f);
-            vertices.push_back(0.0f);
-            vertices.push_back(1.0f);
+            // The shore (3 floats, where a normal used to be written and never
+            // read): yards to it, then the way to it. Far off for anything that
+            // is not the sea near a coast, which leaves the surf out.
+            glm::vec2 towardShore(0.0f);
+            const float shoreDist = shore ? shore->sample(pos.x, pos.y, towardShore) : 1000.0f;
+            vertices.push_back(shoreDist);
+            vertices.push_back(towardShore.x);
+            vertices.push_back(towardShore.y);
             // texcoord (2 floats)
             vertices.push_back(static_cast<float>(x) / std::max(1, gridWidth - 1));
             vertices.push_back(static_cast<float>(y) / std::max(1, gridHeight - 1));
@@ -2228,7 +2341,7 @@ bool WaterRenderer::createWater1xPass(VkFormat colorFormat, VkFormat depthFormat
 
     std::vector<VkVertexInputAttributeDescription> vertAttribs = {
         { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = 6 * sizeof(float) },
+        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = 6 * sizeof(float) }, { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 3 * sizeof(float) },  // aShore
     };
 
     water1xPipeline = PipelineBuilder()

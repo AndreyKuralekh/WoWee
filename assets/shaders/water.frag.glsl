@@ -66,6 +66,8 @@ layout(location = 1) in vec3 Normal;
 layout(location = 2) in vec2 TexCoord;
 layout(location = 3) in float WaveOffset;
 layout(location = 4) in vec2 ScreenUV;
+layout(location = 5) in float SurfPhase;
+layout(location = 6) in float ShoreDist;
 
 layout(location = 0) out vec4 outColor;
 
@@ -470,6 +472,9 @@ void main() {
     // offset by low-frequency noise along the shore so one stretch breaks before
     // another rather than the whole shoreline pulsing as a ring.
     float swashPhase = sin(time * 0.55 + noiseValue(FragPos.xy * 0.12) * 6.28);
+    // On a sea shore the run-up keeps time with the surf: the water climbs the
+    // sand as a crest arrives (the shallowest contour, -1) and drains between.
+    if (basicType > 0.5 && basicType < 1.5 && ShoreDist < 60.0) swashPhase = -sin(SurfPhase);
     // Narrowed to the waterline itself (09.11.2026). The bands below are depth
     // contours, and on a planar terrain triangle a contour is a straight line;
     // where a river is only a foot or so deep all the way across, the wider
