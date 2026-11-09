@@ -25,6 +25,8 @@ layout(set = 0, binding = 0) uniform PerFrame {
 #include "rt_lighting.glsli"
 
 layout(set = 1, binding = 0) uniform sampler2D uTexture;
+// The batch's second texture (texture combiners); white when there is none.
+layout(set = 1, binding = 3) uniform sampler2D uTexture2;
 
 layout(set = 1, binding = 2) uniform M2Material {
     int hasTexture;
@@ -42,6 +44,11 @@ layout(set = 1, binding = 2) uniform M2Material {
     float tintB;
     int volumetricBeam;
     int fireCard;
+    // How the second texture joins the first, the M2 combiner op: -1 none,
+    // 0 opaque, 1/2/5 mod, 3 add, 4 mod2x, 6 mod2x keeping alpha,
+    // 7 add keeping alpha. uvSet2 picks its UV set.
+    int combine2;
+    int uvSet2;
 };
 
 layout(set = 0, binding = 1) uniform sampler2DShadow uShadowMap;
@@ -56,6 +63,7 @@ layout(location = 5) in float vFadeAlpha;
 layout(location = 6) flat in int vSkyMode;
 layout(location = 7) flat in float vHighlight;
 layout(location = 8) flat in uvec2 vLightMask;
+layout(location = 9) in vec4 TexCoordAlt;
 
 layout(location = 0) out vec4 outColor;
 
@@ -179,7 +187,26 @@ vec4 fogVolumeSky(vec2 uv) {
 
 void main() {
     vec4 texColor = hasTexture != 0 ? texture(uTexture, TexCoord) : vec4(1.0);
-    // The batch's authored colour. A glow card is painted white and coloured
+    // A two-texture batch: a cloud card and the mask that shapes it, a
+    // surface and its detail. Joined the way the model's combiner says.
+    if (combine2 >= 0) {
+        vec4 t2 = texture(uTexture2, uvSet2 == 1 ? TexCoordAlt.zw : TexCoordAlt.xy);
+        if (combine2 == 0) {
+            texColor.rgb *= t2.rgb;
+        } else if (combine2 == 3) {
+            texColor += t2;
+        } else if (combine2 == 4) {
+            texColor.rgb *= t2.rgb * 2.0;
+            texColor.a *= t2.a;
+        } else if (combine2 == 6) {
+            texColor.rgb *= t2.rgb * 2.0;
+        } else if (combine2 == 7) {
+            texColor.rgb += t2.rgb;
+        } else {
+            texColor *= t2;
+        }
+        texColor = clamp(texColor, 0.0, 1.0);
+    }    // The batch's authored colour. A glow card is painted white and coloured
     // here - Orgrimmar's bonfire carries (1.0, 0.329, 0.0) - so without it
     // every fire in the world burns white.
     texColor.rgb *= vec3(tintR, tintG, tintB);

@@ -567,7 +567,7 @@ bool M2Renderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayout
     // Material set layout (set 1): binding 0 = sampler2D, binding 2 = M2Material UBO
     // (M2Params moved to push constants alongside model matrix)
     {
-        VkDescriptorSetLayoutBinding bindings[2] = {};
+        VkDescriptorSetLayoutBinding bindings[3] = {};
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[0].descriptorCount = 1;
@@ -576,9 +576,14 @@ bool M2Renderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayout
         bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[1].descriptorCount = 1;
         bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        // binding 3: the batch's second texture (white for a one-texture batch)
+        bindings[2].binding = 3;
+        bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[2].descriptorCount = 1;
+        bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo ci{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        ci.bindingCount = 2;
+        ci.bindingCount = 3;
         ci.pBindings = bindings;
         vkCreateDescriptorSetLayout(device, &ci, nullptr, &materialSetLayout_);
     }
@@ -628,7 +633,7 @@ bool M2Renderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayout
     // --- Descriptor pools ---
     {
         VkDescriptorPoolSize sizes[] = {
-            {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = MAX_MATERIAL_SETS + 256},
+            {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 2 * MAX_MATERIAL_SETS + 256},  // two textures a batch
             {.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = MAX_MATERIAL_SETS + 256},
         };
         VkDescriptorPoolCreateInfo ci{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -2181,7 +2186,32 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                 }
             }
             bgpu.texture = tex;
-            // The searchlight's cone.
+            // The second texture, and how it is combined: the op from the
+            // combiner table when the model carries one (globalFlags 0x08),
+            // otherwise from the low bits of the batch's shader id; its UV set
+            // from the texture coordinate table; its animation the next entry
+            // of the transform lookup.
+            if (batch.textureCount >= 2 && batch.textureIndex + 1u < model.textureLookup.size()) {
+                const uint16_t texIdx2 = model.textureLookup[batch.textureIndex + 1];
+                if (texIdx2 < allTextures.size() && allTextures[texIdx2] && allTextures[texIdx2] != whiteTexture_.get()) {
+                    bgpu.texture2 = allTextures[texIdx2];
+                    int op = 1;  // mod
+                    if ((model.globalFlags & 0x08) && batch.shader + 1u < model.textureCombinerCombos.size()) {
+                        op = model.textureCombinerCombos[batch.shader + 1] & 7;
+                    } else if (!(batch.shader & 0x8000)) {
+                        op = batch.shader & 7;
+                    }
+                    bgpu.combine2 = static_cast<int8_t>(op);
+                    if (batch.textureUnit + 1u < model.textureCoordCombos.size()) {
+                        bgpu.uvSet2 = model.textureCoordCombos[batch.textureUnit + 1] == 1 ? 1 : 0;
+                    }
+                    if (batch.textureAnimIndex != 0xFFFF && batch.textureAnimIndex + 1u < model.textureTransformLookup.size() &&
+                        model.textureTransformLookup[batch.textureAnimIndex + 1] != 0xFFFF) {
+                        bgpu.textureAnimIndex2 = static_cast<uint16_t>(batch.textureAnimIndex + 1);
+                        gpuModel.hasTextureAnimation = true;
+                    }
+                }
+            }            // The searchlight's cone.
             //
             // It took a texture dump to find: the beam is a batch of
             // HordeZepAnimation drawn additively with particles\gradient64b,
@@ -2612,6 +2642,8 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             mat.interiorDarken = 0.0f;
             mat.specularIntensity = 0.5f;
             mat.emissiveBoost = bgpu.preserveGlowMesh ? 2.4f : 1.0f;
+            mat.combine2 = bgpu.combine2;
+            mat.uvSet2 = bgpu.uvSet2;
             memcpy(matAllocInfo.pMappedData, &mat, sizeof(mat));
             bgpu.materialUBOMapped = matAllocInfo.pMappedData;
 
@@ -2661,7 +2693,10 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             matBufInfo.offset = 0;
             matBufInfo.range = sizeof(M2MaterialUBO);
 
-            VkWriteDescriptorSet writes[2] = {};
+            VkTexture* batchTex2 = (bgpu.texture2 && bgpu.texture2->isValid()) ? bgpu.texture2 : batchTex;
+            if (!bgpu.texture2 || !bgpu.texture2->isValid()) bgpu.combine2 = -1;  // nothing to combine with
+            VkDescriptorImageInfo imgInfo2 = (bgpu.combine2 >= 0 ? batchTex2 : whiteTexture_.get())->descriptorInfo();
+            VkWriteDescriptorSet writes[3] = {};
             // binding 0: texture
             writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[0].dstSet = bgpu.materialSet;
@@ -2676,8 +2711,15 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             writes[1].descriptorCount = 1;
             writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             writes[1].pBufferInfo = &matBufInfo;
+            // binding 3: second texture
+            writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[2].dstSet = bgpu.materialSet;
+            writes[2].dstBinding = 3;
+            writes[2].descriptorCount = 1;
+            writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[2].pImageInfo = &imgInfo2;
 
-            vkUpdateDescriptorSets(vkCtx_->getDevice(), 2, writes, 0, nullptr);
+            vkUpdateDescriptorSets(vkCtx_->getDevice(), 3, writes, 0, nullptr);
         }
     }
 

@@ -253,6 +253,14 @@ struct M2Model {
     // Texture transforms (UV animation)
     std::vector<M2TextureTransform> textureTransforms;
     std::vector<uint16_t> textureTransformLookup;
+    // A batch's textures take their UV sets from here: texture n of a batch
+    // reads textureCoordCombos[batch.textureUnit + n] (0, 1, or -1 for an
+    // environment map).
+    std::vector<int16_t> textureCoordCombos;
+    // With globalFlags 0x08, how each texture of a batch combines with the one
+    // before it: textureCombinerCombos[batch.shader + n], ops 0-7 (opaque,
+    // mod, mod, add, mod2x, mod, mod2x no alpha, add no alpha).
+    std::vector<uint16_t> textureCombinerCombos;
 
     // Texture weights (per-batch opacity, from M2Track<fixed16>)
     // Each entry is the "at-rest" opacity value (0=transparent, 1=opaque).

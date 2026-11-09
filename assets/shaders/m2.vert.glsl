@@ -44,8 +44,8 @@ struct InstanceData {
     int flags;
     // The local lights whose sphere meets this instance's, one bit each.
     uvec2 lightMask;
-    int pad0;
-    int pad1;
+    // The batch's second texture's own animation (texture combiners).
+    vec2 uvOffset2;
 };
 layout(set = 3, binding = 0) readonly buffer InstanceSSBO {
     InstanceData instanceData[];
@@ -67,6 +67,8 @@ layout(location = 5) out float vFadeAlpha;
 layout(location = 6) flat out int vSkyMode;
 layout(location = 7) flat out float vHighlight;
 layout(location = 8) flat out uvec2 vLightMask;
+// Both UV sets with the second texture's offset: xy set 0, zw set 1.
+layout(location = 9) out vec4 TexCoordAlt;
 
 void main() {
     // Fetch per-instance data from SSBO
@@ -285,6 +287,8 @@ void main() {
     Normal = mat3(model) * norm.xyz;
 
     TexCoord = (push.texCoordSet == 1 ? aTexCoord2 : aTexCoord) + uvOff;
+    vec2 uvOff2 = instanceData[instIdx].uvOffset2;
+    TexCoordAlt = vec4(aTexCoord + uvOff2, aTexCoord2 + uvOff2);
 
     InstanceOrigin = model[3].xyz;
     // How far up the plant this vertex is, as a fraction of the plant's own

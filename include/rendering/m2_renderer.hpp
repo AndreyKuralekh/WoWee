@@ -62,6 +62,13 @@ inline constexpr uint32_t kMaxBonesPerInstance = 512;
 struct M2ModelGPU {
     struct BatchGPU {
         VkTexture* texture = nullptr;  // from cache, NOT owned
+        // A batch's second texture and how it combines with the first (the M2
+        // combiner op 0-7, -1 for a one-texture batch): a sky's cloud card is
+        // its clouds times a mask that fades the card out at its edges.
+        VkTexture* texture2 = nullptr;  // from cache, NOT owned
+        int8_t combine2 = -1;
+        uint8_t uvSet2 = 0;
+        uint16_t textureAnimIndex2 = 0xFFFF;  // its own texture animation, or none
         VkDescriptorSet materialSet = VK_NULL_HANDLE;  // set 1
         ::VkBuffer materialUBO = VK_NULL_HANDLE;
         VmaAllocation materialUBOAlloc = VK_NULL_HANDLE;
@@ -466,6 +473,9 @@ struct M2MaterialUBO {
     /// A flame card. Fades out over the top of its own model, so the card's
     /// upper edge is not where the fire stops.
     int32_t fireCard;
+    /// The second texture's combiner op (BatchGPU::combine2) and UV set.
+    int32_t combine2;
+    int32_t uvSet2;
 };
 
 // M2 params UBO - matches M2Params in m2.vert.glsl (set 1, binding 1)
@@ -922,7 +932,7 @@ private:
         float highlight = 0.0f;    //  4 bytes @ offset 88 - pressed-on lift
         int32_t flags = {};        //  4 bytes @ offset 92 - bit 0: afloat (bobs on the water)
         uint32_t lightMask[2] = {};//  8 bytes @ offset 96 - local lights that reach it
-        int32_t pad[2] = {};       //  8 bytes @ offset 104 - std430 rounds to the mat4's 16
+        glm::vec2 uvOffset2{0.0f}; //  8 bytes @ offset 104 - the second texture's scroll
     };
     // How many instances one frame may hand the GPU, not how many exist. Ground
     // clutter is what fills it: it is drawn by the thousand and every tuft

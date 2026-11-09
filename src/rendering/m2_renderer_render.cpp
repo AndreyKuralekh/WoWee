@@ -1612,6 +1612,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 auto& e = instSSBO[instanceDataCount_];
                 e.model = inst.modelMatrix;
                 e.uvOffset = glm::vec2(0.0f);
+                e.uvOffset2 = glm::vec2(0.0f);
                 e.fadeAlpha = p.fadeAlpha;
                 e.useBones = (p.useBones && !kM2NoSkinning) ? 1 : 0;
                 e.boneBase = p.useBones ? static_cast<int32_t>(inst.megaBoneOffset) : 0;
@@ -1888,10 +1889,24 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                                 }
                             }
                         }
+                        // The second texture's own animation (texture combiners).
+                        const pipeline::M2TextureTransform* tt2 = nullptr;
+                        if (batch.textureAnimIndex2 != 0xFFFF && batch.textureAnimIndex2 < model.textureTransformLookup.size()) {
+                            uint16_t transformIdx = model.textureTransformLookup[batch.textureAnimIndex2];
+                            if (transformIdx < model.textureTransforms.size()) tt2 = &model.textureTransforms[transformIdx];
+                        }
                         for (size_t j = lodIdx; j < lodEnd; j++) {
                             const auto& p = pending[j];
                             auto& inst = instances[p.instanceIdx];
                             glm::vec2 uvOffset(0.0f);
+                            glm::vec2 uvOffset2(0.0f);
+                            if (tt2) {
+                                glm::vec3 trans = m2_track::sampleVec3(
+                                    tt2->translation, inst.currentSequenceIndex,
+                                    inst.animTime, inst.globalSequenceTime,
+                                    model.globalSequenceDurations, glm::vec3(0.0f));
+                                uvOffset2 = glm::vec2(trans.x, trans.y);
+                            }
                             if (tt) {
                                 glm::vec3 trans = m2_track::sampleVec3(
                                     tt->translation, inst.currentSequenceIndex,
@@ -1910,6 +1925,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                             auto& e = instSSBO[instanceDataCount_];
                             e.model = inst.modelMatrix;
                             e.uvOffset = uvOffset;
+                            e.uvOffset2 = uvOffset2;
                             e.fadeAlpha = p.fadeAlpha;
                             e.useBones = (p.useBones && !kM2NoSkinning) ? 1 : 0;
                             e.boneBase = p.useBones ? static_cast<int32_t>(inst.megaBoneOffset) : 0;
@@ -2191,6 +2207,19 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 uvOffset = glm::vec2(lavaAnimSeconds * 0.03f,
                                      -lavaAnimSeconds * 0.08f);
             }
+            // The second texture's own animation (texture combiners).
+            glm::vec2 uvOffset2(0.0f);
+            if (batch.textureAnimIndex2 != 0xFFFF && batch.textureAnimIndex2 < model.textureTransformLookup.size() &&
+                !(skyMode_ && skyNoTexAnim)) {
+                uint16_t transformIdx = model.textureTransformLookup[batch.textureAnimIndex2];
+                if (transformIdx < model.textureTransforms.size()) {
+                    glm::vec3 trans = m2_track::sampleVec3(
+                        model.textureTransforms[transformIdx].translation, instance.currentSequenceIndex,
+                        instance.animTime, instance.globalSequenceTime,
+                        model.globalSequenceDurations, glm::vec3(0.0f));
+                    uvOffset2 = glm::vec2(trans.x, trans.y);
+                }
+            }
 
             // Write single instance entry to SSBO
             if (instanceDataCount_ >= MAX_INSTANCE_DATA) continue;
@@ -2198,6 +2227,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             auto& e = instSSBO[instanceDataCount_];
             e.model = instance.modelMatrix;
             e.uvOffset = uvOffset;
+            e.uvOffset2 = uvOffset2;
             e.fadeAlpha = instanceFadeAlpha;
             // A sky layer's own alpha, which nothing else applies: the Lordaeron
             // sky's haze is authored at 30% and was drawn solid, a white sheet

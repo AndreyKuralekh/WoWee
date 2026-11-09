@@ -1373,6 +1373,14 @@ M2Model M2Loader::load(const std::vector<uint8_t>& m2Data) {
     // Read texture-animation lookup (indexed by batch.textureAnimIndex).
     if (header.nUVAnimLookup > 0 && header.ofsUVAnimLookup > 0) {
         model.textureTransformLookup = readArray<uint16_t>(m2Data, header.ofsUVAnimLookup, header.nUVAnimLookup);
+        model.textureCoordCombos = readArray<int16_t>(m2Data, header.ofsTexUnits, header.nTexUnits);
+        // Right after the WotLK header, present only with this flag.
+        if ((model.globalFlags & 0x08) && header.version >= 264 && m2Data.size() >= sizeof(M2Header) + 8) {
+            uint32_t nCombos = 0, ofsCombos = 0;
+            std::memcpy(&nCombos, m2Data.data() + sizeof(M2Header), 4);
+            std::memcpy(&ofsCombos, m2Data.data() + sizeof(M2Header) + 4, 4);
+            if (nCombos < 4096) model.textureCombinerCombos = readArray<uint16_t>(m2Data, ofsCombos, nCombos);
+        }
     }
 
     // Parse transparency tracks (M2Track<fixed16>) - controls per-batch opacity.
