@@ -84,9 +84,10 @@ vec3 dualScrollWaveNormal(vec2 p, float time) {
     vec2 d3 = normalize(vec2(0.32, -0.95));  // ~-71° (third axis for variety)
     float f1 = 0.19, f2 = 0.43, f3 = 0.72;  // spatial frequency (higher = tighter ripples)
     float s1 = 0.95, s2 = 1.73, s3 = 2.40;  // scroll speed (higher octaves move faster)
-    // Half what they were (09.11.2026): seen from a yard off in a headset the
-    // surface read as choppy and hurried for a river or a canal.
-    float a1 = 0.11, a2 = 0.05, a3 = 0.025; // amplitude (decreasing for natural falloff)
+    // Full height again: halved while the mesh normal pointed down and blew the
+    // ripples up, and with that fixed half of them barely showed. Their speed
+    // stays halved (below).
+    float a1 = 0.22, a2 = 0.10, a3 = 0.05;  // amplitude (decreasing for natural falloff)
 
     vec2 p1 = p + d1 * (time * s1 * 2.0);
     vec2 p2 = p + d2 * (time * s2 * 2.0);
@@ -469,16 +470,21 @@ void main() {
     // offset by low-frequency noise along the shore so one stretch breaks before
     // another rather than the whole shoreline pulsing as a ring.
     float swashPhase = sin(time * 0.55 + noiseValue(FragPos.xy * 0.12) * 6.28);
-    float swashDepth = 0.30 + 0.18 * swashPhase;
+    // Narrowed to the waterline itself (09.11.2026). The bands below are depth
+    // contours, and on a planar terrain triangle a contour is a straight line;
+    // where a river is only a foot or so deep all the way across, the wider
+    // bands took in the whole river and drew the bed's triangles out in foam
+    // and wet sand, straight-edged and moving with the surf.
+    float swashDepth = 0.12 + 0.07 * swashPhase;
 
-    float wetBand = 1.0 - smoothstep(0.0, 0.70, shoreDepth);
-    float shallowBand = 1.0 - smoothstep(0.0, 2.20, shoreDepth);
+    float wetBand = 1.0 - smoothstep(0.0, 0.25, shoreDepth);
+    float shallowBand = 1.0 - smoothstep(0.0, 0.80, shoreDepth);
     // How thoroughly the surf currently covers this point. Sand deeper than the
     // front is under the run-up and soaked; sand shallower has just been
     // uncovered and is draining, so it lightens as the water pulls back. Keying
     // the darkening on depth alone left the wet zone fixed while the water
     // visibly moved over it.
-    float coveredness = smoothstep(swashDepth - 0.12, swashDepth + 0.08, shoreDepth);
+    float coveredness = smoothstep(swashDepth - 0.05, swashDepth + 0.03, shoreDepth);
     if (basicType < 1.5 && shallowBand > 0.001) {
         float sediment = noiseValue(FragPos.xy * 1.6 + time * vec2(0.10, 0.06)) * 0.6
                        + noiseValue(FragPos.xy * 3.4 - time * vec2(0.07, 0.13)) * 0.4;
@@ -595,13 +601,13 @@ void main() {
     // it; without that bound the block ran on every water pixel with a bed
     // under it, which is the whole lake, and multiplied its five cellular
     // fields by nothing.
-    if (basicType < 1.5 && shoreDepth > 0.001 && shoreDepth < 0.9 && push.waveAmp > 0.0) {
+    if (basicType < 1.5 && shoreDepth > 0.001 && shoreDepth < 0.35 && push.waveAmp > 0.0) {
         // How far out from the waterline foam reaches, in yards of depth.
         // Halved from 1.8 once the depth being measured was the real one:
         // against a depth ten times too shallow this had been tuned by eye
         // to something that looked right, and with the scale corrected the
         // same number drew a band twice the width it should be.
-        float foamDepthMask = 1.0 - smoothstep(0.0, 0.9, shoreDepth);
+        float foamDepthMask = 1.0 - smoothstep(0.0, 0.35, shoreDepth);
 
         // Foam rides on the water rather than sitting in world space. The surf
         // carries it up the beach and drags it back, so the whole pattern is
@@ -649,14 +655,14 @@ void main() {
 
         // The surf line itself, on the contour computed above with the wet sand,
         // so the foam sits exactly where the water currently reaches.
-        float swashBand = 1.0 - smoothstep(0.0, 0.085, abs(shoreDepth - swashDepth));
+        float swashBand = 1.0 - smoothstep(0.0, 0.035, abs(shoreDepth - swashDepth));
         float swashTexture = 0.55 + 0.45 * cellularFoam(rot1 * foamUV * 8.6 + time * vec2(0.05, 0.12));
         foam += swashBand * swashTexture * 0.55 * foamDepthMask;
 
         // Spray thrown off the front as it runs up: much finer than the foam,
         // sparse, and only while the surf is advancing. It is what sells the
         // edge as breaking water rather than a wet line.
-        float sprayMask = 1.0 - smoothstep(0.0, 0.11, abs(shoreDepth - swashDepth + 0.04));
+        float sprayMask = 1.0 - smoothstep(0.0, 0.045, abs(shoreDepth - swashDepth + 0.015));
         float sprayCells = cellularFoam(rot2 * (foamUV + swashAdvect * 0.5) * 96.0
                                         + time * vec2(0.6, -0.45));
         float spray = (1.0 - smoothstep(0.0, 0.035, sprayCells))
