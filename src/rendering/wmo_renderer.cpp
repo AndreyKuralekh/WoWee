@@ -1688,6 +1688,9 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
     const glm::vec3 portalViewerPos = viewerPos ? *viewerPos : camPos;
     bool doPortalCull = portalCulling && cullingEnabled_;
     bool doDistanceCull = distanceCulling && cullingEnabled_;
+    // Asked for this call only (cullNextRender), and used up by it.
+    const float oneShotCullDistance = nextRenderCullDistance_;
+    nextRenderCullDistance_ = 0.0f;
 
     auto cullInstance = [&](size_t instIdx, InstanceDrawList& result) {
         // Retire the slot before anything can return. drawLists_ is reused
@@ -1797,6 +1800,17 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
                     ? std::min(viewDistance_, maxGroupDistance)
                     : viewDistance_;
                 if (distSq > groupViewDistance * groupViewDistance) {
+                    result.distanceCulled++;
+                    continue;
+                }
+            }
+
+            if (oneShotCullDistance > 0.0f && gi < instance.worldGroupBounds.size()) {
+                const auto& [gMin, gMax] = instance.worldGroupBounds[gi];
+                const glm::vec3 closestPoint = glm::clamp(camPos, gMin, gMax);
+                const glm::vec3 toGroup = closestPoint - camPos;
+                if (glm::dot(toGroup, toGroup) > oneShotCullDistance * oneShotCullDistance ||
+                    !frustum.intersectsAABB(gMin, gMax)) {
                     result.distanceCulled++;
                     continue;
                 }

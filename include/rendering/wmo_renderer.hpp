@@ -311,6 +311,12 @@ public:
     bool isDistanceCullingEnabled() const { return distanceCulling; }
     float getMaxGroupDistance() const { return maxGroupDistance; }
     void setViewDistance(float distance) { viewDistance_ = std::clamp(distance, 400.0f, 2400.0f); }
+    /// For the next render() only: drop the groups outside its camera's
+    /// frustum and farther than maxDistance. The water's planar reflection
+    /// asks for it - with culling off (cullingEnabled_), its 512 pixels were
+    /// drawing every group of every loaded building, 6000 draws in a city.
+    /// The main view never does: there a missing building is the worse fault.
+    void cullNextRender(float maxDistance) { nextRenderCullDistance_ = maxDistance; }
 
     /**
      * Get number of groups culled by portals last frame
@@ -922,6 +928,7 @@ private:
     bool cullingEnabled_ = false;
     float maxGroupDistance = 500.0f;
     float maxGroupDistanceSq = 250000.0f;  // maxGroupDistance^2
+    float nextRenderCullDistance_ = 0.0f;  // cullNextRender; 0 when not asked
     float viewDistance_ = 1200.0f;
     uint32_t lastDrawCalls = 0;
     mutable uint32_t lastPortalCulledGroups = 0;

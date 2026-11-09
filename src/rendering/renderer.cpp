@@ -4751,11 +4751,23 @@ void Renderer::renderReflectionPass() {
             skyParams.sunOcclusion = 1.0f;
             skySystem->render(currentCmd, reflDescSet, *camera, skyParams);
         }
+        // Culled by the mirrored camera. Handed the game's camera, the terrain
+        // and the buildings were culled by what the camera sees rather than by
+        // what the water shows - every building group in view of a city street,
+        // 6789 draws and 5.8 ms in Stormwind, most of them nowhere in the
+        // reflection, while what the reflection does show behind the camera was
+        // missing. The oblique projection's near plane is the water, so what is
+        // under it is culled too.
+        Camera reflCamera = *camera;
+        reflCamera.setExternalView(reflView, reflProj, reflPos);
         if (terrainRenderer && terrainEnabled) {
-            terrainRenderer->render(currentCmd, reflDescSet, *camera);
+            terrainRenderer->render(currentCmd, reflDescSet, reflCamera);
         }
         if (wmoRenderer) {
-            wmoRenderer->render(currentCmd, reflDescSet, *camera);
+            // Near buildings only, and only those the mirror sees: in 512 pixels
+            // a building 200 yards off is a smudge.
+            wmoRenderer->cullNextRender(200.0f);
+            wmoRenderer->render(currentCmd, reflDescSet, reflCamera, &characterPosition);
         }
     }
 
