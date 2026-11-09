@@ -859,6 +859,7 @@ private:
     uint32_t lastFoliageCasters_ = 0;
     VkPipeline alphaTestPipeline_ = VK_NULL_HANDLE;     // blend mode 1
     VkPipeline alphaPipeline_ = VK_NULL_HANDLE;         // blend mode 2
+    VkPipeline alphaDepthPipeline_ = VK_NULL_HANDLE;    // blend mode 2 that writes depth (no 0x10 flag)
     VkPipeline additivePipeline_ = VK_NULL_HANDLE;      // blend mode 3+
     VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
 

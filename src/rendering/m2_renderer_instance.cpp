@@ -1664,6 +1664,7 @@ void M2Renderer::recreatePipelines() {
     destroy(device, cutoutPipeline_);
     destroy(device, alphaTestPipeline_);
     destroy(device, alphaPipeline_);
+    destroy(device, alphaDepthPipeline_);
     destroy(device, additivePipeline_);
     destroy(device, particlePipeline_);
     destroy(device, particleAdditivePipeline_);

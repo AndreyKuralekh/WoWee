@@ -395,6 +395,11 @@ bool M2Renderer::buildMainPassPipelines(VkDescriptorSetLayout perFrameLayout) {
                                       /*alphaToCoverage=*/true);
     alphaPipeline_ = buildM2Pipeline(PipelineBuilder::blendAlpha(), false,
                                      VK_PIPELINE_CREATE_DERIVATIVE_BIT, opaquePipeline_);
+    // A blended material without the no-depth-write flag (0x10) writes depth,
+    // as the client does: a translucent statue's near faces must hide its far
+    // ones, or its inside shows through.
+    alphaDepthPipeline_ = buildM2Pipeline(PipelineBuilder::blendAlpha(), true,
+                                          VK_PIPELINE_CREATE_DERIVATIVE_BIT, opaquePipeline_);
     additivePipeline_ = buildM2Pipeline(PipelineBuilder::blendAdditive(), false,
                                         VK_PIPELINE_CREATE_DERIVATIVE_BIT, opaquePipeline_);
 
@@ -1200,6 +1205,7 @@ void M2Renderer::shutdown() {
     destroyPipeline(cutoutPipeline_);
     destroyPipeline(alphaTestPipeline_);
     destroyPipeline(alphaPipeline_);
+    destroyPipeline(alphaDepthPipeline_);
     destroyPipeline(additivePipeline_);
     destroyPipeline(particlePipeline_);
     destroyPipeline(particleAdditivePipeline_);

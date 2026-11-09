@@ -2273,7 +2273,10 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
 
             VkPipeline desiredPipeline;
             switch (effectiveBlendMode) {
-                case 2: desiredPipeline = alphaPipeline_; break;
+                case 2:
+                    desiredPipeline = ((batch.materialFlags & 0x10) || model.isSpellEffect || !alphaDepthPipeline_)
+                        ? alphaPipeline_ : alphaDepthPipeline_;
+                    break;
                 default: desiredPipeline = additivePipeline_; break;
             }
             // An opaque layer of a faded instance: blended by its fade.
