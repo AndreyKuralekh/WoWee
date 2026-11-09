@@ -1656,6 +1656,16 @@ void MovementHandler::handleMonsterMove(network::Packet& packet) {
                 : 0u;
         owner_.unitMoveFlagsCallbackRef()(data.guid, locomotionFlags, ~0u);
     }
+    // WotLK says it in the spline too: MoveSplineFlag::Walkmode (0x1000) on
+    // a move is a creature walking it - a patrolling guard, a woodcutter
+    // going to his tree - and without it they ran on the spot at walking
+    // pace. Only the walking bit is touched.
+    else if (!usesPreWotlkSplineFlags && data.hasDest && entity->getType() == ObjectType::UNIT &&
+             owner_.unitMoveFlagsCallbackRef()) {
+        constexpr uint32_t kWalk = static_cast<uint32_t>(MovementFlags::WALKING);
+        owner_.unitMoveFlagsCallbackRef()(
+            data.guid, (data.splineFlags & SplineFlagWotlk::WALKMODE) ? kWalk : 0u, kWalk);
+    }
 
     if (data.hasDest) {
         glm::vec3 destCanonical = core::coords::serverToCanonical(
@@ -1846,6 +1856,11 @@ void MovementHandler::handleMonsterMoveTransport(network::Packet& packet) {
                 ? static_cast<uint32_t>(MovementFlags::WALKING)
                 : 0u;
         owner_.unitMoveFlagsCallbackRef()(moverGuid, locomotionFlags, ~0u);
+    } else if (!usesPreWotlkSplineFlags && hasDest && entity->getType() == ObjectType::UNIT &&
+               owner_.unitMoveFlagsCallbackRef()) {
+        constexpr uint32_t kWalk = static_cast<uint32_t>(MovementFlags::WALKING);
+        owner_.unitMoveFlagsCallbackRef()(
+            moverGuid, (splineFlags & SplineFlagWotlk::WALKMODE) ? kWalk : 0u, kWalk);
     }
 
     if (!owner_.getTransportManager()) {
