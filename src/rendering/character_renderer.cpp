@@ -2091,6 +2091,15 @@ void CharacterRenderer::playAnimation(uint32_t instanceId, uint32_t animationId,
     if (instance.currentSequenceIndex < 0 && firstMatch >= 0) {
         instance.currentSequenceIndex = firstMatch;
     }
+    // An alias (flag 0x40) has no keys of its own and plays the sequence its
+    // aliasNext names - the dwarf's STATE_USESTANDING and STATE_WORK are
+    // aliases, and drawn as themselves they held the bind pose.
+    for (int guard = 0; guard < 8 && instance.currentSequenceIndex >= 0; guard++) {
+        const auto& seq = model.sequences[instance.currentSequenceIndex];
+        if (!(seq.flags & 0x40) || seq.aliasNext >= model.sequences.size() ||
+            seq.aliasNext == static_cast<uint32_t>(instance.currentSequenceIndex)) break;
+        instance.currentSequenceIndex = seq.aliasNext;
+    }
 
     if (instance.currentSequenceIndex < 0) {
         // Fall back to first sequence
@@ -3295,6 +3304,12 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
                 // alpha of an opaque material's texture, and cutting by it
                 // opened holes through a guard's shield, the inside showing
                 // through its rim.
+                //
+                // And an opaque batch with a second texture: the steam tank's
+                // body is its paint plus an environment map, and the paint's
+                // alpha is the mask for that shine. Cut by it, the tank was
+                // full of holes.
+                if (blendMode == 0 && batch.textureCount >= 2) alphaCutout = false;
                 const bool itemModel = instance.hasOverrideModelMatrix && !instance.isEffectModel;
                 const bool blendNeedsCutout = (instance.isSceneModel || itemModel)
                     ? (blendMode == 1)
