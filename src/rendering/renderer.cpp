@@ -2428,6 +2428,22 @@ void Renderer::update(float deltaTime) {
                                   travelDir, intensity, wading);
     }
 
+    // The moon the sky draws, for the track it lays on the water. Its strength
+    // is the sky's own night factor (SkySystem::render shows the moons by it),
+    // gone under the horizon or when the sky draws no moon of its own; the
+    // sky as the world pass last drew it.
+    if (waterRenderer && skySystem && lastSkyParamsValid_) {
+        float strength = 0.0f;
+        glm::vec3 towardMoon(0.0f, 0.0f, 1.0f);
+        if (auto* celestial = skySystem->getCelestial(); celestial && skySystem->drawsCelestialBodies(lastSkyParams_)) {
+            towardMoon = glm::normalize(celestial->getMoonPosition(lastSkyParams_.timeOfDay));
+            const float skyLum = glm::dot(lastSkyParams_.skyTopColor, glm::vec3(0.2126f, 0.7152f, 0.0722f));
+            const float night = 1.0f - glm::smoothstep(0.08f, 0.25f, skyLum);
+            strength = night * glm::smoothstep(0.0f, 0.08f, towardMoon.z);
+        }
+        waterRenderer->setMoon(towardMoon, strength);
+    }
+
     // Update mount dust effects
     if (mountDust) {
         mountDust->update(deltaTime);

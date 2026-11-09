@@ -121,6 +121,13 @@ public:
     // Component accessors (for direct control if needed)
     [[nodiscard]] Skybox*    getSkybox()    const { return skybox_.get(); }
     [[nodiscard]] Celestial* getCelestial() const { return celestial_.get(); }
+    /// Whether render() draws the sun and moons with these params: an original
+    /// (M2) sky without procedural stars brings its own and they are left out.
+    [[nodiscard]] bool drawsCelestialBodies(const SkyParams& params) const {
+        const bool stars = debugSkyMode_ || proceduralStarsEnabled_ ||
+                           (!params.useOriginalSkybox && !params.skyboxHasStars);
+        return !params.useOriginalSkybox || stars;
+    }
     [[nodiscard]] StarField* getStarField() const { return starField_.get(); }
     [[nodiscard]] Clouds*    getClouds()    const { return clouds_.get(); }
     [[nodiscard]] LensFlare* getLensFlare() const { return lensFlare_.get(); }

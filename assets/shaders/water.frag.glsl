@@ -59,6 +59,7 @@ layout(set = 2, binding = 3) uniform WaterFrameData {
     mat4 reflViewProj;
     vec4 wakeBounds;                  // xy = centre, z = cull radius, w = count
     vec4 wakePoints[MAX_WAKE_POINTS]; // xy = world pos, z = age 0..1, w = strength
+    vec4 moonDir;                     // xyz = toward the moon, w = how much it lights the water
 };
 
 layout(location = 0) in vec3 FragPos;
@@ -563,6 +564,23 @@ void main() {
     vec3 F = fresnelSchlickRoughness(max(dot(halfDir, viewDir), 0.0), F0, roughness);
     vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.001) * lightColor.rgb * NdotL;
     specular = min(specular, vec3(2.0));
+
+    // By night the track on the water is the moon's, laid toward the moon the
+    // sky draws. The zone's night light points wherever its designer aimed it,
+    // and its glint ran off toward an empty patch of sky.
+    float moonK = clamp(moonDir.w, 0.0, 1.0);
+    specular *= 1.0 - moonK;
+    if (moonK > 0.001) {
+        vec3 mdir = normalize(moonDir.xyz);
+        vec3 mh = normalize(mdir + viewDir);
+        float mNdotL = max(dot(norm, mdir), 0.0);
+        const float kMoonRough = 0.14;
+        float mD = DistributionGGX(norm, mh, kMoonRough);
+        float mG = GeometrySmith(NdotV, mNdotL, kMoonRough);
+        vec3 mF = fresnelSchlickRoughness(max(dot(mh, viewDir), 0.0), F0, kMoonRough);
+        vec3 moonSpec = (mD * mG * mF) / (4.0 * NdotV * mNdotL + 0.001) * vec3(0.75, 0.82, 0.95) * mNdotL;
+        specular += min(moonSpec, vec3(1.5)) * moonK;
+    }
 
     // Noise-based sparkle. Its features are far smaller than the wave detail, so
     // it aliases sooner - fade it out over the near half of the detail range,

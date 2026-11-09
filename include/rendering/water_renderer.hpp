@@ -74,6 +74,7 @@ struct WaterFrameUBOData {
     glm::mat4 reflViewProj{1.0f};
     glm::vec4 wakeBounds{0.0f};              // xy = centre, z = cull radius, w = count
     glm::vec4 wakePoints[kMaxWakePoints]{};  // xy = pos, z = age 0..1, w = strength
+    glm::vec4 moonDir{0.0f};                 // xyz = toward the moon, w = how much it lights the water
 };
 
 class WaterRenderer {
@@ -166,6 +167,10 @@ public:
     static glm::mat4 skyProbeProjection(float nearPlane, float farPlane);
     /// Whether the water reads the sky probe at all (Water reflections).
     void setSkyReflection(bool on) { skyReflection_ = on; }
+    /// Where the moon the sky draws stands, and how much of the night's light
+    /// it is (0 by day, under the horizon, or with no moon drawn): the track it
+    /// lays on the water is drawn toward it, not toward the zone's night light.
+    void setMoon(const glm::vec3& towardMoon, float strength) { frameUBO_.moonDir = glm::vec4(towardMoon, strength); }
 
     VkRenderPass getReflectionRenderPass() const { return reflectionRenderPass; }
     VkExtent2D getReflectionExtent() const { return {.width = REFLECTION_WIDTH, .height = REFLECTION_HEIGHT}; }
