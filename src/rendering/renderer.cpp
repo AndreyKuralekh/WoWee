@@ -2880,6 +2880,11 @@ void Renderer::updateGroundClutter() {
             placed.wanted = true;
             placed.models.reserve(samples.size());
             for (const auto& s : samples) {
+                // Not on a river bed or a lake floor: the original grows clutter
+                // under water only along the shore, where it is shallow.
+                if (waterRenderer) {
+                    if (const auto level = waterRenderer->getWaterHeightAt(s.x, s.y); level && *level - s.z > 0.3f) { ++clutterUnderwater_; continue; }
+                }
                 const std::string* path = terrainManager->getGroundDoodadModelPath(s.doodadId);
                 const int model = path ? groundClutter_->modelFor(s.doodadId, *path) : -1;
                 if (model < 0) continue;
@@ -2916,7 +2921,7 @@ void Renderer::updateGroundClutter() {
     if (logged < 6 || uploadMs > 8.0) {
         ++logged;
         LOG_INFO("Ground clutter window: ", clutterChunks_.size(), " chunks, ", groundClutter_->instanceCount(),
-                 " doodads, ", groundClutter_->modelCount(), " models, density ", density,
+                 " doodads, ", groundClutter_->modelCount(), " models, ", clutterUnderwater_, " left off river and lake beds so far, density ", density,
                  ", distance ", distance, ", upload ", uploadMs, " ms");
     }
 }

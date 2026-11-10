@@ -44,8 +44,10 @@ using GroundEffectLookupFn = std::function<const GroundEffectInfo*(uint32_t effe
 struct GroundClutterParams {
     /// The client's groundEffectDensity: 16..256, 256 being its maximum.
     float groundEffectDensity = 256.0f;
-    /// Fitted against the original client; 1 is the bare formula.
-    float calibration = 1.0f;
+    /// Fitted against the original client by eye (Northshire, 10.11.2026): the
+    /// bare formula at groundEffectDensity 256 is about twice as dense as the
+    /// original drawn at 256.
+    float calibration = 0.5f;
     /// Above this a density only gathers doodads into clumps in the client;
     /// the count stops growing.
     uint32_t densityCap = 24;

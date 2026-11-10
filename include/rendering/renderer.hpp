@@ -737,6 +737,7 @@ private:
     bool clutterWindowPending_ = false;
     float clutterDensity_ = -1.0f;
     float clutterDistance_ = -1.0f;
+    size_t clutterUnderwater_ = 0;
     void initGroundClutter();
     void updateGroundClutter();
 public:

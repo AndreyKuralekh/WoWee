@@ -58,6 +58,7 @@ void mapQuad(MapChunk& chunk, int qy, int qx, uint32_t layerIdx) {
 GroundClutterParams params(float ged = 64.0f) {
     GroundClutterParams p;
     p.groundEffectDensity = ged;
+    p.calibration = 1.0f;  // the bare formula
     return p;
 }
 
