@@ -37,6 +37,8 @@
 #include "pipeline/grass_population.hpp"
 #include "pipeline/grass_terrain.hpp"
 #include "rendering/grass_renderer.hpp"
+#include "rendering/ground_clutter_renderer.hpp"
+#include "pipeline/ground_clutter.hpp"
 #include "rendering/hiz_system.hpp"
 #include "rendering/volumetric_fog.hpp"
 #include "rendering/sun_shafts.hpp"
@@ -1084,6 +1086,11 @@ void Renderer::shutdown() {
         grassRenderer_->shutdown();
         grassRenderer_.reset();
     }
+    if (groundClutter_) {
+        groundClutter_->shutdown();
+        groundClutter_.reset();
+        clutterChunks_.clear();
+    }
 
     LOG_DEBUG("Renderer::shutdown - m2Renderer...");
     if (hizSystem_) {
@@ -1217,6 +1224,7 @@ void Renderer::applyMsaaChange() {
     // Recreate all sub-renderer pipelines (they embed sample count from render pass)
     if (terrainRenderer) terrainRenderer->recreatePipelines();
     if (grassRenderer_) grassRenderer_->recreatePipelines();
+    if (groundClutter_) groundClutter_->recreatePipelines();
     if (waterRenderer) {
         waterRenderer->recreatePipelines();
         // Under MSAA the water draws single-sampled in its own pass, after the
@@ -1509,6 +1517,10 @@ void Renderer::beginFrame() {
         grassRenderer_->reportCullResult();
         grassRenderer_->dispatchCull(currentCmd, vkCtx->getCurrentFrame(), *camera,
                                      characterPosition);
+    }
+    if (groundClutter_ && camera && vkCtx) {
+        updateGroundClutter();
+        groundClutter_->dispatchCull(currentCmd, vkCtx->getCurrentFrame(), *camera, characterPosition);
     }
 
     // --- Off-screen pre-passes ---
@@ -2776,6 +2788,134 @@ uint32_t Renderer::grassProfileFor(uint32_t effectId, uint32_t areaId) {
     return index;
 }
 
+void Renderer::initGroundClutter() {
+    // WOWEE_CLUTTER_LEGACY=1 keeps the former placement as world doodads.
+    if (groundClutter_ || !vkCtx || !cachedAssetManager || !terrainManager) return;
+    if (envFlagEnabled("WOWEE_CLUTTER_LEGACY")) return;
+    auto clutter = std::make_unique<GroundClutterRenderer>();
+    if (!clutter->initialize(vkCtx, perFrameSetLayout, cachedAssetManager)) {
+        LOG_WARNING("Ground clutter renderer initialization failed - keeping the world doodad placement");
+        return;
+    }
+    groundClutter_ = std::move(clutter);
+    terrainManager->setLegacyGroundClutter(false);
+}
+
+void Renderer::updateGroundClutter() {
+    if (!groundClutter_ || !groundClutter_->isReady() || !terrainManager) return;
+    const glm::vec3 center = characterPosition;
+    if (glm::dot(center, center) <= 0.0f) return;
+
+    // The settings: density as the client's groundEffectDensity (100 % = 256,
+    // its maximum, which is what the original was set to), distance from the
+    // ground clutter distance slider.
+    const float density = terrainManager->getGroundClutterDensityScale();
+    float distance = 140.0f;
+    if (m2Renderer && m2Renderer->groundDetailDistance() > 0.0f) distance = m2Renderer->groundDetailDistance();
+    if (density != clutterDensity_ || distance != clutterDistance_) {
+        clutterDensity_ = density;
+        clutterDistance_ = distance;
+        groundClutter_->setDistance(distance);
+        clutterChunks_.clear();
+        clutterWindowValid_ = false;
+    }
+
+    const float step = 8.0f;
+    if (clutterWindowValid_ && !clutterWindowPending_) {
+        const glm::vec2 moved(center.x - clutterWindowCenter_.x, center.y - clutterWindowCenter_.y);
+        if (glm::dot(moved, moved) < step * step) return;
+    }
+    if (!clutterWindowPending_) {
+        clutterWindowCenter_ = center;
+        clutterWindowPending_ = true;
+    }
+    const glm::vec3 c = clutterWindowCenter_;
+
+    pipeline::GroundClutterParams params;
+    params.groundEffectDensity = 256.0f * density;
+    const auto effectFor = [this](uint32_t id) -> const pipeline::GroundEffectInfo* {
+        static pipeline::GroundEffectInfo info;
+        return terrainManager->getGroundEffectInfo(id, info) ? &info : nullptr;
+    };
+    const uint32_t mapKey = static_cast<uint32_t>(std::hash<std::string>{}(terrainManager->getMapName()));
+
+    // Walk the window at half a chunk, so no chunk is stepped over, placing
+    // the chunks not yet placed - a few a frame, so arriving somewhere new
+    // costs frames rather than one long one.
+    constexpr float kChunk = 533.33333f / 16.0f;
+    const float radius = distance + kChunk;
+    for (auto& [key, chunk] : clutterChunks_) chunk.wanted = false;
+    int placedThisFrame = 0;
+    bool complete = true;
+    std::vector<pipeline::GroundClutterSample> samples;
+    for (float y = c.y - radius; y <= c.y + radius; y += kChunk * 0.5f) {
+        for (float x = c.x - radius; x <= c.x + radius; x += kChunk * 0.5f) {
+            const glm::vec2 d(x - c.x, y - c.y);
+            if (glm::dot(d, d) > radius * radius) continue;
+            float fx = 0.0f, fy = 0.0f;
+            const TerrainTile* tile = nullptr;
+            const pipeline::MapChunk* chunk = terrainManager->findChunkAt(x, y, fx, fy, &tile);
+            if (!chunk || !tile) continue;
+            const uint64_t key = (static_cast<uint64_t>(tile->coord.x & 0xFFFF) << 32) |
+                                 (static_cast<uint64_t>(tile->coord.y & 0xFFFF) << 16) |
+                                 (chunk->indexY * 16 + chunk->indexX);
+            auto it = clutterChunks_.find(key);
+            if (it != clutterChunks_.end()) { it->second.wanted = true; continue; }
+            if (placedThisFrame >= 8) { complete = false; continue; }
+            ++placedThisFrame;
+
+            std::array<bool, 4> road{};
+            for (size_t i = 0; i < std::min<size_t>(4, chunk->layers.size()); ++i) {
+                const uint32_t tex = chunk->layers[i].textureId;
+                road[i] = tex < tile->terrain.textures.size() &&
+                          pipeline::isRoadLikeTexture(tile->terrain.textures[tex]);
+            }
+            samples.clear();
+            const pipeline::ClutterChunkKey ck{mapKey, tile->coord.x, tile->coord.y,
+                                               static_cast<int>(chunk->indexX), static_cast<int>(chunk->indexY)};
+            pipeline::placeChunkClutter(*chunk, ck, effectFor, road, params, samples);
+            ClutterChunk placed;
+            placed.wanted = true;
+            placed.models.reserve(samples.size());
+            for (const auto& s : samples) {
+                const std::string* path = terrainManager->getGroundDoodadModelPath(s.doodadId);
+                const int model = path ? groundClutter_->modelFor(s.doodadId, *path) : -1;
+                if (model < 0) continue;
+                placed.models.push_back(model);
+                placed.placements.emplace_back(s.x, s.y, s.z, s.yaw);
+                placed.scales.push_back(s.scale);
+            }
+            clutterChunks_.emplace(key, std::move(placed));
+        }
+    }
+    if (!complete) return;  // the rest next frame, then upload the whole window
+
+    std::erase_if(clutterChunks_, [](const auto& e) { return !e.second.wanted; });
+    std::vector<GroundClutterRenderer::Instance> instances;
+    size_t total = 0;
+    for (const auto& [key, chunk] : clutterChunks_) total += chunk.models.size();
+    instances.reserve(total);
+    for (const auto& [key, chunk] : clutterChunks_) {
+        for (size_t i = 0; i < chunk.models.size(); ++i) {
+            GroundClutterRenderer::Instance in;
+            in.position = glm::vec3(chunk.placements[i]);
+            in.yaw = chunk.placements[i].w;
+            in.scale = chunk.scales[i];
+            in.model = chunk.models[i];
+            instances.push_back(in);
+        }
+    }
+    groundClutter_->setInstances(instances);
+    clutterWindowValid_ = true;
+    clutterWindowPending_ = false;
+    static int logged = 0;
+    if (logged < 6) {
+        ++logged;
+        LOG_INFO("Ground clutter window: ", clutterChunks_.size(), " chunks, ", groundClutter_->instanceCount(),
+                 " doodads, ", groundClutter_->modelCount(), " models, density ", density,
+                 ", distance ", distance);
+    }
+}
 void Renderer::updateGrassPopulation() {
     if (!grassEnabled_) return;
     if (!grassRenderer_ || !grassRenderer_->isReady() || !terrainManager) return;
@@ -3258,14 +3398,15 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
         // ablation is the whole measurement, since the terrain phase would
         // then be reporting what terrain and grass cost together.
         const bool drawTerrain = terrainRenderer && camera && terrainEnabled && !skipTerrain;
-        const bool drawGrass = grassRenderer_ && !skipGrass;
+        const bool drawGrass = (grassRenderer_ || groundClutter_) && !skipGrass;
         if (drawTerrain || drawGrass) {
             terrainFuture = core::ThreadPool::frameWorkers().submit([&]() -> double {
                 auto t0 = std::chrono::steady_clock::now();
                 VkCommandBuffer cmd = beginSecondary(SEC_TERRAIN);
                 setSecondaryViewportScissor(cmd);
                 if (drawTerrain) terrainRenderer->render(cmd, perFrameSet, *camera);
-                if (drawGrass) grassRenderer_->render(cmd, frameIdx, perFrameSet);
+                if (drawGrass && grassRenderer_) grassRenderer_->render(cmd, frameIdx, perFrameSet);
+                if (drawGrass && groundClutter_) groundClutter_->render(cmd, frameIdx, perFrameSet);
                 vkEndCommandBuffer(cmd);
                 return std::chrono::duration<double, std::milli>(
                     std::chrono::steady_clock::now() - t0).count();
@@ -3549,6 +3690,10 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
         if (grassRenderer_ && vkCtx && !skipGrass) {
             grassRenderer_->render(currentCmd, vkCtx->getCurrentFrame(), perFrameSet);
             if (vkCtx) vkCtx->gpuMark(currentCmd, "grass");
+        }
+        if (groundClutter_ && vkCtx && !skipGrass) {
+            groundClutter_->render(currentCmd, vkCtx->getCurrentFrame(), perFrameSet);
+            vkCtx->gpuMark(currentCmd, "ground clutter");
         }
 
         // Sky after the ground, for the reason given on the parallel path.
@@ -4229,6 +4374,7 @@ bool Renderer::initializeRenderers(pipeline::AssetManager* assetManager, const s
         }
 
         cachedAssetManager = assetManager;
+        initGroundClutter();
 
         // Enrich zone music from DBC if not already done (e.g. asset manager was null at init).
         if (zoneManager && assetManager) {

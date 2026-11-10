@@ -1833,6 +1833,19 @@ void TerrainManager::ensureGroundEffectTablesLoaded() {
              " effects, ", groundDoodadModelById_.size(), " doodad models");
 }
 
+bool TerrainManager::getGroundEffectInfo(uint32_t effectId, pipeline::GroundEffectInfo& out) const {
+    auto it = groundEffectById_.find(effectId);
+    if (it == groundEffectById_.end()) return false;
+    out.doodadIds = it->second.doodadIds;
+    out.weights = it->second.weights;
+    out.density = it->second.density;
+    return true;
+}
+
+const std::string* TerrainManager::getGroundDoodadModelPath(uint32_t doodadId) const {
+    auto it = groundDoodadModelById_.find(doodadId);
+    return it == groundDoodadModelById_.end() ? nullptr : &it->second;
+}
 void TerrainManager::logGroundClutterDiag(const PendingTile& pending) {
     // WOWEE_CLUTTER_DIAG=1: a summary per tile. WOWEE_CLUTTER_DIAG=<x>,<y> (server
     // coordinates, as .gps prints them): the same, plus the quad maps of the
@@ -1899,6 +1912,7 @@ void TerrainManager::logGroundClutterDiag(const PendingTile& pending) {
 }
 void TerrainManager::generateGroundClutterPlacements(std::shared_ptr<PendingTile>& pending,
                                                      std::unordered_set<uint32_t>& preparedModelIds) {
+    if (!legacyGroundClutter_) return;  // GroundClutterRenderer draws it instead.
     if (taxiStreamingMode_) return;  // Skip clutter while on taxi flights.
     if (!pending || groundEffectById_.empty() || groundDoodadModelById_.empty()) return;
 

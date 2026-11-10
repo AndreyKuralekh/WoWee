@@ -2,6 +2,7 @@
 
 #include "core/coordinates.hpp"
 #include "pipeline/adt_loader.hpp"
+#include "pipeline/ground_clutter.hpp"
 #include "pipeline/terrain_mesh.hpp"
 #include "pipeline/m2_loader.hpp"
 #include "pipeline/wmo_loader.hpp"
@@ -251,6 +252,16 @@ public:
      * a TerrainManager at all.
      */
     [[nodiscard]] uint32_t getGroundEffectDensity(uint32_t effectId) const;
+
+    /** A ground effect's doodads, weights and density, for the per-quad clutter
+     * placement (pipeline/ground_clutter). False for an unknown id. */
+    bool getGroundEffectInfo(uint32_t effectId, pipeline::GroundEffectInfo& out) const;
+    /** A GroundEffectDoodad's model path, or null. */
+    [[nodiscard]] const std::string* getGroundDoodadModelPath(uint32_t doodadId) const;
+    /** Whether ground clutter is still placed as world doodads. Off once the
+     * instanced GroundClutterRenderer draws it. */
+    void setLegacyGroundClutter(bool on) { legacyGroundClutter_ = on; }
+    [[nodiscard]] const std::string& getMapName() const { return mapName; }
 
     /** The detail doodads a ground effect plants, and their weights.
      *
@@ -546,6 +557,7 @@ private:
     std::unordered_map<uint32_t, GroundEffectEntry> groundEffectById_; // effectId -> config
     std::unordered_map<uint32_t, std::string> groundDoodadModelById_;  // doodadId -> model path
     float groundClutterDensityScale_ = 1.0f;
+    bool legacyGroundClutter_ = true;
     std::unordered_map<std::string, TerrainTextureTones> terrainTextureTones_;
 };
 

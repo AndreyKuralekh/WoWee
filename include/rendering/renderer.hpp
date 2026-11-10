@@ -73,6 +73,7 @@ class RenderGraph;
 class OverlaySystem;
 class HiZSystem;
 class GrassRenderer;
+class GroundClutterRenderer;
 class VolumetricFog;
 class RtScene;
 class RtLighting;
@@ -719,6 +720,25 @@ private:
     // gathered once per rebuild from the renderers that own the instances.
     pipeline::GrassClearingField grassClearing_;
     void updateGrassPopulation();
+
+    // Ground clutter (GroundEffectDoodad tufts and flowers), placed per quad
+    // around the player and drawn instanced. Chunks are placed once and kept
+    // while they stay in the window; the window is rebuilt as the player moves.
+    std::unique_ptr<GroundClutterRenderer> groundClutter_;
+    struct ClutterChunk {
+        std::vector<int32_t> models;
+        std::vector<glm::vec4> placements;  // xyz, w = yaw
+        std::vector<float> scales;
+        bool wanted = false;
+    };
+    std::unordered_map<uint64_t, ClutterChunk> clutterChunks_;
+    glm::vec3 clutterWindowCenter_{0.0f};
+    bool clutterWindowValid_ = false;
+    bool clutterWindowPending_ = false;
+    float clutterDensity_ = -1.0f;
+    float clutterDistance_ = -1.0f;
+    void initGroundClutter();
+    void updateGroundClutter();
 public:
     /** Grass density and height, as fractions of the generator's defaults.
      * Set from the settings panel; either changing rebuilds the field. */

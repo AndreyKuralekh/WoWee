@@ -938,6 +938,7 @@ set(WOWEE_SOURCES
     src/rendering/sun_shafts.cpp
     src/rendering/screen_capture.cpp
     src/rendering/loot_sparkles.cpp
+    src/rendering/ground_clutter_renderer.cpp
     src/rendering/grass_renderer.cpp
     src/pipeline/adt_alpha.cpp
     src/pipeline/ground_clutter.cpp
