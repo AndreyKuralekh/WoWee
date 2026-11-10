@@ -38,6 +38,29 @@ float sunAngleForDayFraction(float dayFraction) {
     return pi * 1.5f + sinceSet / (24.0f - (kSet - kRise)) * pi;
 }
 
+// The light's direction - from the sun toward the ground - for an hour.
+//
+// The formula this replaces was written for a Y-up world: it ran the sun over
+// x and y and gave z, which is up here, the smaller share, so the noon sun
+// stood 31 degrees over the horizon. Flat ground caught half of it at the best
+// of times and the zone's ambient did most of the lighting - in Teldrassil,
+// whose ambient is purple, a forest floor went brown where the original's is
+// green. The sun now rises in the same place and crosses the same way, and
+// climbs to kNoonElevation.
+glm::vec3 sunLightDirForDayFraction(float dayFraction) {
+    constexpr float kNoonElevation = glm::radians(65.0f);
+    const float angle = sunAngleForDayFraction(dayFraction);
+    // Where the sun is along its arc: 0 at rise, pi at set, negative below.
+    const float t = angle - glm::pi<float>() * 0.5f;
+    const float elevation = kNoonElevation * std::sin(t);
+    // The compass direction of the old path, kept: the sun rises, crosses
+    // and sets where it always did.
+    glm::vec2 h(-std::sin(angle) * 0.6f, 0.6f - std::cos(angle) * 0.4f);
+    const float hl = glm::length(h);
+    h = hl > 1e-5f ? h / hl : glm::vec2(0.0f, 1.0f);
+    const glm::vec3 toSun(h.x * std::cos(elevation), h.y * std::cos(elevation), std::sin(elevation));
+    return -toSun;
+}
 }  // namespace
 
 
@@ -502,12 +525,7 @@ void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_
         newParams = fallbackParams_;
 
         // Animate sun direction
-        float angle = sunAngleForDayFraction(timeOfDay_);
-        newParams.directionalDir = glm::normalize(glm::vec3(
-            std::sin(angle) * 0.6f,
-            -0.6f + std::cos(angle) * 0.4f,
-            std::cos(angle) * 0.6f
-        ));
+        newParams.directionalDir = sunLightDirForDayFraction(timeOfDay_);
 
         // Time-of-day color adjustments
         if (timeOfDay_ < 0.25f || timeOfDay_ > 0.75f) {
@@ -796,12 +814,7 @@ LightingParams LightingManager::sampleLightParams(const LightParamsProfile* prof
     }
 
     // Compute sun direction from time
-    float angle = sunAngleForDayFraction(timeHalfMinutes / static_cast<float>(kHalfMinutesPerDay));
-    params.directionalDir = glm::normalize(glm::vec3(
-        std::sin(angle) * 0.6f,
-        -0.6f + std::cos(angle) * 0.4f,
-        std::cos(angle) * 0.6f
-    ));
+    params.directionalDir = sunLightDirForDayFraction(timeHalfMinutes / static_cast<float>(kHalfMinutesPerDay));
 
     return params;
 }
