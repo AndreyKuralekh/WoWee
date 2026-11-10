@@ -270,7 +270,7 @@ void main() {
     // of the sky's light too - with the sun alone it vanished whenever the
     // sun was low, which is the whole evening.
     float baked = texture(uBakedShadow, LayerUV).r;
-    shadow = min(shadow, 1.0 - 0.75 * baked);
+    shadow = min(shadow, 1.0 - 0.4 * baked);
     ambient = rtAmbient(rt, ambientColor.rgb) * finalColor.rgb * (1.0 - 0.5 * baked);
 
     vec3 result = ambient + shadow * diffuse;

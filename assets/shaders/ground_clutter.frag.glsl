@@ -57,13 +57,13 @@ void main() {
 
     // Lit as the ground it grows from is, by the terrain shader's own terms:
     // the ground's normal, and the shade the map baked onto it (MCSH) taking
-    // three quarters of the sun and half of the sky. Lit by its own card, a
+    // two fifths of the sun and half of the sky. Lit by its own card, a
     // tuft glowed against the shaded floor of a forest. A little darker at
     // the root, where it sits in its own shade.
     float diff = max(dot(normalize(vGroundNormal), normalize(-lightDir.xyz)), 0.0);
     float ao = mix(0.8, 1.0, vHeight);
     vec3 lit = tex.rgb * (ambientColor.rgb * (1.0 - 0.5 * vShade) +
-                          lightColor.rgb * diff * (1.0 - 0.75 * vShade)) * ao;
+                          lightColor.rgb * diff * (1.0 - 0.4 * vShade)) * ao;
     lit = applyFog(lit, vWorldPos, length(viewPos.xyz - vWorldPos));
     outColor = vec4(lit, 1.0);
 }
