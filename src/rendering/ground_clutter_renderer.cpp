@@ -406,16 +406,79 @@ void GroundClutterRenderer::uploadModelTable() {
             c.firstInstance = base;
         }
     }
-    if (!table.empty()) uploadIntoBuffer(*vkCtx_, table.data(), sizeof(ModelInfoGPU) * table.size(), modelInfoBuffer_);
+    if (!table.empty()) queueUpload(table.data(), sizeof(ModelInfoGPU) * table.size(), modelInfoBuffer_);
     modelTableDirty_ = false;
 }
 
+bool GroundClutterRenderer::queueUpload(const void* data, VkDeviceSize size, VkBuffer dst) {
+    // Staged, and copied by the frame's own command buffer in dispatchCull,
+    // behind a barrier against the previous frame's reads: the buffers being
+    // replaced are still being drawn from by the frame in flight, and a
+    // separate submit would either race those reads or wait for them.
+    PendingCopy copy;
+    copy.dst = dst;
+    copy.size = size;
+    void* mapped = nullptr;
+    if (!createMappedBuffer(vkCtx_->getAllocator(), size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, copy.src, copy.alloc,
+                            mapped) || !mapped) {
+        return false;
+    }
+    std::memcpy(mapped, data, size);
+    vmaFlushAllocation(vkCtx_->getAllocator(), copy.alloc, 0, VK_WHOLE_SIZE);
+    // A newer copy of the same buffer replaces one not yet recorded.
+    for (auto& p : pendingCopies_) {
+        if (p.dst == dst) {
+            destroy(vkCtx_->getAllocator(), p.src, p.alloc);
+            p = copy;
+            return true;
+        }
+    }
+    pendingCopies_.push_back(copy);
+    return true;
+}
+
+void GroundClutterRenderer::recordUploads(VkCommandBuffer cmd, uint32_t frameIndex) {
+    // The staging of the copies this slot recorded last time: its fence has
+    // been waited on by the time the slot comes round again.
+    for (auto& r : retired_[frameIndex]) destroy(vkCtx_->getAllocator(), r.src, r.alloc);
+    retired_[frameIndex].clear();
+    if (pendingCopies_.empty()) return;
+
+    VkMemoryBarrier2 before{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    before.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
+                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+    before.srcAccessMask = 0;
+    before.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    before.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &before;
+    cmdPipelineBarrier2(cmd, dep);
+
+    for (const auto& p : pendingCopies_) {
+        VkBufferCopy region{};
+        region.size = p.size;
+        vkCmdCopyBuffer(cmd, p.src, p.dst, 1, &region);
+    }
+
+    VkMemoryBarrier2 after{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    after.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    after.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    after.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
+                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    after.dstAccessMask = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT |
+                          VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    dep.pMemoryBarriers = &after;
+    cmdPipelineBarrier2(cmd, dep);
+
+    retired_[frameIndex] = std::move(pendingCopies_);
+    pendingCopies_.clear();
+}
 void GroundClutterRenderer::setInstances(std::vector<Instance>& instances) {
     if (!isReady()) return;
     if (geometryDirty_) {
-        if (!vertexData_.empty()) uploadIntoBuffer(*vkCtx_, vertexData_.data(), vertexData_.size(), vertexBuffer_);
-        if (!indexData_.empty())
-            uploadIntoBuffer(*vkCtx_, indexData_.data(), sizeof(uint16_t) * indexData_.size(), indexBuffer_);
+        if (!vertexData_.empty()) queueUpload(vertexData_.data(), vertexData_.size(), vertexBuffer_);
+        if (!indexData_.empty()) queueUpload(indexData_.data(), sizeof(uint16_t) * indexData_.size(), indexBuffer_);
         geometryDirty_ = false;
     }
 
@@ -432,8 +495,7 @@ void GroundClutterRenderer::setInstances(std::vector<Instance>& instances) {
         packed[i].model = static_cast<uint32_t>(in.model);
         if (i == 0 || instances[i - 1].model != in.model) modelBase_[in.model] = static_cast<uint32_t>(i);
     }
-    if (!packed.empty() &&
-        !uploadIntoBuffer(*vkCtx_, packed.data(), sizeof(InstanceGPU) * packed.size(), instanceBuffer_)) {
+    if (!packed.empty() && !queueUpload(packed.data(), sizeof(InstanceGPU) * packed.size(), instanceBuffer_)) {
         instanceCount_ = 0;
         return;
     }
@@ -443,7 +505,9 @@ void GroundClutterRenderer::setInstances(std::vector<Instance>& instances) {
 
 void GroundClutterRenderer::dispatchCull(VkCommandBuffer cmd, uint32_t frameIndex, const Camera& camera,
                                          const glm::vec3& rangeCenter) {
-    if (!isReady() || frameIndex >= kFrames || instanceCount_ == 0 || commandTemplate_.empty()) return;
+    if (!isReady() || frameIndex >= kFrames) return;
+    recordUploads(cmd, frameIndex);
+    if (instanceCount_ == 0 || commandTemplate_.empty()) return;
 
     CullUniformsGPU u{};
     Frustum frustum;
@@ -535,7 +599,11 @@ void GroundClutterRenderer::shutdown() {
     textures_.clear();
     if (whiteTexture_) { whiteTexture_->destroy(device, allocator); whiteTexture_.reset(); }
     textureSets_.clear();
+    for (auto& p : pendingCopies_) destroy(allocator, p.src, p.alloc);
+    pendingCopies_.clear();
     for (uint32_t i = 0; i < kFrames; ++i) {
+        for (auto& r : retired_[i]) destroy(allocator, r.src, r.alloc);
+        retired_[i].clear();
         destroy(allocator, cullUniform_[i], cullUniformAlloc_[i]);
         cullUniformMapped_[i] = nullptr;
         destroy(allocator, visibleBuffer_[i], visibleAlloc_[i]);

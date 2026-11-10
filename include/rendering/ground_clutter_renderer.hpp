@@ -106,6 +106,8 @@ private:
     bool buildDrawPipeline();
     VkDescriptorSet textureSetFor(const std::string& path);
     void uploadModelTable();
+    bool queueUpload(const void* data, VkDeviceSize size, VkBuffer dst);
+    void recordUploads(VkCommandBuffer cmd, uint32_t frameIndex);
 
     VkContext* vkCtx_ = nullptr;
     pipeline::AssetManager* assets_ = nullptr;
@@ -139,6 +141,14 @@ private:
     VmaAllocation modelInfoAlloc_ = VK_NULL_HANDLE;
 
     static constexpr uint32_t kFrames = MAX_FRAMES_IN_FLIGHT;
+    struct PendingCopy {
+        VkBuffer src = VK_NULL_HANDLE;
+        VmaAllocation alloc = VK_NULL_HANDLE;
+        VkBuffer dst = VK_NULL_HANDLE;
+        VkDeviceSize size = 0;
+    };
+    std::vector<PendingCopy> pendingCopies_;
+    std::vector<PendingCopy> retired_[MAX_FRAMES_IN_FLIGHT];
     VkBuffer cullUniform_[kFrames]{};
     VmaAllocation cullUniformAlloc_[kFrames]{};
     void* cullUniformMapped_[kFrames]{};

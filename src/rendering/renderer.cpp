@@ -2820,7 +2820,9 @@ void Renderer::updateGroundClutter() {
         clutterWindowValid_ = false;
     }
 
-    const float step = 8.0f;
+    // The window reaches a chunk past the draw distance, so it can lag the
+    // player by half that before an edge shows.
+    const float step = 16.0f;
     if (clutterWindowValid_ && !clutterWindowPending_) {
         const glm::vec2 moved(center.x - clutterWindowCenter_.x, center.y - clutterWindowCenter_.y);
         if (glm::dot(moved, moved) < step * step) return;
@@ -2890,6 +2892,7 @@ void Renderer::updateGroundClutter() {
     }
     if (!complete) return;  // the rest next frame, then upload the whole window
 
+    const auto uploadStart = std::chrono::steady_clock::now();
     std::erase_if(clutterChunks_, [](const auto& e) { return !e.second.wanted; });
     std::vector<GroundClutterRenderer::Instance> instances;
     size_t total = 0;
@@ -2908,12 +2911,13 @@ void Renderer::updateGroundClutter() {
     groundClutter_->setInstances(instances);
     clutterWindowValid_ = true;
     clutterWindowPending_ = false;
+    const double uploadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - uploadStart).count();
     static int logged = 0;
-    if (logged < 6) {
+    if (logged < 6 || uploadMs > 8.0) {
         ++logged;
         LOG_INFO("Ground clutter window: ", clutterChunks_.size(), " chunks, ", groundClutter_->instanceCount(),
                  " doodads, ", groundClutter_->modelCount(), " models, density ", density,
-                 ", distance ", distance);
+                 ", distance ", distance, ", upload ", uploadMs, " ms");
     }
 }
 void Renderer::updateGrassPopulation() {
