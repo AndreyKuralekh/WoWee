@@ -2477,6 +2477,17 @@ wowee_add_test(test_grass_terrain
             ${CMAKE_SOURCE_DIR}/src/pipeline/adt_alpha.cpp
             ${CMAKE_SOURCE_DIR}/src/pipeline/adt_loader.cpp)
 
+# ── test_ground_clutter ────────────────────────────────
+# Where ground clutter stands, from the ADT's per-quad layer map and no-grow
+# mask and the ground-effect table. Headless: chunks built by hand.
+wowee_add_test(test_ground_clutter
+    SOURCES test_ground_clutter.cpp
+            ${TEST_COMMON_SOURCES}
+            ${CMAKE_SOURCE_DIR}/src/pipeline/ground_clutter.cpp
+            ${CMAKE_SOURCE_DIR}/src/pipeline/terrain_mesh.cpp
+            ${CMAKE_SOURCE_DIR}/src/pipeline/adt_alpha.cpp
+            ${CMAKE_SOURCE_DIR}/src/pipeline/adt_loader.cpp)
+
 # ── test_grass_population ──────────────────────────────
 # Blades generated from terrain suitability. Most of these cases are one
 # property from different angles: a blade's identity comes from its world

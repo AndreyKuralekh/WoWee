@@ -940,6 +940,7 @@ set(WOWEE_SOURCES
     src/rendering/loot_sparkles.cpp
     src/rendering/grass_renderer.cpp
     src/pipeline/adt_alpha.cpp
+    src/pipeline/ground_clutter.cpp
     src/pipeline/grass_terrain.cpp
     src/pipeline/grass_population.cpp
     src/pipeline/grass_profile.cpp

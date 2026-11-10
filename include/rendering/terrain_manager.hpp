@@ -402,6 +402,9 @@ private:
     void workerLoop();
 
     void ensureGroundEffectTablesLoaded();
+    // WOWEE_CLUTTER_DIAG: the per-quad clutter placement (pipeline/ground_clutter)
+    // for a loaded tile, logged beside the placement actually drawn.
+    void logGroundClutterDiag(const PendingTile& pending);
     void generateGroundClutterPlacements(std::shared_ptr<PendingTile>& pending,
                                          std::unordered_set<uint32_t>& preparedModelIds);
 

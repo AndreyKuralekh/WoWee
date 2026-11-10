@@ -4,6 +4,7 @@
 
 #include "pipeline/adt_alpha.hpp"
 #include "pipeline/grass_profile.hpp"
+#include "pipeline/ground_clutter.hpp"
 #include "rendering/terrain_renderer.hpp"
 #include "rendering/vk_context.hpp"
 #include "rendering/water_renderer.hpp"
@@ -653,6 +654,7 @@ std::shared_ptr<PendingTile> TerrainManager::prepareTile(int x, int y) {
     // Procedural ground clutter from terrain layer effectId -> GroundEffectTexture/Doodad DBCs.
     ensureGroundEffectTablesLoaded();
     generateGroundClutterPlacements(pending, preparedModelIds);
+    logGroundClutterDiag(*pending);
 
     if (!workerRunning.load()) return nullptr;
 
@@ -1831,6 +1833,70 @@ void TerrainManager::ensureGroundEffectTablesLoaded() {
              " effects, ", groundDoodadModelById_.size(), " doodad models");
 }
 
+void TerrainManager::logGroundClutterDiag(const PendingTile& pending) {
+    // WOWEE_CLUTTER_DIAG=1: a summary per tile. WOWEE_CLUTTER_DIAG=<x>,<y> (server
+    // coordinates, as .gps prints them): the same, plus the quad maps of the
+    // chunk under that point and its eight neighbours.
+    static const char* env = std::getenv("WOWEE_CLUTTER_DIAG");
+    if (!env || !*env || groundEffectById_.empty()) return;
+    static const std::optional<glm::vec3> at = []() -> std::optional<glm::vec3> {
+        float sx = 0.0f, sy = 0.0f;
+        if (std::sscanf(env, "%f,%f", &sx, &sy) != 2) return std::nullopt;
+        return core::coords::canonicalToRender(core::coords::serverToCanonical(glm::vec3(sx, sy, 0.0f)));
+    }();
+
+    const auto effectFor = [this](uint32_t id) -> const pipeline::GroundEffectInfo* {
+        static thread_local pipeline::GroundEffectInfo info;
+        auto it = groundEffectById_.find(id);
+        if (it == groundEffectById_.end()) return nullptr;
+        info.doodadIds = it->second.doodadIds;
+        info.weights = it->second.weights;
+        info.density = it->second.density;
+        return &info;
+    };
+    const uint32_t mapKey = static_cast<uint32_t>(std::hash<std::string>{}(mapName));
+    pipeline::GroundClutterParams params;  // groundEffectDensity 256, the original's maximum
+    std::vector<pipeline::GroundClutterSample> samples;
+    std::array<size_t, 7> states{};
+    size_t placed = 0;
+    for (int cy = 0; cy < 16; ++cy) {
+        for (int cx = 0; cx < 16; ++cx) {
+            const auto& chunk = pending.terrain.getChunk(cx, cy);
+            std::array<bool, 4> road{};
+            for (size_t i = 0; i < std::min<size_t>(4, chunk.layers.size()); ++i) {
+                const uint32_t tex = chunk.layers[i].textureId;
+                road[i] = tex < pending.terrain.textures.size() &&
+                          pipeline::isRoadLikeTexture(pending.terrain.textures[tex]);
+            }
+            std::array<pipeline::ClutterQuadInfo, 64> quads;
+            samples.clear();
+            const pipeline::ClutterChunkKey key{mapKey, pending.coord.x, pending.coord.y, cx, cy};
+            placed += pipeline::placeChunkClutter(chunk, key, effectFor, road, params, samples, &quads);
+            for (const auto& q : quads) states[static_cast<size_t>(q.state)]++;
+            if (!at || !chunk.hasHeightMap()) continue;
+            // chunk.position is the chunk's corner; a chunk spans CHUNK_SIZE
+            // towards -x and -y from it in render space.
+            const float dx = chunk.position[0] - at->x;
+            const float dy = chunk.position[1] - at->y;
+            if (dx < -CHUNK_SIZE || dx > 2.0f * CHUNK_SIZE || dy < -CHUNK_SIZE || dy > 2.0f * CHUNK_SIZE) continue;
+            std::string layers;
+            for (const auto& l : chunk.layers) {
+                const std::string tex = l.textureId < pending.terrain.textures.size()
+                    ? pending.terrain.textures[l.textureId] : std::string("?");
+                const auto slash = tex.find_last_of("\\/");
+                layers += " [" + std::to_string(l.effectId) + " " +
+                          (slash == std::string::npos ? tex : tex.substr(slash + 1)) + "]";
+            }
+            LOG_INFO("Clutter diag chunk [", pending.coord.x, ",", pending.coord.y, "][", cx, ",", cy,
+                     "] corner=(", chunk.position[0], ",", chunk.position[1], ") placed=", samples.size(),
+                     " layers:", layers, "\n", pipeline::clutterQuadMap(quads));
+        }
+    }
+    LOG_INFO("Clutter diag tile [", pending.coord.x, ",", pending.coord.y, "] placed=", placed,
+             " at groundEffectDensity 256; quads hole=", states[0], " disabled=", states[1],
+             " noLayer=", states[2], " noEffect=", states[3], " road=", states[4],
+             " empty=", states[5], " grown=", states[6]);
+}
 void TerrainManager::generateGroundClutterPlacements(std::shared_ptr<PendingTile>& pending,
                                                      std::unordered_set<uint32_t>& preparedModelIds) {
     if (taxiStreamingMode_) return;  // Skip clutter while on taxi flights.
