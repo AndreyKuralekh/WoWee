@@ -729,6 +729,7 @@ private:
         std::vector<int32_t> models;
         std::vector<glm::vec4> placements;  // xyz, w = yaw
         std::vector<float> scales;
+        std::vector<glm::vec4> ground;  // ground normal, w = baked shadow
         bool wanted = false;
     };
     std::unordered_map<uint64_t, ClutterChunk> clutterChunks_;

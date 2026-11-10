@@ -2891,6 +2891,7 @@ void Renderer::updateGroundClutter() {
                 placed.models.push_back(model);
                 placed.placements.emplace_back(s.x, s.y, s.z, s.yaw);
                 placed.scales.push_back(s.scale);
+                placed.ground.emplace_back(s.normalX, s.normalY, s.normalZ, s.shade);
             }
             clutterChunks_.emplace(key, std::move(placed));
         }
@@ -2910,6 +2911,8 @@ void Renderer::updateGroundClutter() {
             in.yaw = chunk.placements[i].w;
             in.scale = chunk.scales[i];
             in.model = chunk.models[i];
+            in.groundNormal = glm::vec3(chunk.ground[i]);
+            in.shade = chunk.ground[i].w;
             instances.push_back(in);
         }
     }

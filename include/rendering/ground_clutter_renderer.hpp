@@ -60,6 +60,8 @@ public:
         float yaw = 0.0f;
         float scale = 1.0f;
         int model = -1;
+        glm::vec3 groundNormal{0.0f, 0.0f, 1.0f};
+        float shade = 0.0f;  // baked shadow on the ground under it, 0..1
     };
 
     /// Replace the live instances. Sorted by model here; beyond kMaxInstances

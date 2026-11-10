@@ -28,6 +28,8 @@ layout(location = 0) in vec2 vUV;
 layout(location = 1) in vec3 vNormal;
 layout(location = 2) in vec3 vWorldPos;
 layout(location = 3) in float vHeight;
+layout(location = 4) flat in vec3 vGroundNormal;
+layout(location = 5) flat in float vShade;
 
 layout(location = 0) out vec4 outColor;
 
@@ -53,12 +55,15 @@ void main() {
     vec4 tex = texture(uTexture, vUV);
     if (tex.a < 0.5) discard;
 
-    // Cards are seen from both sides and their normals are rarely more than
-    // a hint; light them wrapped, as the grass is, and darker at the root.
-    vec3 n = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
-    float wrapped = clamp(dot(n, normalize(-lightDir.xyz)) * 0.5 + 0.5, 0.0, 1.0);
-    float ao = mix(0.7, 1.0, vHeight);
-    vec3 lit = tex.rgb * (ambientColor.rgb + lightColor.rgb * wrapped) * ao;
+    // Lit as the ground it grows from is, by the terrain shader's own terms:
+    // the ground's normal, and the shade the map baked onto it (MCSH) taking
+    // three quarters of the sun and half of the sky. Lit by its own card, a
+    // tuft glowed against the shaded floor of a forest. A little darker at
+    // the root, where it sits in its own shade.
+    float diff = max(dot(normalize(vGroundNormal), normalize(-lightDir.xyz)), 0.0);
+    float ao = mix(0.8, 1.0, vHeight);
+    vec3 lit = tex.rgb * (ambientColor.rgb * (1.0 - 0.5 * vShade) +
+                          lightColor.rgb * diff * (1.0 - 0.75 * vShade)) * ao;
     lit = applyFog(lit, vWorldPos, length(viewPos.xyz - vWorldPos));
     outColor = vec4(lit, 1.0);
 }

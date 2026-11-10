@@ -72,6 +72,13 @@ struct GroundClutterSample {
     float yaw = 0.0f;    // radians
     float scale = 1.0f;
     uint32_t doodadId = 0;
+    /// The ground under the root: its normal and the baked shadow (MCSH) on it,
+    /// 0 lit, 1 shaded. A doodad is lit as that ground is, or it glows against
+    /// the shaded floor of a forest.
+    float normalX = 0.0f;
+    float normalY = 0.0f;
+    float normalZ = 1.0f;
+    float shade = 0.0f;
 };
 
 /// What happened on each quad, for the diagnostic log.

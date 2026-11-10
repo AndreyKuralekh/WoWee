@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstring>
 
+#include <glm/gtc/packing.hpp>
+
 #include "core/logger.hpp"
 #include "pipeline/asset_manager.hpp"
 #include "pipeline/m2_loader.hpp"
@@ -32,8 +34,8 @@ struct InstanceGPU {
     glm::vec4 positionScale;  // xyz, w = scale
     float yaw;
     uint32_t model;
-    uint32_t pad0;
-    uint32_t pad1;
+    uint32_t groundNormalXY;  // packHalf2x16; z is positive and derived
+    float shade;
 };
 static_assert(sizeof(InstanceGPU) == 32, "instance stride");
 
@@ -493,6 +495,8 @@ void GroundClutterRenderer::setInstances(std::vector<Instance>& instances) {
         packed[i].positionScale = glm::vec4(in.position, in.scale);
         packed[i].yaw = in.yaw;
         packed[i].model = static_cast<uint32_t>(in.model);
+        packed[i].groundNormalXY = glm::packHalf2x16(glm::vec2(in.groundNormal.x, in.groundNormal.y));
+        packed[i].shade = in.shade;
         if (i == 0 || instances[i - 1].model != in.model) modelBase_[in.model] = static_cast<uint32_t>(i);
     }
     if (!packed.empty() && !queueUpload(packed.data(), sizeof(InstanceGPU) * packed.size(), instanceBuffer_)) {

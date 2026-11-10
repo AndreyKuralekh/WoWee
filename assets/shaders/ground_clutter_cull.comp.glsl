@@ -22,8 +22,8 @@ struct Instance {
     vec4 positionScale;
     float yaw;
     uint model;
-    uint pad0;
-    uint pad1;
+    uint groundNormalXY;
+    float shade;
 };
 layout(std430, set = 0, binding = 1) readonly buffer Instances { Instance instances[]; };
 layout(std430, set = 0, binding = 2) writeonly buffer Visible { uint visible[]; };

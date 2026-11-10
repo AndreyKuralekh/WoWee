@@ -23,8 +23,8 @@ struct Instance {
     vec4 positionScale;
     float yaw;
     uint model;
-    uint pad0;
-    uint pad1;
+    uint groundNormalXY;  // packHalf2x16; z derived
+    float shade;          // baked shadow on the ground under it
 };
 layout(std430, set = 1, binding = 0) readonly buffer Instances { Instance instances[]; };
 // Written by the cull; the draw's firstInstance is the model's base, so
@@ -44,6 +44,8 @@ layout(location = 0) out vec2 vUV;
 layout(location = 1) out vec3 vNormal;
 layout(location = 2) out vec3 vWorldPos;
 layout(location = 3) out float vHeight;
+layout(location = 4) flat out vec3 vGroundNormal;
+layout(location = 5) flat out float vShade;
 
 void main() {
     Instance inst = instances[visible[gl_InstanceIndex]];
@@ -75,5 +77,8 @@ void main() {
     vec3 n = vec3(c * aNormal.x - s * aNormal.y, s * aNormal.x + c * aNormal.y, aNormal.z);
     vNormal = n;
     vHeight = clamp(aPos.z, 0.0, 1.0);
+    vec2 gxy = unpackHalf2x16(inst.groundNormalXY);
+    vGroundNormal = vec3(gxy, sqrt(max(1.0 - dot(gxy, gxy), 0.0)));
+    vShade = inst.shade;
     gl_Position = projection * view * vec4(world, 1.0);
 }

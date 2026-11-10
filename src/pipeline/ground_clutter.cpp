@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "pipeline/adt_alpha.hpp"
 #include "pipeline/terrain_mesh.hpp"
 
 namespace wowee {
@@ -121,6 +122,24 @@ size_t placeChunkClutter(const MapChunk& chunk, const ClutterChunkKey& key,
                 s.yaw = rng.unit() * 2.0f * kPi;
                 s.scale = 0.85f + rng.unit() * 0.30f;
                 s.doodadId = doodadId;
+                // The ground's normal, from the surface either side of the root.
+                constexpr float e = 0.25f;
+                const auto at = [&](float fx, float fy) {
+                    return TerrainMeshGenerator::chunkSurfacePoint(chunk.position, chunk.heightMap,
+                                                                   std::clamp(fx, 0.0f, 8.0f),
+                                                                   std::clamp(fy, 0.0f, 8.0f), kQuadSize);
+                };
+                glm::vec3 gn = glm::cross(at(fracX + e, fracY) - at(fracX - e, fracY),
+                                         at(fracX, fracY + e) - at(fracX, fracY - e));
+                if (gn.z < 0.0f) gn = -gn;
+                const float len = glm::length(gn);
+                gn = len > 1e-6f ? gn / len : glm::vec3(0.0f, 0.0f, 1.0f);
+                s.normalX = gn.x;
+                s.normalY = gn.y;
+                s.normalZ = gn.z;
+                if (chunk.shadowMap.size() == 64 * 64) {
+                    s.shade = chunk.shadowMap[alphaTexelIndex(fracX / 8.0f, fracY / 8.0f)] / 255.0f;
+                }
                 out.push_back(s);
                 ++placed;
             }
