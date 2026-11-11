@@ -54,6 +54,9 @@ layout(set = 1, binding = 2) uniform M2Material {
     // per-card lighting.
     float foliageNormalBlend;
     float foliageWrap;
+    // Without a shadow map, how much of the light a tree's crown takes from
+    // what lies behind it (0 = none).
+    float foliageCrownShadow;
 };
 
 layout(set = 0, binding = 1) uniform sampler2DShadow uShadowMap;
@@ -70,6 +73,26 @@ layout(location = 7) flat in float vHighlight;
 layout(location = 8) flat in uvec2 vLightMask;
 layout(location = 9) in vec4 TexCoordAlt;
 layout(location = 10) in vec3 CrownNormal;
+layout(location = 11) in vec3 CrownPos;
+layout(location = 12) flat in vec3 CrownLight;
+
+// How much of a tree's own crown lies between this point and the light, as
+// the chord of the crown's ellipsoid (the unit sphere in crown space) along
+// the way to the light: 0 for a leaf on the lit side, up to 2 for the trunk
+// under the middle of the crown. The shadow a crown casts on itself, for the
+// frames that have no shadow map - a headset's - where every tree was lit
+// through its own leaves, trunk and all.
+float crownChord() {
+    float ll = dot(CrownLight, CrownLight);
+    if (ll < 1e-10) return 0.0;
+    vec3 l = CrownLight * inversesqrt(ll);
+    float b = dot(CrownPos, l);
+    float c = dot(CrownPos, CrownPos) - 1.0;
+    float disc = b * b - c;
+    if (disc <= 0.0) return 0.0;
+    float s = sqrt(disc);
+    return max(-b + s, 0.0) - max(-b - s, 0.0);
+}
 
 layout(location = 0) out vec4 outColor;
 
@@ -384,6 +407,13 @@ void main() {
                 shadow = sampleShadowPCF(uShadowMap, vec3(proj.xy, proj.z - bias));
             }
             shadow = mix(1.0, shadow, shadowParams.y);
+        }
+        // Where there is no shadow map, and in a headset, whose map is kept
+        // faint because its edges crawl as a head moves (shadowParams.w), the
+        // crown shades itself - the darker of the two wins. A screen with
+        // shadows keeps the map alone.
+        if (foliageCrownShadow > 0.0 && (shadowParams.x < 0.5 || shadowParams.w > 0.5)) {
+            shadow = min(shadow, 1.0 - foliageCrownShadow * smoothstep(0.0, 0.7, crownChord()));
         }
 
         // Leaf subsurface scattering (foliage only) - uses stable normal, no FragPos dependency

@@ -52,11 +52,16 @@ const M2FoliageLighting& m2FoliageLighting() {
         if (const char* v = std::getenv("WOWEE_FOLIAGE_WRAP"); v && *v) {
             l.wrap = std::clamp(static_cast<float>(std::atof(v)), 0.0f, 1.0f);
         }
+        if (const char* v = std::getenv("WOWEE_FOLIAGE_CROWN_SHADOW"); v && *v) {
+            l.crownShadow = std::clamp(static_cast<float>(std::atof(v)), 0.0f, 1.0f);
+        }
         if (const char* v = std::getenv("WOWEE_FOLIAGE_LIGHT"); v && !core::envValueEnables(v, true)) {
             l.wrap = -1.0f;
+            l.crownShadow = 0.0f;
         }
         LOG_INFO("Foliage lighting: ", l.wrap < 0.0f ? "per card (old)" : "crown",
-                 ", normal blend ", l.normalBlend, ", wrap ", l.wrap);
+                 ", normal blend ", l.normalBlend, ", wrap ", l.wrap,
+                 ", crown shadow without a shadow map ", l.crownShadow);
         return l;
     }();
     return lighting;
@@ -2696,6 +2701,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             mat.uvSet2 = bgpu.uvSet2;
             mat.foliageNormalBlend = m2FoliageLighting().normalBlend;
             mat.foliageWrap = m2FoliageLighting().wrap;
+            mat.foliageCrownShadow = m2FoliageLighting().crownShadow;
             memcpy(matAllocInfo.pMappedData, &mat, sizeof(mat));
             bgpu.materialUBOMapped = matAllocInfo.pMappedData;
 

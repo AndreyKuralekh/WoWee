@@ -75,6 +75,10 @@ layout(location = 9) out vec4 TexCoordAlt;
 // Outward from the crown at this vertex (world, not normalised); zero for a
 // model without leaves.
 layout(location = 10) out vec3 CrownNormal;
+// The vertex in crown space - the crown's ellipsoid is the unit sphere there -
+// and the way to the light in the same space; zero for a model without leaves.
+layout(location = 11) out vec3 CrownPos;
+layout(location = 12) flat out vec3 CrownLight;
 
 void main() {
     // Fetch per-instance data from SSBO
@@ -108,8 +112,14 @@ void main() {
     // before the wind, which moves a leaf and not the crown it is part of.
     vec3 crownHalf = vec3(push.crownHalfX, push.crownHalfY, push.crownHalfZ);
     vec3 crownN = vec3(0.0);
+    CrownPos = vec3(0.0);
+    CrownLight = vec3(0.0);
     if (crownHalf.x > 0.0) {
         vec3 d = pos.xyz - vec3(push.crownCenterX, push.crownCenterY, push.crownCenterZ);
+        CrownPos = d / crownHalf;
+        // A placement is a rotation and a uniform scale, so the transpose takes
+        // a world direction back into the model, up to that scale.
+        CrownLight = (transpose(mat3(instanceData[instIdx].model)) * -lightDir.xyz) / crownHalf;
         crownN = d / (crownHalf * crownHalf);
         // Scaled to the box, so the length says nothing about the size of the tree.
         crownN *= crownHalf.x * crownHalf.y * crownHalf.z /

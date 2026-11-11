@@ -484,14 +484,20 @@ struct M2MaterialUBO {
     /// the wrap of the light; a negative wrap is the old per-card lighting.
     float foliageNormalBlend;
     float foliageWrap;
+    /// Without a shadow map, how much light a tree's crown takes from what
+    /// lies behind it.
+    float foliageCrownShadow;
 };
 
 /// How foliage cut-outs are lit (TASK_09): the lean of a leaf's normal toward
 /// its crown's, and the wrap of the light. WOWEE_FOLIAGE_NORMAL_BLEND (0-1)
 /// and WOWEE_FOLIAGE_WRAP; WOWEE_FOLIAGE_LIGHT=0 is the old per-card lighting.
+/// WOWEE_FOLIAGE_CROWN_SHADOW (0-1): in a frame without a shadow map, how much
+/// of the light a crown takes from its own trunk and far side.
 struct M2FoliageLighting {
     float normalBlend = 0.7f;
     float wrap = 0.5f;
+    float crownShadow = 0.75f;
 };
 const M2FoliageLighting& m2FoliageLighting();
 
