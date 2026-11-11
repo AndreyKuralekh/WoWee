@@ -143,6 +143,10 @@ struct M2ModelGPU {
     glm::vec3 boundMin;
     glm::vec3 boundMax;
     float boundRadius = 0.0f;
+    // The box around a foliage model's leaves (model space); half zero when
+    // the model has none. See where it is filled in M2Renderer::loadModel.
+    glm::vec3 crownCenter{0.0f};
+    glm::vec3 crownHalf{0.0f};
     bool collisionSteppedFountain = false;
     bool collisionSteppedLowPlatform = false;
     bool collisionPlanter = false;
@@ -476,7 +480,20 @@ struct M2MaterialUBO {
     /// The second texture's combiner op (BatchGPU::combine2) and UV set.
     int32_t combine2;
     int32_t uvSet2;
+    /// Foliage cut-outs: how far a leaf's normal leans to its crown's, and
+    /// the wrap of the light; a negative wrap is the old per-card lighting.
+    float foliageNormalBlend;
+    float foliageWrap;
 };
+
+/// How foliage cut-outs are lit (TASK_09): the lean of a leaf's normal toward
+/// its crown's, and the wrap of the light. WOWEE_FOLIAGE_NORMAL_BLEND (0-1)
+/// and WOWEE_FOLIAGE_WRAP; WOWEE_FOLIAGE_LIGHT=0 is the old per-card lighting.
+struct M2FoliageLighting {
+    float normalBlend = 0.7f;
+    float wrap = 0.5f;
+};
+const M2FoliageLighting& m2FoliageLighting();
 
 // M2 params UBO - matches M2Params in m2.vert.glsl (set 1, binding 1)
 struct M2ParamsUBO {

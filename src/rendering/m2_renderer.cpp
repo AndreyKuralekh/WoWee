@@ -43,6 +43,25 @@
 namespace wowee {
 namespace rendering {
 
+const M2FoliageLighting& m2FoliageLighting() {
+    static const M2FoliageLighting lighting = [] {
+        M2FoliageLighting l;
+        if (const char* v = std::getenv("WOWEE_FOLIAGE_NORMAL_BLEND"); v && *v) {
+            l.normalBlend = std::clamp(static_cast<float>(std::atof(v)), 0.0f, 1.0f);
+        }
+        if (const char* v = std::getenv("WOWEE_FOLIAGE_WRAP"); v && *v) {
+            l.wrap = std::clamp(static_cast<float>(std::atof(v)), 0.0f, 1.0f);
+        }
+        if (const char* v = std::getenv("WOWEE_FOLIAGE_LIGHT"); v && !core::envValueEnables(v, true)) {
+            l.wrap = -1.0f;
+        }
+        LOG_INFO("Foliage lighting: ", l.wrap < 0.0f ? "per card (old)" : "crown",
+                 ", normal blend ", l.normalBlend, ", wrap ", l.wrap);
+        return l;
+    }();
+    return lighting;
+}
+
 namespace {
 
 
@@ -979,13 +998,14 @@ bool M2Renderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayout
 
     // Main M2 pipeline layout: set 0 = perFrame, set 1 = material, set 2 = bones, set 3 = instances
     // Push constant: int texCoordSet + int isFoliage + int instanceDataOffset
-    //              + float swayRefHeight + float swayAmp + float plantHeight (24 bytes)
+    //              + float swayRefHeight + float swayAmp + float plantHeight
+    //              + vec3 crown centre + vec3 crown half size, as scalars (48 bytes)
     {
         VkDescriptorSetLayout setLayouts[] = {perFrameLayout, materialSetLayout_, boneSetLayout_, instanceSetLayout_};
         VkPushConstantRange pushRange{};
         pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
         pushRange.offset = 0;
-        pushRange.size = 24;
+        pushRange.size = 48;
 
         VkPipelineLayoutCreateInfo ci{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         ci.setLayoutCount = 4;
@@ -2600,6 +2620,30 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
         gpuModel.batches.push_back(bgpu);
     }
 
+    // The crown: the box around the leaves, the alpha-keyed batches of a
+    // foliage model. A crown is a mass of cards each turned its own way, and
+    // lit by its own normal each card came out a different shade - a canopy
+    // in patches. The fragment shader leans the normal towards the outside of
+    // this box instead, so the crown is lit as the one shape it reads as.
+    if (gpuModel.isFoliageLike) {
+        glm::vec3 lo(std::numeric_limits<float>::max());
+        glm::vec3 hi(std::numeric_limits<float>::lowest());
+        for (const auto& b : gpuModel.batches) {
+            if (b.blendMode != M2_BLEND_ALPHA_KEY) continue;
+            const size_t end = std::min<size_t>(size_t(b.indexStart) + b.indexCount, model.indices.size());
+            for (size_t i = b.indexStart; i < end; ++i) {
+                const uint16_t vi = model.indices[i];
+                if (vi >= model.vertices.size()) continue;
+                lo = glm::min(lo, model.vertices[vi].position);
+                hi = glm::max(hi, model.vertices[vi].position);
+            }
+        }
+        if (lo.x <= hi.x) {
+            gpuModel.crownCenter = (lo + hi) * 0.5f;
+            gpuModel.crownHalf = glm::max((hi - lo) * 0.5f, glm::vec3(0.05f));
+        }
+    }
+
     // Detect particle emitter volume models: box mesh (24 verts, 36 indices)
     // with disproportionately large bounds. These are invisible bounding volumes
     // that only exist to spawn particles - their mesh should never be rendered.
@@ -2650,6 +2694,8 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             mat.emissiveBoost = bgpu.preserveGlowMesh ? 2.4f : 1.0f;
             mat.combine2 = bgpu.combine2;
             mat.uvSet2 = bgpu.uvSet2;
+            mat.foliageNormalBlend = m2FoliageLighting().normalBlend;
+            mat.foliageWrap = m2FoliageLighting().wrap;
             memcpy(matAllocInfo.pMappedData, &mat, sizeof(mat));
             bgpu.materialUBOMapped = matAllocInfo.pMappedData;
 

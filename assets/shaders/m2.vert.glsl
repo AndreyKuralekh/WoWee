@@ -23,6 +23,9 @@ layout(push_constant) uniform Push {
     float swayRefHeight;     // Model height the sway normalises against (model space)
     float swayAmp;           // Sway amplitude scale; 1.0 = the tree-sized default
     float plantHeight;       // The model's own height (model space), for the player brush
+    // The box around the leaves (model space); half size zero when there are none.
+    float crownCenterX, crownCenterY, crownCenterZ;
+    float crownHalfX, crownHalfY, crownHalfZ;
 } push;
 
 layout(set = 2, binding = 0) readonly buffer BoneSSBO {
@@ -69,6 +72,9 @@ layout(location = 7) flat out float vHighlight;
 layout(location = 8) flat out uvec2 vLightMask;
 // Both UV sets with the second texture's offset: xy set 0, zw set 1.
 layout(location = 9) out vec4 TexCoordAlt;
+// Outward from the crown at this vertex (world, not normalised); zero for a
+// model without leaves.
+layout(location = 10) out vec3 CrownNormal;
 
 void main() {
     // Fetch per-instance data from SSBO
@@ -95,6 +101,19 @@ void main() {
                      + bones[bBase + bi.w] * aBoneWeights.w;
         pos = skinMat * pos;
         norm = skinMat * norm;
+    }
+
+    // The normal of the ellipsoid in the crown's box, through this vertex:
+    // what the leaves would face if the crown were one smooth shape. Taken
+    // before the wind, which moves a leaf and not the crown it is part of.
+    vec3 crownHalf = vec3(push.crownHalfX, push.crownHalfY, push.crownHalfZ);
+    vec3 crownN = vec3(0.0);
+    if (crownHalf.x > 0.0) {
+        vec3 d = pos.xyz - vec3(push.crownCenterX, push.crownCenterY, push.crownCenterZ);
+        crownN = d / (crownHalf * crownHalf);
+        // Scaled to the box, so the length says nothing about the size of the tree.
+        crownN *= crownHalf.x * crownHalf.y * crownHalf.z /
+                  max(crownHalf.x, max(crownHalf.y, crownHalf.z));
     }
 
     // How far up the model this vertex sits, 0 at the base and 1 at the top.
@@ -285,6 +304,7 @@ void main() {
 
     FragPos = worldPos.xyz;
     Normal = mat3(model) * norm.xyz;
+    CrownNormal = mat3(model) * crownN;
 
     TexCoord = (push.texCoordSet == 1 ? aTexCoord2 : aTexCoord) + uvOff;
     vec2 uvOff2 = instanceData[instIdx].uvOffset2;

@@ -1379,7 +1379,11 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         float swayRefHeight;        // Model-space height the wind normalises against
         float swayAmp;              // Wind amplitude scale; 1.0 = the tree-sized default
         float plantHeight;          // The model's own height, for the player brush
+        // The box around the leaves (model space), for the crown's normal.
+        float crownCenterX, crownCenterY, crownCenterZ;
+        float crownHalfX, crownHalfY, crownHalfZ;
     };
+    static_assert(sizeof(M2PushConstants) == 48, "matches the push range and m2.vert.glsl");
 
     // Fill the sway half of the push constants for one model.
     //
@@ -1404,6 +1408,12 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         pc.swayRefHeight = sway.refHeight;
         pc.swayAmp = sway.amp;
         pc.plantHeight = sway.plantHeight;
+        pc.crownCenterX = mdl.crownCenter.x;
+        pc.crownCenterY = mdl.crownCenter.y;
+        pc.crownCenterZ = mdl.crownCenter.z;
+        pc.crownHalfX = mdl.crownHalf.x;
+        pc.crownHalfY = mdl.crownHalf.y;
+        pc.crownHalfZ = mdl.crownHalf.z;
     };
 
     auto appendInstancePortalGlow = [&](const M2Instance& instance, float distSq) {

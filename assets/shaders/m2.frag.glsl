@@ -49,6 +49,11 @@ layout(set = 1, binding = 2) uniform M2Material {
     // 7 add keeping alpha. uvSet2 picks its UV set.
     int combine2;
     int uvSet2;
+    // Foliage cut-outs: how far the leaf normal leans to the crown's (0-1),
+    // and the wrap of the light around it; a negative wrap is the old
+    // per-card lighting.
+    float foliageNormalBlend;
+    float foliageWrap;
 };
 
 layout(set = 0, binding = 1) uniform sampler2DShadow uShadowMap;
@@ -64,6 +69,7 @@ layout(location = 6) flat in int vSkyMode;
 layout(location = 7) flat in float vHighlight;
 layout(location = 8) flat in uvec2 vLightMask;
 layout(location = 9) in vec4 TexCoordAlt;
+layout(location = 10) in vec3 CrownNormal;
 
 layout(location = 0) out vec4 outColor;
 
@@ -317,8 +323,21 @@ void main() {
     bool foliageTwoSided = (alphaTest == 2);
     if (!foliageTwoSided && !gl_FrontFacing) norm = -norm;
 
-    // Detail normal perturbation (foliage only) - UV-based only so wind doesn't cause flicker
-    if (isFoliage) {
+    // The crown lit as one shape (TASK_09). A crown is many cards each turned
+    // its own way, and lit by its own normal every card was its own shade - a
+    // canopy in patches, and patches that changed as a head moved. The card's
+    // normal, turned to face out of the crown (a card has no front), leans
+    // toward the crown's own outward normal, and the light wraps around it
+    // instead of the two-sided abs() that gave edge-on cards black and
+    // facing ones full sun. Nothing in it depends on where the eye is, so
+    // both eyes of a headset see the same leaf the same shade.
+    bool crownLit = isFoliage && foliageWrap >= 0.0 && dot(CrownNormal, CrownNormal) > 1e-8;
+    if (crownLit) {
+        vec3 crownN = normalize(CrownNormal);
+        if (dot(norm, crownN) < 0.0) norm = -norm;
+        norm = normalize(mix(norm, crownN, clamp(foliageNormalBlend, 0.0, 1.0)));
+    } else if (isFoliage) {
+        // Detail normal perturbation - UV-based only so wind doesn't cause flicker
         float nx = sin(TexCoord.x * 12.0 + TexCoord.y * 5.3) * 0.10;
         float ny = sin(TexCoord.y * 14.0 + TexCoord.x * 4.7) * 0.10;
         norm = normalize(norm + vec3(nx, ny, 0.0));
@@ -327,6 +346,7 @@ void main() {
     vec3 ldir = normalize(-lightDir.xyz);
         float nDotL = dot(norm, ldir);
         float diff = foliageTwoSided ? abs(nDotL) : max(nDotL, 0.0);
+        if (crownLit) diff = clamp((nDotL + foliageWrap) / (1.0 + foliageWrap), 0.0, 1.0);
 
     vec3 result;
     if (unlit != 0) {
@@ -368,7 +388,10 @@ void main() {
 
         // Leaf subsurface scattering (foliage only) - uses stable normal, no FragPos dependency
         vec3 sss = vec3(0.0);
-        if (isFoliage) {
+        if (crownLit) {
+            // Light through the far side of the crown, without the eye in it.
+            sss = max(-nDotL, 0.0) * 0.08 * vec3(1.0, 0.9, 0.5) * lightColor.rgb;
+        } else if (isFoliage) {
             float backLit = max(-nDotL, 0.0);
             float viewDotLight = max(dot(viewDir, -ldir), 0.0);
             float sssAmount = backLit * pow(viewDotLight, 4.0) * 0.35 * texColor.a;
