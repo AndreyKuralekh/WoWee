@@ -508,6 +508,7 @@ private:
     void destroyEyeSwapchains();
     void startFake();
     void placePanel();
+    void prepareDumps();
     void recordDump(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent);
     void finishDump(bool submitted);
     bool createActions();
@@ -723,6 +724,11 @@ private:
     uint32_t eyeHeight_ = 0;
     bool debug_ = false;
     int dumpFrames_ = 0;
+    // WOWEE_VR_DUMP_INTERVAL_MS: time between dumped frames (default 1000).
+    int dumpIntervalMs_ = 1000;
+    // WOWEE_VR_FAKE_YAW_STEP: degrees the fake head turns after each dumped
+    // frame of the world - a series at sub-pixel steps measures shimmer.
+    float fakeYawStep_ = 0.0f;
 };
 
 /// The one XrSystem. The application starts it and shuts it down.

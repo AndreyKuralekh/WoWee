@@ -94,13 +94,18 @@ bool XrSystem::initialize() {
         leanRefused_ = !leanForced_;
     }
     debug_ = core::envFlagEnabled("WOWEE_VR_DEBUG");
+    // Before the fake headset starts: it dumps frames too.
+    dumpFrames_ = core::envIntClamped("WOWEE_VR_DUMP_FRAMES", 0, 0, 10000);
+    dumpIntervalMs_ = core::envIntClamped("WOWEE_VR_DUMP_INTERVAL_MS", 1000, 0, 60000);
+    if (const char* step = std::getenv("WOWEE_VR_FAKE_YAW_STEP"); step && *step) {
+        fakeYawStep_ = static_cast<float>(std::atof(step));
+    }
     if (core::envFlagEnabled("WOWEE_VR_FAKE")) {
         startFake();
         return false;  // no runtime behind it: nothing for the Vulkan context to ask
     }
     if (!requested()) return false;
 
-    dumpFrames_ = core::envIntClamped("WOWEE_VR_DUMP_FRAMES", 0, 0, 10000);
     panelDistance_ = static_cast<float>(core::envIntClamped("WOWEE_VR_PANEL_DISTANCE", 150, 30, 1000)) / 100.0f;
     panelWidth_ = static_cast<float>(core::envIntClamped("WOWEE_VR_PANEL_WIDTH", 200, 20, 2000)) / 100.0f;
     panelDistanceFromEnv_ = std::getenv("WOWEE_VR_PANEL_DISTANCE") != nullptr;

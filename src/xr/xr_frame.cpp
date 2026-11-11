@@ -377,20 +377,7 @@ bool XrSystem::createEyeSwapchains() {
         }
     }
 
-    frame_->dumpsLeft = dumpFrames_;
-    if (dumpFrames_ > 0) {
-        std::filesystem::path dir = ".";
-        if (const char* asked = std::getenv("WOWEE_VR_DUMP_DIR"); asked && *asked) {
-            dir = asked;
-        } else if (const char* log = std::getenv("WOWEE_LOG_FILE"); log && *log) {
-            dir = std::filesystem::path(log).parent_path();
-        }
-        if (dir.empty()) dir = ".";
-        std::error_code ignored;
-        std::filesystem::create_directories(dir, ignored);
-        frame_->dumpDir = dir.string();
-        LOG_WARNING("VR: writing ", dumpFrames_, " frames, one a second, to ", frame_->dumpDir);
-    }
+    prepareDumps();
 
     // Nor this: without them the panel covers the hands.
     for (EyeSwapchain& hands : frame_->handEyes) {
@@ -419,6 +406,23 @@ bool XrSystem::createEyeSwapchains() {
                     static_cast<int>(frame_->eyeFormat), ", ", frame_->eyes[0].images.size(), " images each");
     }
     return true;
+}
+
+void XrSystem::prepareDumps() {
+    frame_->dumpsLeft = dumpFrames_;
+    if (dumpFrames_ <= 0) return;
+    std::filesystem::path dir = ".";
+    if (const char* asked = std::getenv("WOWEE_VR_DUMP_DIR"); asked && *asked) {
+        dir = asked;
+    } else if (const char* log = std::getenv("WOWEE_LOG_FILE"); log && *log) {
+        dir = std::filesystem::path(log).parent_path();
+    }
+    if (dir.empty()) dir = ".";
+    std::error_code ignored;
+    std::filesystem::create_directories(dir, ignored);
+    frame_->dumpDir = dir.string();
+    LOG_WARNING("VR: writing ", dumpFrames_, " frames, ", dumpIntervalMs_, " ms apart, to ", frame_->dumpDir,
+                fakeYawStep_ != 0.0f ? ", the fake head turning between them" : "");
 }
 
 void XrSystem::destroyEyeSwapchains() {
@@ -478,6 +482,7 @@ void XrSystem::startFake() {
     eyeHeight_ = 1440;
     if (!leanRefused_) leanForced_ = true;
     LOG_WARNING("VR: fake headset - stereo is drawn side by side into the window");
+    prepareDumps();
 }
 
 bool XrSystem::stereoFrame() const {
@@ -768,10 +773,12 @@ void XrSystem::beginFrame() {
         }();
         // WOWEE_VR_FAKE_YAW=degrees: and turns left (positive) or right - to
         // look at something beside the character without walking up to it.
-        static const float yaw = [] {
+        static const float baseYaw = [] {
             const char* v = std::getenv("WOWEE_VR_FAKE_YAW");
             return v && *v ? glm::radians(static_cast<float>(std::atof(v))) : 0.0f;
         }();
+        // Turned on by a step for every frame of the world already dumped.
+        const float yaw = baseYaw + glm::radians(fakeYawStep_ * static_cast<float>(dumpFrames_ - f.dumpsLeft));
         for (uint32_t i = 0; i < kEyeCount; ++i) {
             const float side = i == 0 ? -1.0f : 1.0f;
             f.views[i] = {};
@@ -1016,6 +1023,8 @@ void XrSystem::recordFakePreview(VkCommandBuffer cmd, VkImage windowImage, VkExt
         vkCmdBlitImage(cmd, f.eyeSource[i], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, windowImage,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
     }
+    // The eyes only: the window is being written here, and has no panel of its own.
+    if (f.dumpsLeft > 0) recordDump(cmd, VK_NULL_HANDLE, {});
     transition(cmd, windowImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 }
 
@@ -1383,12 +1392,12 @@ void XrSystem::recordPanel(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D 
 void XrSystem::recordDump(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D windowExtent) {
     FrameData& f = *frame_;
     const auto now = std::chrono::steady_clock::now();
-    if (!ctx_ || !f.dumpShots.empty() || now - f.lastDump < std::chrono::seconds(1)) return;
+    if (!ctx_ || !f.dumpShots.empty() || now - f.lastDump < std::chrono::milliseconds(dumpIntervalMs_)) return;
     // The frames asked for are frames of the world. Before there is one - the
     // login screen, the loading screens - a single picture of the panel is
     // taken and not counted, or the count would be spent before the world came.
     const bool world = f.eyesCopied == (1u << kEyeCount) - 1u;
-    if (!world && f.dumpIndex > 0) return;
+    if (!world && (f.dumpIndex > 0 || windowImage == VK_NULL_HANDLE)) return;
     f.lastDump = now;
 
     const auto take = [&](VkImage image, uint32_t width, uint32_t height, const char* what, bool opaque) {
@@ -1415,7 +1424,7 @@ void XrSystem::recordDump(VkCommandBuffer cmd, VkImage windowImage, VkExtent2D w
         f.dumpShots.push_back(shot);
     };
     // The panel keeps its alpha: where it is clear the world shows through.
-    take(windowImage, windowExtent.width, windowExtent.height, "panel", false);
+    if (windowImage != VK_NULL_HANDLE) take(windowImage, windowExtent.width, windowExtent.height, "panel", false);
     if (world) {
         take(f.eyeSource[0], eyeWidth_, eyeHeight_, "left", true);
         take(f.eyeSource[1], eyeWidth_, eyeHeight_, "right", true);
@@ -1456,7 +1465,8 @@ void XrSystem::finishDump(bool submitted) {
         }
         vmaDestroyBuffer(allocator, shot.buffer, shot.allocation);
     }
-    const bool world = f.dumpShots.size() > 1;
+    const bool world = std::any_of(f.dumpShots.begin(), f.dumpShots.end(),
+                                   [](const FrameData::DumpShot& s) { return s.opaque; });
     f.dumpShots.clear();
     if (!submitted) return;
     if (debug_) LOG_WARNING("VR: frame ", f.dumpIndex, " written to ", f.dumpDir);
@@ -1546,11 +1556,11 @@ bool XrSystem::panelQuad(XrSpace& space, XrPosef& pose, XrExtent2Df& size) const
 void XrSystem::endFrame(bool submitted) {
     if (!frame_ || !frame_->begun) return;
     FrameData& f = *frame_;
+    finishDump(submitted);
     if (fake_) {
         f.begun = false;
         return;
     }
-    finishDump(submitted);
     const auto endStart = std::chrono::steady_clock::now();
 
     bool released = true;
