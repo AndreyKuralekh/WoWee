@@ -59,7 +59,17 @@ glm::vec3 sunLightDirForDayFraction(float dayFraction) {
     const float hl = glm::length(h);
     h = hl > 1e-5f ? h / hl : glm::vec2(0.0f, 1.0f);
     const glm::vec3 toSun(h.x * std::cos(elevation), h.y * std::cos(elevation), std::sin(elevation));
-    return -toSun;
+    // At night the light is the moon's, and it comes from above. The sun's
+    // own path took the light under the ground - 65 degrees down at midnight
+    // - so trees were lit on their undersides, the shadow map was cast from
+    // below with the ground in the way of everything, and a crown could not
+    // shade its own trunk. The moon stands where the sun is not, the other
+    // side of the sky; across the horizon the light passes over the top
+    // rather than swinging round through the ground.
+    const float day = glm::smoothstep(-0.12f, 0.12f, elevation);
+    const glm::vec3 toLight = glm::normalize(day * toSun + (1.0f - day) * -toSun +
+                                             glm::vec3(0.0f, 0.0f, 4.0f * day * (1.0f - day)));
+    return -toLight;
 }
 }  // namespace
 
