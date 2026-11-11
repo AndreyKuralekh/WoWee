@@ -246,6 +246,30 @@ TEST_CASE("a tall tree has a trunk however narrow it is", "[m2][classifier][coll
     }
 }
 
+// The conifers whose names never say "tree" were drawn as plain cut-outs, lit
+// one-sided with every card's back flipped - the cypress by the Northshire
+// abbey in green and black patches. Only the drawing changes: collision is
+// the shape rules', as it was.
+TEST_CASE("a pine or fir with a number is foliage, and keeps its collision",
+          "[m2][classifier][foliage]") {
+    for (const char* n : {"ElwynnPine01", "elwynnpine21.m2", "IronforgePine02",
+                          "SilvermoonPine04", "AeriePeaksFir01",
+                          "WORLD\\AZEROTH\\ELWYNN\\PASSIVEDOODADS\\TREES\\ELWYNNTREE01\\ELWYNNPINE02.M2"}) {
+        INFO(n);
+        const auto cls = classify(n, 2.0f, 3.5f);
+        CHECK(cls.isFoliageLike);
+        // A shape this size was a small solid prop before, and still is.
+        CHECK(cls.collisionSmallSolidProp);
+        CHECK_FALSE(cls.collisionNoBlock);
+    }
+    for (const char* n : {"BlastedLandsSpine01", "DB_DragonSpine01", "SnakeSpineGiant01",
+                          "SilverpineDocks01", "Firewoodpile01", "FirstAid_Hand",
+                          "Fire_Precast_Hand", "CrateAllianceFirstAid01"}) {
+        INFO(n);
+        CHECK_FALSE(classify(n).isFoliageLike);
+    }
+}
+
 // The second invisible wall at that same portal. AuraPurple.m2 is the glow
 // inside the arch; its VFX identity is only in the DIRECTORY, and tokens are
 // matched on the basename, so "particleemitter" in kEffectTokens never fired.

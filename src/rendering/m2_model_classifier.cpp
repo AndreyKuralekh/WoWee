@@ -588,7 +588,25 @@ M2ClassificationResult classifyM2Model(
     // Animation / foliage rendering flags
     // ---------------------------------------------------------------
     const bool foliageOrTree = foliageName || treeLike;
-    r.isFoliageLike    = foliageOrTree && !ambientCreature;
+    // A conifer named for what it is and not for being a tree: ElwynnPine01,
+    // IronforgePine02, SilvermoonPine04, AeriePeaksFir01. Not foliage, it was
+    // drawn as a plain cut-out - one-sided light flipped on every card's back,
+    // so the cypress by the Northshire abbey was green and black in patches.
+    // Only with a number straight after the word: "fir" also begins fire and
+    // first, "pine" ends spine and Silverpine. And for drawing only - its
+    // collision stays what the shape rules above gave it.
+    const auto coniferNamed = [&n] {
+        for (const std::string_view token : {std::string_view("pine"), std::string_view("fir")}) {
+            for (size_t at = n.find(token); at != std::string::npos; at = n.find(token, at + 1)) {
+                const size_t end = at + token.size();
+                const bool numbered = end < n.size() && std::isdigit(static_cast<unsigned char>(n[end]));
+                const bool spine = token == "pine" && at > 0 && n[at - 1] == 's';
+                if (numbered && !spine) return true;
+            }
+        }
+        return false;
+    };
+    r.isFoliageLike    = (foliageOrTree || coniferNamed()) && !ambientCreature;
     // Deliberately not ground detail, which was tried and reverted. Every
     // detail doodad ships exactly one bone and one sequence, and that sequence
     // is not always a sway - a number of them carry a small insect or butterfly
