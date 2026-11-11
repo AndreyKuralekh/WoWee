@@ -643,13 +643,30 @@ void Renderer::updatePerFrameUBO() {
     // Lighting from LightingManager
     if (lightingManager) {
         const auto& lp = lightingManager->getLightingParams();
-        currentFrameData.lightDir = glm::vec4(lp.directionalDir, 0.0f);
-        // Night by the height of the sun, as the windows of a building glow
-        // by it in wmo.frag.
-        if (m2Renderer && glm::length(lp.directionalDir) > 1e-4f) {
+        // Night by the height of the sun: the windows of a building glow by it
+        // (wmo.frag reads it from lightDir.w), and so does an M2's glass.
+        float night = 0.0f;
+        if (glm::length(lp.directionalDir) > 1e-4f) {
             const float sunHeight = -glm::normalize(lp.directionalDir).z;
-            m2Renderer->setNightGlow(glm::smoothstep(0.12f, -0.08f, sunHeight));
+            night = glm::smoothstep(0.12f, -0.08f, sunHeight);
+            if (m2Renderer) m2Renderer->setNightGlow(night);
         }
+        // The scene is lit by the moon at night, from above. directionalDir is
+        // the sun - the sky, its disc, the flare and the shafts all want it
+        // there - and its path takes it 65 degrees under the ground at
+        // midnight: trees were lit on their undersides, the ground took no
+        // light at all, and a crown could not shade its own trunk. The moon
+        // stands the other side of the sky (the shadow map already cast from
+        // there); across the horizon the light passes over the top rather
+        // than swinging round through the ground.
+        glm::vec3 sceneLight = lp.directionalDir;
+        if (glm::length(sceneLight) > 1e-4f) {
+            const glm::vec3 toSun = -glm::normalize(sceneLight);
+            const float day = glm::smoothstep(-0.12f, 0.12f, std::asin(glm::clamp(toSun.z, -1.0f, 1.0f)));
+            sceneLight = -glm::normalize(day * toSun + (1.0f - day) * -toSun +
+                                         glm::vec3(0.0f, 0.0f, 4.0f * day * (1.0f - day)));
+        }
+        currentFrameData.lightDir = glm::vec4(sceneLight, night);
         currentFrameData.lightColor = glm::vec4(lp.diffuseColor, 1.0f);
         currentFrameData.ambientColor = glm::vec4(lp.ambientColor, 1.0f);
         currentFrameData.fogColor = glm::vec4(lp.fogColor, 1.0f);

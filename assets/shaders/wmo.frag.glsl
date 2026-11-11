@@ -424,9 +424,10 @@ void main() {
     // signs, the abbey's stained glass. The original turns these on at dusk.
     // By the sun's height, not by how bright the light is: the zones' night
     // light is far from black, and a glow that waits for black never comes.
+    // lightDir.w carries it: the light itself is the moon's at night, above the
+    // horizon, and read from it the windows took every night for day.
     if (isWindow == 1 || emissive == 3) {
-        float sunHeight = -normalize(lightDir.xyz).z;
-        float night = smoothstep(0.12, -0.08, sunHeight);
+        float night = lightDir.w;
         result += texColor.rgb * vec3(1.0, 0.82, 0.58) * (0.9 * night);
     }
 
