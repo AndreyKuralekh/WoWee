@@ -194,6 +194,39 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
             continue;
         }
 
+        // WOWEE_M2_EMITTER_DIAG=<part of a model's name>: each emitter of each
+        // matching model, once, as authored - what a flame is asked to do,
+        // before anything here is blamed for how it looks.
+        static const std::string kEmitterDiag = [] {
+            const char* v = std::getenv("WOWEE_M2_EMITTER_DIAG");
+            std::string s = v ? v : "";
+            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return s;
+        }();
+        if (!kEmitterDiag.empty()) {
+            static std::set<std::pair<std::string, size_t>> said;
+            std::string lower = gpu.name;
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (lower.find(kEmitterDiag) != std::string::npos && said.insert({lower, ei}).second) {
+                const auto at = [&](const pipeline::M2AnimationTrack& t) {
+                    return interpFloat(t, inst.animTime, inst.globalSequenceTime, inst.currentSequenceIndex,
+                                       gpu.globalSequenceDurations, gpu.followsEmitterEnabled);
+                };
+                LOG_WARNING("M2 EMITTER '", gpu.name, "' #", ei, " flags=0x", std::hex, em.flags, std::dec,
+                            " type=", int(em.emitterType), " blend=", int(em.blendingType),
+                            " pos=(", em.position.x, ",", em.position.y, ",", em.position.z, ") bone=", em.bone,
+                            " speed=", at(em.emissionSpeed), " speedVar=", at(em.speedVariation),
+                            " vRange=", at(em.verticalRange), " hRange=", at(em.horizontalRange),
+                            " gravity=", at(em.gravity), " life=", life, " rate(after floor)=", rate,
+                            " area=", at(em.emissionAreaLength), "x", at(em.emissionAreaWidth),
+                            " decel=", at(em.deceleration), " tiles=", em.textureRows, "x", em.textureCols,
+                            " twinkle=", em.twinkleScaleMin, "-", em.twinkleScaleMax,
+                            " scale keys=", em.particleScale.floatValues.size(),
+                            " scale0=", em.particleScale.floatValues.empty() ? 0.0f : em.particleScale.floatValues[0],
+                            " instScale=", inst.scale);
+            }
+        }
+
         inst.emitterAccumulators[ei] += rate * dt;
 
         while (inst.emitterAccumulators[ei] >= 1.0f && inst.particles.size() < MAX_M2_PARTICLES) {
@@ -249,25 +282,18 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
                                        inst.currentSequenceIndex, gpu.globalSequenceDurations,
                                  gpu.followsEmitterEnabled);
 
-            // Base direction: up in model space, transformed to world
-            glm::vec3 dir(0.0f, 0.0f, 1.0f);
-            // Add random spread
-            dir.x += distN(particleRng_) * hRange;
-            dir.y += distN(particleRng_) * hRange;
-            dir.z += distN(particleRng_) * vRange;
-            float lenSq = glm::dot(dir, dir);
-            if (lenSq > 0.001f * 0.001f) dir *= glm::inversesqrt(lenSq);
-            if (gpu.followsEmitterEnabled) {
-                // The ranges are angles: tilted off the emitter's axis by up
-                // to the vertical one, turned round it by up to the
-                // horizontal one. Added to the axis as lengths, a fireball's
-                // smoke - no tilt, any turn - flew out sideways at 2*pi to
-                // one up and hung round the caster as a cloud of grey balls
-                // instead of streaming behind the missile.
-                const float tilt = distN(particleRng_) * vRange;
-                const float turn = distN(particleRng_) * hRange;
-                dir = glm::vec3(std::sin(tilt) * std::cos(turn), std::sin(tilt) * std::sin(turn), std::cos(tilt));
-            }
+            // The ranges are angles: tilted off the emitter's axis by up to the
+            // vertical one, turned round it by up to the horizontal one. Added
+            // to the axis as lengths, a fireball's smoke - no tilt, any turn -
+            // flew out sideways at 2*pi to one up and hung round the caster as a
+            // cloud of grey balls instead of streaming behind the missile; and
+            // the same sum on every doodad threw a candle's flame - authored to
+            // rise straight up at a tenth of a yard a second, no tilt, any turn
+            // - out sideways off the wick in all directions, a smear of sparks
+            // round each candle of a candelabrum instead of a flame on it.
+            const float tilt = distN(particleRng_) * vRange;
+            const float turn = distN(particleRng_) * hRange;
+            glm::vec3 dir(std::sin(tilt) * std::cos(turn), std::sin(tilt) * std::sin(turn), std::cos(tilt));
 
             // Transform direction by bone + model orientation (rotation only)
             glm::mat3 rotMat = glm::mat3(inst.modelMatrix * boneXform);
