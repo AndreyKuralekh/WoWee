@@ -201,6 +201,11 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         bool hasBatchLight = false;
         for (const auto& batch : model->batches) {
             if (!batch.glowCardLike || !batch.lanternGlowHint) continue;
+            // One light a fixture. Reforged's candelabrum carries two glow
+            // batches over the same four candles, and each threw its own pool
+            // twelve yards round - two dozen candelabra in the Goldshire inn
+            // and the room was a blaze from floor to rafters.
+            if (hasBatchLight) break;
 
             glm::vec3 worldPos;
             if (model->isGroundFire &&
@@ -224,13 +229,20 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             // surfaces enter view; the shader's radius still bounds the work.
             if (distSq > 300.0f * 300.0f) continue;
 
-            const float radius = std::clamp(batch.glowSize * instance.scale * 8.0f,
-                                            5.0f, 12.0f);
+            // The reach comes from the glow card's size - a lamp's card is
+            // about its flame. Cards spread over several candles have the
+            // spread for a size, not a flame's, so they light as a candle does.
+            float radius = std::clamp(batch.glowSize * instance.scale * 8.0f, 5.0f, 12.0f);
+            float intensity = 1.35f;
+            if (batch.glowSpread) {
+                radius = 4.0f * std::max(instance.scale, 0.5f);
+                intensity = 0.85f;
+            }
             glm::vec3 color(1.0f, 0.58f, 0.22f);
             if (batch.glowTint == 1) color = glm::vec3(0.42f, 0.68f, 1.0f);
             else if (batch.glowTint == 2) color = glm::vec3(1.0f, 0.24f, 0.14f);
             candidates.push_back({.distSq = distSq, .posRadius = glm::vec4(worldPos, radius),
-                                  .colorIntensity = glm::vec4(color, 1.35f), .flame = true,
+                                  .colorIntensity = glm::vec4(color, intensity), .flame = true,
                                   .phaseSeed = instance.position});
             hasBatchLight = true;
         }

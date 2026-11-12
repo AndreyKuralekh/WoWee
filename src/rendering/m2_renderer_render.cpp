@@ -2245,6 +2245,14 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             // sky's haze is authored at 30% and was drawn solid, a white sheet
             // over the whole dome once the clouds were drawn on top of it.
             if (skyMode_) e.fadeAlpha *= batch.restAlpha;
+            // And a blended or additive doodad batch's, for the same reason: a
+            // candelabrum's glow cards are authored at a fifth (transparency
+            // 0.2) and were added at full strength, eight white-hot squares
+            // round every table of a Reforged inn. Opaque and cut-out batches
+            // do not blend by alpha, so this changes nothing for them; spell
+            // effects and day-clock skies weigh their tracks themselves below.
+            else if (batch.blendMode >= 2 && !model.isSpellEffect && !instance.dayClock)
+                e.fadeAlpha *= batch.restAlpha;
             // A spell effect fades as it was authored to - Blizzard's shard is
             // seen only for the last moment of its fall and gone as it enters
             // the ground. Everything else keeps the alpha it was given at load.
