@@ -3707,7 +3707,7 @@ bool WMORenderer::checkWallCollision(const glm::vec3& from, const glm::vec3& to,
 
     // Player collision parameters - WoW-style horizontal cylinder
     // Tighter radius when inside for more responsive indoor collision
-    const float PLAYER_RADIUS = insideWMO ? 0.45f : 0.50f;
+    const float PLAYER_RADIUS = (insideWMO ? 0.45f : 0.50f) + wallRadiusExtra_;
     const float PLAYER_HEIGHT = 2.0f;       // Cylinder height for Z bounds
     const float MAX_STEP_HEIGHT = 1.0f;     // Step-up threshold
 

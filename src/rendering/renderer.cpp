@@ -691,6 +691,18 @@ void Renderer::updatePerFrameUBO() {
         }
     }
 
+    // In a headset the walls keep the character further off: the eyes are
+    // where it stands and the head leans past that, so a forehead against a
+    // wall looked into it. WOWEE_VR_WALL_MARGIN, in metres (0.2).
+    if (wmoRenderer) {
+        static const float kVrWallMarginYards = [] {
+            const char* v = std::getenv("WOWEE_VR_WALL_MARGIN");
+            const float metres = v && *v ? static_cast<float>(std::atof(v)) : 0.2f;
+            return std::clamp(metres, 0.0f, 1.0f) / 0.9144f;
+        }();
+        wmoRenderer->setWallRadiusExtra(vrHeadsetFrame() ? kVrWallMarginYards : 0.0f);
+    }
+
     currentFrameData.lightSpaceMatrix = lightSpaceMatrix;
     // Scale shadow bias proportionally to ortho extent to avoid acne at close range / gaps at far range
     float shadowBias = vrShadowStrength(glm::clamp(0.8f * (shadowDistance_ / 300.0f), 0.0f, 1.0f));

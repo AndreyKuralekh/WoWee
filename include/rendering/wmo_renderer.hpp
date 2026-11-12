@@ -390,6 +390,11 @@ public:
      */
     bool checkWallCollision(const glm::vec3& from, const glm::vec3& to, glm::vec3& adjustedPos, bool insideWMO = false) const;
 
+    /// Yards added to the player's radius against walls. A headset's eyes are
+    /// where the character stands and the head leans past it, so a forehead
+    /// against a wall looked into it; the renderer sets this for those frames.
+    void setWallRadiusExtra(float yards) { wallRadiusExtra_ = yards; }
+
     /// Whether solid WMO geometry stands between two points - a sight line
     /// rather than a step, so no player radius and no step height. See the
     /// definition for why checkWallCollision cannot answer this.
@@ -1016,6 +1021,8 @@ private:
             entries[slot] = { .key = k, .resultZ = result, .normalZ = normalZ, .frameId = frame };
         }
     };
+
+    float wallRadiusExtra_ = 0.0f;
 };
 
 } // namespace rendering
