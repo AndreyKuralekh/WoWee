@@ -106,6 +106,8 @@
 #include "stb_image_write.h"
 #include <cstdlib>
 #include <optional>
+#include <array>
+#include <cstdio>
 #include <unordered_map>
 #include <unordered_set>
 #include <set>
@@ -2220,6 +2222,21 @@ void Renderer::update(float deltaTime) {
     if (cameraController) {
         auto cameraStart = std::chrono::steady_clock::now();
         cameraController->update(deltaTime);
+        // WOWEE_DEBUG_CAMERA="x,y,z,yaw,pitch": the view held at a point in
+        // world coordinates as the database gives them (yaw and pitch in
+        // degrees, yaw 0 along +x), the character left where it is - to look at
+        // something in a screenshot without walking there.
+        static const std::optional<std::array<float, 5>> kDebugCamera = [] () -> std::optional<std::array<float, 5>> {
+            const char* v = std::getenv("WOWEE_DEBUG_CAMERA");
+            std::array<float, 5> a{};
+            if (!v || std::sscanf(v, "%f,%f,%f,%f,%f", &a[0], &a[1], &a[2], &a[3], &a[4]) != 5) return std::nullopt;
+            return a;
+        }();
+        if (kDebugCamera && camera) {
+            const auto& a = *kDebugCamera;
+            camera->setPosition(glm::vec3(a[0], a[1], a[2]));
+            camera->setRotation(a[3], a[4]);
+        }
         auto cameraEnd = std::chrono::steady_clock::now();
         lastCameraUpdateMs = std::chrono::duration<double, std::milli>(cameraEnd - cameraStart).count();
         if (lastCameraUpdateMs > 50.0) {
