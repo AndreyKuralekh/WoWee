@@ -1727,6 +1727,37 @@ if (const auto* md = charRenderer->getModelData(modelId)) {
                 }
             }
         }
+    } else if (!hasHumanoidDisplayExtra) {
+        // A whole-creature model ported from a later client packs its
+        // variants as geosets - two helms, two pairs of shoulders, four pairs
+        // of gloves, a sword and shield besides the weapon the server hands
+        // it - and leaves the choice to a geoset table this client does not
+        // have. Drawn whole, an elite guard wore every set at once. Where
+        // several groups each carry more than one variant, one of each is
+        // shown: the first. Groups with a single member, and group 0, stay
+        // as they were.
+        std::unordered_map<uint16_t, std::unordered_set<uint16_t>> variantsByGroup;
+        for (uint16_t sid : allGeosets) variantsByGroup[static_cast<uint16_t>(sid / 100)].insert(sid);
+        int packedGroups = 0;
+        for (const auto& [group, ids] : variantsByGroup) {
+            if (group != 0 && ids.size() >= 2) ++packedGroups;
+        }
+        if (packedGroups >= 3) {
+            std::unordered_set<uint16_t> chosen;
+            for (const auto& [group, ids] : variantsByGroup) {
+                if (group == 0) {
+                    chosen.insert(ids.begin(), ids.end());
+                } else {
+                    chosen.insert(firstByGroup[group]);
+                }
+            }
+            charRenderer->setActiveGeosets(instanceId, chosen);
+            static core::LogBudget packedBudget(8, "Creature models shown one variant per geoset group");
+            if (packedBudget.take()) {
+                LOG_INFO("Creature model ", modelId, " (display ", displayId, ") packs ", packedGroups,
+                         " geoset groups with variants; showing the first of each");
+            }
+        }
     }
 }
 }
