@@ -222,7 +222,8 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
                             " decel=", at(em.deceleration), " tiles=", em.textureRows, "x", em.textureCols,
                             " twinkle=", em.twinkleScaleMin, "-", em.twinkleScaleMax,
                             " scale keys=", em.particleScale.floatValues.size(),
-                            " scale0=", em.particleScale.floatValues.empty() ? 0.0f : em.particleScale.floatValues[0],
+                            " scale=", [&] { std::string r; for (float v : em.particleScale.floatValues) r += std::to_string(v) + " "; return r; }(),
+                            "alpha=", [&] { std::string r; for (float v : em.particleAlpha.floatValues) r += std::to_string(v) + " "; return r; }(),
                             " instScale=", inst.scale);
             }
         }
@@ -305,7 +306,11 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
             // Not for a spell visual's model: its bones are loaded, and a
             // still particle is meant to stay put - the disease's stars
             // pulse where they are born rather than flying off.
-            if (std::abs(speed) < 0.01f && !gpu.followsEmitterEnabled) {
+            // A lamp's flame is not a mist: it stays on the wick it is born on.
+            // Drifting a yard a second, the Goldshire chandelier's candles shed
+            // their flames into a scatter of orange flecks.
+            const bool lampFlame = gpu.isLanternLike && isFlameEmitter(gpu, em);
+            if (std::abs(speed) < 0.01f && !gpu.followsEmitterEnabled && !lampFlame) {
                 if (gpu.isFireflyEffect) {
                     // Fireflies: gentle random drift in all directions
                     p.velocity = rotMat * glm::vec3(
@@ -320,6 +325,17 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
                         -dist01(particleRng_) * 0.5f
                     );
                 }
+            }
+
+            // And it rises no further than a flame is tall. Its particles are
+            // drawn at least a flame's size (see the floors in the build), so
+            // whatever the model lets climb - the chandelier's specks go 0.6
+            // yd at a quarter yard a second, a candelabrum's flames 0.15 -
+            // stood over each candle as a dotted column of separate flames.
+            if (lampFlame) {
+                constexpr float kLampFlameRise = 0.16f;
+                const float travel = glm::length(p.velocity) * life;
+                if (travel > kLampFlameRise) p.velocity *= kLampFlameRise / travel;
             }
 
             const uint32_t tilesX = std::max<uint16_t>(em.textureCols, 1);
@@ -876,9 +892,12 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 // Set when the shader drew every particle a third of its size:
                 // 0.05 now is the 0.15 it was then. A lamp keeps the 0.15 in
                 // the old scale itself; see legacySize.
+                // A lamp's flame at its own size, twinkle included. Under the
+                // old fixed scale it was a quarter of that in the headset - the
+                // chandelier's flames, authored 0.15, came out as a column of
+                // separate specks instead of one tongue of fire.
                 if (cachedFlame && gpu.isLanternLike) {
-                    scale = std::max(scale, 0.15f);
-                    legacySize = true;
+                    scale = std::max(rawScale * twinkleScale(em, p), 0.03f);
                 } else if (cachedFlame) {
                     scale = std::max(scale, 0.05f);
                 }
