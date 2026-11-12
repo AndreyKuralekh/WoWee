@@ -508,6 +508,9 @@ private:
     struct TextureProperties {
         bool hasAlpha = false;
         bool colorKeyBlack = false;
+        // Whether that alpha is a silhouette or a mask for something else (a
+        // specular mask, in art ported from later clients). BLPImage decides.
+        bool alphaIsSilhouette = true;
     };
     std::unordered_map<VkTexture*, TextureProperties> texturePropsByPtr_;
     std::unordered_map<std::string, VkTexture*> compositeCache_;  // key → texture for reuse

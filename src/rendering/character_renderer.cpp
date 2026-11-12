@@ -919,7 +919,8 @@ VkTexture* CharacterRenderer::loadTexture(const std::string& path) {
         blpImage.width, blpImage.height);
 
     textureCacheBytes_ += e.approxBytes;
-    texturePropsByPtr_[texPtr] = {.hasAlpha = hasAlpha, .colorKeyBlack = colorKeyBlackHint};
+    texturePropsByPtr_[texPtr] = {.hasAlpha = hasAlpha, .colorKeyBlack = colorKeyBlackHint,
+                                  .alphaIsSilhouette = !hasAlpha || blpImage.alphaIsSilhouette()};
     textureCache[key] = std::move(e);
     failedTextureCache_.erase(key);
     failedTextureRetryAt_.erase(key);
@@ -3287,11 +3288,13 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
                 // Determine material properties
                 bool alphaCutout = false;
                 bool colorKeyBlack = false;
+                bool alphaSilhouette = true;
                 if (texPtr != nullptr && texPtr != whiteTexture_.get()) {
                     auto pit = texturePropsByPtr_.find(texPtr);
                     if (pit != texturePropsByPtr_.end()) {
                         alphaCutout = pit->second.hasAlpha;
                         colorKeyBlack = pit->second.colorKeyBlack;
+                        alphaSilhouette = pit->second.alphaIsSilhouette;
                     }
                 }
                 // A scene means what its materials say. Stormwind's walls are DXT5 with
@@ -3310,6 +3313,12 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
                 // alpha is the mask for that shine. Cut by it, the tank was
                 // full of holes.
                 if (blendMode == 0 && batch.textureCount >= 2) alphaCutout = false;
+                // And a creature's own body, built from the same later art: the
+                // elite guard's shield and armour are opaque materials whose
+                // textures carry such a mask, and cut by it they let the eye in
+                // through the rim. An opaque material cuts only where its alpha
+                // is measured to be a silhouette, as the doodad path decides.
+                if (blendMode == 0 && !alphaSilhouette) alphaCutout = false;
                 const bool itemModel = instance.hasOverrideModelMatrix && !instance.isEffectModel;
                 const bool blendNeedsCutout = (instance.isSceneModel || itemModel)
                     ? (blendMode == 1)
