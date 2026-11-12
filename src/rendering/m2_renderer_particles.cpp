@@ -147,6 +147,26 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
             continue;
         }
 
+        // A lamp's flame belongs in the lamp. Reforged's hanging lantern
+        // carries its two flame emitters six yards under its own body, and
+        // the Goldshire inn hangs five of them in the roof space: the lanterns
+        // sat hidden above the new plank ceiling while their flames burned
+        // alone under it. Nothing in a lamp is meant to burn that far off it.
+        if (gpu.isLanternLike && !gpu.followsEmitterEnabled) {
+            constexpr float kLampFlameReach = 1.5f;
+            const glm::vec3 nearest = glm::clamp(em.position, gpu.boundMin, gpu.boundMax);
+            if (glm::length(em.position - nearest) > kLampFlameReach) {
+                static std::set<std::string> saidOffLamp;
+                if (saidOffLamp.insert(gpu.name + "#" + std::to_string(ei)).second) {
+                    LOG_INFO("Lamp emitter off its lamp, skipped: '", gpu.name, "' #", ei,
+                             " at (", em.position.x, ",", em.position.y, ",", em.position.z,
+                             "), ", glm::length(em.position - nearest), " yd from the model");
+                }
+                inst.emitterAccumulators[ei] = 0.0f;
+                continue;
+            }
+        }
+
         float rate = interpFloat(em.emissionRate, inst.animTime, inst.globalSequenceTime,
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations,
                                  gpu.followsEmitterEnabled);
