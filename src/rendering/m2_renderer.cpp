@@ -171,6 +171,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         glm::vec4 posRadius;
         glm::vec4 colorIntensity;
         bool flame = false;  // lamps/torches/braziers gutter; lava burns steady
+        bool hearth = false; // a fire laid on the ground: wider and livelier
         // Fixture placement, used only to seed the flicker phase. The light's own
         // position animates with the flame, which would re-roll the phase every frame.
         glm::vec3 phaseSeed{0.0f};
@@ -299,10 +300,34 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                         intensity = model->isTorch ? 0.95f : 1.05f;
                         color     = glm::vec3(1.0f, 0.50f, 0.18f);
                     }
-                    candidates.push_back({.distSq = distSq,
-                        .posRadius = glm::vec4(worldPos, radius),
-                        .colorIntensity = glm::vec4(color, intensity),
-                        .flame = true, .phaseSeed = instance.position});
+                    // A hearth lights the room it warms. Three and a half yards
+                    // lit the firebox and nothing past the mantel: the Goldshire
+                    // inn's fire was a bright hole in a dark wall. Its pool now
+                    // reaches the tables in front of it - the stone round the
+                    // opening faces away from the flame and stays unlit, so the
+                    // chimney the old note warns of does not glow. A hearth laid
+                    // with several fires (the inn has four Cozy Fires in one
+                    // grate) is one light, or four pools stacked blind white.
+                    const bool hearth = model->isBrazierOrFire && !model->isTorch &&
+                                        !model->isLanternLike;
+                    bool merged = false;
+                    if (hearth) {
+                        radius    = 8.0f;
+                        intensity = 1.3f;
+                        color     = glm::vec3(1.0f, 0.47f, 0.15f);
+                        for (const auto& c : candidates) {
+                            if (c.hearth && glm::distance(glm::vec3(c.posRadius), worldPos) < 2.5f) {
+                                merged = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!merged) {
+                        candidates.push_back({.distSq = distSq,
+                            .posRadius = glm::vec4(worldPos, radius),
+                            .colorIntensity = glm::vec4(color, intensity),
+                            .flame = true, .hearth = hearth, .phaseSeed = instance.position});
+                    }
                 }
             }
         }
@@ -322,8 +347,17 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         outPosRadius[i] = candidates[i].posRadius;
         outColorIntensity[i] = candidates[i].colorIntensity;
         if (candidates[i].flame) {
-            outColorIntensity[i].w *= lampFlicker(candidates[i].phaseSeed,
-                                                  flickerSeconds, 0.82f, 0.12f, 0.06f);
+            if (candidates[i].hearth) {
+                // Firelight dances quicker than a wick gutters: the lamp swell
+                // plus a faster beat, so the room breathes with the flames.
+                const glm::vec3 seed = glm::floor(candidates[i].phaseSeed);
+                outColorIntensity[i].w *= lampFlicker(seed, flickerSeconds, 0.80f, 0.10f, 0.08f)
+                    + 0.06f * std::sin(flickerSeconds * 9.7f + seed.x * 0.37f)
+                    + 0.04f * std::sin(flickerSeconds * 15.3f + seed.y * 0.53f);
+            } else {
+                outColorIntensity[i].w *= lampFlicker(candidates[i].phaseSeed,
+                                                      flickerSeconds, 0.82f, 0.12f, 0.06f);
+            }
             // A lamp is lit for the night: by day its pool is lost in the sun.
             outColorIntensity[i].w *= 1.0f + 0.6f * nightGlow_;
         }
