@@ -244,6 +244,8 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
                             " scale keys=", em.particleScale.floatValues.size(),
                             " scale=", [&] { std::string r; for (float v : em.particleScale.floatValues) r += std::to_string(v) + " "; return r; }(),
                             "alpha=", [&] { std::string r; for (float v : em.particleAlpha.floatValues) r += std::to_string(v) + " "; return r; }(),
+                            "color=", [&] { std::string r; for (const auto& v : em.particleColor.vec3Values) r += "(" + std::to_string(v.x) + "," + std::to_string(v.y) + "," + std::to_string(v.z) + ") "; return r; }(),
+                            "tex=", em.texture, " headCell=", em.headCell.floatValues.size(),
                             " instScale=", inst.scale);
             }
         }
@@ -879,7 +881,16 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             // the frame. Floor colour and alpha so a lit fixture always shows
             // flame. Floors only lift the dim end, leaving torches and candles
             // that already read correctly untouched.
-            if (cachedFlame) {
+            // A hearth or campfire is the exception: its licks are big and many,
+            // and are meant to fade to nothing at the top. Floored, the cream
+            // they fade through hung over the Goldshire hearth as a pale mist
+            // instead of fire. Fired up to twice and more instead - a hearth is what a
+            // room in the headset gathers round, and the authored strength is
+            // a flicker under the client's own lighting.
+            const bool hearthFire = gpu.isBrazierOrFire && !gpu.isTorch && !gpu.isLanternLike;
+            if (cachedFlame && hearthFire) {
+                alpha = std::min(alpha * 2.2f, 1.0f);
+            } else if (cachedFlame) {
                 color = glm::max(color, glm::vec3(0.50f, 0.26f, 0.09f));
                 alpha = std::max(alpha, 0.30f);
             }

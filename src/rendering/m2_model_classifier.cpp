@@ -196,6 +196,11 @@ bool assetNameLooksLikeFlame(const std::string& path) {
             // A lamppost's whole skin - post, cage, glass - is no flame card,
             // and keying its dark texels out cut holes in the lamp. Both
             // spellings are in the data: WesternPlaguelandsLampost01.
+            // Firewood is wood: its burned bark is dark, and keyed out as a
+            // flame card's backing the inn's hearth logs were full of holes.
+            if (token == "fire" && assetTokenName(path).find("firewood") != std::string::npos) {
+                continue;
+            }
             if (token == "lamp") {
                 const std::string name = assetTokenName(path);
                 if (name.find("lamppost") != std::string::npos ||
@@ -302,7 +307,10 @@ M2ClassificationResult classifyM2Model(
     // with a suffix, and treating one as burning gives a cold fire pit a
     // flame's colour floor and an ambient fire loop.
     const bool unlitVariant = endsWithToken(n, "off") || endsWithToken(n, "out");
-    const bool fireName    = isLitFireName(n);
+    // A pile of firewood that carries emitters is a fire laid and lit: the
+    // Cozy Fire in every inn hearth is FirewoodPile01, and taken for a log
+    // pile its flames were bleached and thinned to nothing.
+    const bool fireName    = isLitFireName(n) || (has(n, "firewood") && emitterCount > 0);
     const bool brazierName = has(n, "brazier") || has(n, "cauldronfire");
     // A forge is a forge only when "forge" is what the name ends on. Matched as
     // a bare substring it also caught Ironforge, so all 64 doodads of the city
@@ -790,6 +798,12 @@ M2BatchTexClassification classifyBatchTexture(const std::string& lowerTexKey)
     r.hasGlowCardToken = hasAny(lowerTexKey, kGlowCardTokens);
     if (r.exactLanternGlowTex) r.hasGlowCardToken = true;
     r.likelyFlame      = hasAnyWord(lowerTexKey, kLikelyFlameTokens);
+    // Firewood is the wood of a fire, not its flame: FirewoodBurned01 is bark
+    // with a band of embers, drawn solid on the logs of every inn hearth.
+    if (lowerTexKey.find("firewood") != std::string::npos) {
+        r.hasFlameToken = false;
+        r.likelyFlame = false;
+    }
     r.lanternFamily    = hasAny(lowerTexKey, kLanternFamilyTokens);
     // Stormwind street lamps use an opaque unlit glass texture rather than a
     // named glow card or particle emitter. Preserve that glass mesh and layer
