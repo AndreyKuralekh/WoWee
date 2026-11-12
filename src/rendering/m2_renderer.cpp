@@ -2488,16 +2488,61 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                         }
                     }
                     float maxDist = 0.0f;
+                    float minDist = std::numeric_limits<float>::max();
                     for (uint32_t j = batch.indexStart; j < batch.indexStart + batch.indexCount; j++) {
                         if (j < model.indices.size()) {
                             uint16_t vi = model.indices[j];
                             if (vi < model.vertices.size()) {
                                 float d = glm::length(model.vertices[vi].position - bgpu.center);
                                 maxDist = std::max(maxDist, d);
+                                minDist = std::min(minDist, d);
                             }
                         }
                     }
                     bgpu.glowSize = std::max(maxDist, 0.5f);
+                    // Cards in several places - one over each candle of a
+                    // candelabrum (Reforged's GeneralCandelabra01) - have their
+                    // centre in empty air, and a glow sprite there hung as a
+                    // ball over the fixture. The batch's separate pieces are
+                    // found by the triangles that join them; pieces sharing a
+                    // centre (a two-sided card) count once. Two to eight flames
+                    // apart is a fixture of candles; a bonfire's hundred
+                    // tongues or a chandelier's rings keep their one sprite.
+                    (void)minDist;
+                    std::unordered_map<uint16_t, uint16_t> parent;
+                    const auto find = [&parent](uint16_t x) {
+                        auto it = parent.try_emplace(x, x).first;
+                        while (it->second != x) {
+                            x = it->second;
+                            it = parent.try_emplace(x, x).first;
+                        }
+                        return x;
+                    };
+                    const uint32_t batchEnd = std::min<uint32_t>(batch.indexStart + batch.indexCount,
+                                                                 static_cast<uint32_t>(model.indices.size()));
+                    for (uint32_t j = batch.indexStart; j + 2 < batchEnd; j += 3) {
+                        const uint16_t a = find(model.indices[j]);
+                        parent[find(model.indices[j + 1])] = a;
+                        parent[find(model.indices[j + 2])] = a;
+                    }
+                    std::unordered_map<uint16_t, glm::vec4> pieces;  // root -> sum of positions, count
+                    for (uint32_t j = batch.indexStart; j < batchEnd; ++j) {
+                        const uint16_t vi = model.indices[j];
+                        if (vi >= model.vertices.size()) continue;
+                        pieces[find(vi)] += glm::vec4(model.vertices[vi].position, 1.0f);
+                    }
+                    std::vector<glm::vec3> flames;
+                    for (const auto& [root, sum] : pieces) {
+                        const glm::vec3 c = glm::vec3(sum) / std::max(sum.w, 1.0f);
+                        bool seen = false;
+                        for (const glm::vec3& f : flames) seen = seen || glm::length(f - c) < 0.15f * maxDist;
+                        if (!seen) flames.push_back(c);
+                        if (flames.size() > 8) break;
+                    }
+                    float farthest = 0.0f;
+                    for (const glm::vec3& f : flames) farthest = std::max(farthest, glm::length(f - bgpu.center));
+                    bgpu.glowSpread = flames.size() >= 2 && flames.size() <= 8 && maxDist > 0.05f &&
+                                      farthest > 0.15f * maxDist;
                     // Upright fire glow cards are deliberately tall, so their
                     // geometric center floats above a small ground fire. Keep
                     // the radial halo near the fuel/flame base instead.
@@ -2545,6 +2590,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                              " alphaIsSilhouette=", bgpu.alphaIsSilhouette ? "Y" : "N",
                              " colorKey=", bgpu.colorKeyBlack ? "Y" : "N",
                              " glowCardLike=", bgpu.glowCardLike ? "Y" : "N",
+                             " glowSpread=", bgpu.glowSpread ? "Y" : "N",
                              " preserveGlowMesh=", bgpu.preserveGlowMesh ? "Y" : "N",
                              " opacity=", bgpu.batchOpacity,
                              " idxCount=", bgpu.indexCount,

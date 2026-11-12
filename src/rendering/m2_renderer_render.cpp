@@ -1746,7 +1746,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                     glowCard.modelIsBrazierOrFire = model.isBrazierOrFire;
                     glowCard.modelIsSpellEffect = model.isSpellEffect;
                     glowCard.modelIsKoboldFlame = model.isKoboldFlame;
-                    const bool shouldUseGlowSprite = m2WantsGlowSprite(glowCard);
+                    // Not for cards spread over several flames: their centre is
+                    // empty air, and the cards draw their own glow.
+                    const bool shouldUseGlowSprite = m2WantsGlowSprite(glowCard) && !batch.glowSpread;
                     if (shouldUseGlowSprite) {
                         // Generate glow sprites for each instance in the group
                         for (size_t j = lodIdx; j < lodEnd; j++) {

@@ -119,6 +119,9 @@ struct M2ModelGPU {
         float restAlpha = 1.0f;
         glm::vec3 center = glm::vec3(0.0f); // Center of batch geometry (model space)
         float glowSize = 1.0f;              // Approx radius of batch geometry
+        // Its geometry is in several places with nothing at its centre: glow
+        // cards over four candles. A sprite at the centre would hang in the air.
+        bool glowSpread = false;
 
         struct LightBoneAnchor {
             uint16_t bone = 0;
