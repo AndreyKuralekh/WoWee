@@ -235,8 +235,8 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             float radius = std::clamp(batch.glowSize * instance.scale * 8.0f, 5.0f, 12.0f);
             float intensity = 1.35f;
             if (batch.glowSpread) {
-                radius = 4.0f * std::max(instance.scale, 0.5f);
-                intensity = 0.85f;
+                radius = 6.0f * std::max(instance.scale, 0.5f);
+                intensity = 1.1f;
             }
             glm::vec3 color(1.0f, 0.58f, 0.22f);
             if (batch.glowTint == 1) color = glm::vec3(0.42f, 0.68f, 1.0f);

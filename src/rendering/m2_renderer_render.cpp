@@ -2251,8 +2251,12 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             // round every table of a Reforged inn. Opaque and cut-out batches
             // do not blend by alpha, so this changes nothing for them; spell
             // effects and day-clock skies weigh their tracks themselves below.
+            // A flame's glow card keeps at least half: the Reforged client
+            // blooms these, and at a fifth the candles sat in no halo at all.
             else if (batch.blendMode >= 2 && !model.isSpellEffect && !instance.dayClock)
-                e.fadeAlpha *= batch.restAlpha;
+                e.fadeAlpha *= batch.glowCardLike && batch.lanternGlowHint
+                                   ? std::max(batch.restAlpha, 0.5f)
+                                   : batch.restAlpha;
             // A spell effect fades as it was authored to - Blizzard's shard is
             // seen only for the last moment of its fall and gone as it enters
             // the ground. Everything else keeps the alpha it was given at load.
