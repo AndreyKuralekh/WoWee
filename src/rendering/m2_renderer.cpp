@@ -272,6 +272,11 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                                        glm::vec4* outColorIntensity,
                                        uint32_t maxLights) const {
     lastFireLightCount_ = 0;
+    for (const size_t i : fireVolumeInstances_) {
+        if (i < instances.size()) instances[i].flameParticleFade = 1.0f;
+    }
+    fireVolumeInstances_.clear();
+    fireVolumes_.clear();
     if (!outPosRadius || !outColorIntensity || maxLights == 0) return 0;
 
     struct Candidate {
@@ -285,6 +290,16 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
     };
     std::vector<Candidate> candidates;
     std::vector<Candidate> fires;
+    // Per fire: the box round all its flames (a grate's fires merged) and
+    // which instances they are - for the fire volumes.
+    struct FireGroup {
+        glm::vec3 boxMin{0.0f};
+        glm::vec3 boxMax{0.0f};
+        bool volume = false;
+        std::vector<size_t> members;
+    };
+    std::vector<FireGroup> fireGroups;
+    const bool fireListWanted = fireParams_.enabled || fireVolumeParams_.enabled;
 
     for (const size_t lightIndex : lightInstanceIndices_) {
         if (lightIndex >= instances.size()) continue;
@@ -296,7 +311,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
 
         // A fire, in the headset: its own light from the flames, the nearest
         // few of them first in the list (see FireLightParams).
-        if (fireParams_.enabled && model->fireLight.valid) {
+        if (fireListWanted && model->fireLight.valid) {
             const auto& fl = model->fireLight;
             glm::vec3 worldPos(0.0f);
             if (fl.atLight) {
@@ -321,15 +336,31 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             // Fires laid together in one grate - the Goldshire inn has four
             // Cozy Fires in one hearth - are one light, or four pools stacked
             // into a blind white one.
+            const bool hearthLike = model->isBrazierOrFire && !model->isTorch && !model->isForge &&
+                                    !model->isLanternLike;
             bool merged = false;
-            for (const auto& f : fires) {
-                if (glm::distance(glm::vec3(f.posRadius), worldPos) < 2.5f) { merged = true; break; }
+            for (size_t f = 0; f < fires.size(); ++f) {
+                if (glm::distance(glm::vec3(fires[f].posRadius), worldPos) < 2.5f) {
+                    merged = true;
+                    if (hearthLike && fireGroups[f].volume) {
+                        fireGroups[f].boxMin = glm::min(fireGroups[f].boxMin, instance.worldBoundsMin);
+                        fireGroups[f].boxMax = glm::max(fireGroups[f].boxMax, instance.worldBoundsMax);
+                        fireGroups[f].members.push_back(lightIndex);
+                    }
+                    break;
+                }
             }
             if (merged) continue;
             const float radius = fl.radius * std::clamp(instance.scale, 0.5f, 2.0f);
             fires.push_back({.distSq = distSq, .posRadius = glm::vec4(worldPos, radius),
                              .colorIntensity = glm::vec4(fl.color, fl.intensity),
                              .flame = true, .phaseSeed = instance.position});
+            FireGroup group;
+            group.volume = hearthLike;
+            group.boxMin = instance.worldBoundsMin;
+            group.boxMax = instance.worldBoundsMax;
+            group.members.push_back(lightIndex);
+            fireGroups.push_back(std::move(group));
             continue;
         }
 
@@ -457,16 +488,52 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
     }
 
     const auto nearer = [](const Candidate& a, const Candidate& b) { return a.distSq < b.distSq; };
-    const uint32_t fireCount = std::min<uint32_t>({static_cast<uint32_t>(fires.size()),
-                                                  fireParams_.maxLights, maxLights});
+    std::vector<uint32_t> fireOrder(fires.size());
+    for (uint32_t i = 0; i < fireOrder.size(); ++i) fireOrder[i] = i;
+    std::sort(fireOrder.begin(), fireOrder.end(),
+              [&](uint32_t a, uint32_t b) { return fires[a].distSq < fires[b].distSq; });
+
+    // The nearest hearths burn as volumes: full inside the distance less two
+    // yards, fading out over those two, their flame particles fading in.
+    if (fireVolumeParams_.enabled && fireVolumePipeline_) {
+        constexpr uint32_t kMaxVolumes = 4;
+        const float reach = std::max(fireVolumeParams_.maxDistance, 3.0f);
+        for (const uint32_t f : fireOrder) {
+            if (fireVolumes_.size() >= kMaxVolumes) break;
+            const float dist = std::sqrt(fires[f].distSq);
+            if (dist >= reach) break;
+            const FireGroup& group = fireGroups[f];
+            if (!group.volume) continue;
+            const float fade = std::clamp((reach - dist) / 2.0f, 0.0f, 1.0f);
+            FireVolume v;
+            v.boxMin = group.boxMin;
+            v.boxMax = group.boxMax;
+            // The flames rise above the logs: at least 1.3 yards over the
+            // grate's floor, and 0.6 over the top of the wood.
+            v.boxMax.z = std::max(group.boxMax.z + 0.6f, group.boxMin.z + 1.3f);
+            v.brightness = fade * fireFlicker(fires[f].phaseSeed, fireParams_.seconds,
+                                              fireParams_.flicker);
+            v.seed = std::fmod(std::abs(fires[f].phaseSeed.x * 0.37f + fires[f].phaseSeed.y * 0.11f), 97.0f);
+            fireVolumes_.push_back(v);
+            for (const size_t i : group.members) {
+                if (i < instances.size()) {
+                    instances[i].flameParticleFade = 1.0f - fade;
+                    fireVolumeInstances_.push_back(i);
+                }
+            }
+        }
+    }
+
+    const uint32_t fireCount = fireParams_.enabled
+        ? std::min<uint32_t>({static_cast<uint32_t>(fires.size()), fireParams_.maxLights, maxLights})
+        : 0u;
     lastFireLightCount_ = fireCount;
     if (fireCount > 0) {
-        std::partial_sort(fires.begin(), fires.begin() + fireCount, fires.end(), nearer);
         for (uint32_t i = 0; i < fireCount; ++i) {
-            outPosRadius[i] = fires[i].posRadius;
-            outColorIntensity[i] = fires[i].colorIntensity;
-            outColorIntensity[i].w *= fireFlicker(fires[i].phaseSeed, fireParams_.seconds,
-                                                  fireParams_.flicker);
+            const Candidate& c = fires[fireOrder[i]];
+            outPosRadius[i] = c.posRadius;
+            outColorIntensity[i] = c.colorIntensity;
+            outColorIntensity[i].w *= fireFlicker(c.phaseSeed, fireParams_.seconds, fireParams_.flicker);
         }
         outPosRadius += fireCount;
         outColorIntensity += fireCount;
@@ -641,6 +708,43 @@ bool M2Renderer::buildMainPassPipelines(VkDescriptorSetLayout perFrameLayout) {
         premultiplied.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
         particlePipeline_ = buildParticlePipeline(premultiplied);
         particleAdditivePipeline_ = buildParticlePipeline(PipelineBuilder::blendAdditive());
+    }
+
+    // --- Fire volume pipeline (TASK_10): a box with no vertex buffer, every
+    // face drawn (the shader keeps the far one), no depth test - the ray
+    // stops at the scene's depth itself - and light added to what is there.
+    if (fireVolumeLayout_) {
+        rendering::VkShaderModule volVert, volFrag;
+        if (volVert.loadFromFile(device, "assets/shaders/fire_volume.vert.spv") &&
+            volFrag.loadFromFile(device, "assets/shaders/fire_volume.frag.spv")) {
+            VkPipelineColorBlendAttachmentState add{};
+            add.blendEnable = VK_TRUE;
+            add.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            add.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            add.colorBlendOp = VK_BLEND_OP_ADD;
+            add.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            add.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            add.alphaBlendOp = VK_BLEND_OP_ADD;
+            add.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                 VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+            fireVolumePipeline_ = PipelineBuilder()
+                .setShaders(volVert.stageInfo(VK_SHADER_STAGE_VERTEX_BIT),
+                            volFrag.stageInfo(VK_SHADER_STAGE_FRAGMENT_BIT))
+                .setVertexInput({}, {})
+                .setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+                .setRasterization(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE)
+                .setDepthTest(false, false, VK_COMPARE_OP_ALWAYS)
+                .setColorBlendAttachment(add)
+                .setMultisample(vkCtx_->getMsaaSamples())
+                .setLayout(fireVolumeLayout_)
+                .setRenderPass(mainPass)
+                .setDynamicStates(viewportAndScissorDynamic())
+                .build(device, vkCtx_->getPipelineCache());
+        } else {
+            LOG_WARNING("Fire volume shaders missing - no fire volumes");
+        }
+        volVert.destroy();
+        volFrag.destroy();
     }
 
     // --- Build smoke pipeline ---
@@ -1216,6 +1320,22 @@ bool M2Renderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayout
         vkCreatePipelineLayout(device, &ci, nullptr, &particlePipelineLayout_);
     }
 
+    // Fire volume layout: set 0 = perFrame, set 1 = scene depth; push: box
+    // min/max and parameters, three vec4 for both stages.
+    {
+        VkDescriptorSetLayout setLayouts[] = {perFrameLayout, particleTexLayout_};
+        VkPushConstantRange range{};
+        range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        range.offset = 0;
+        range.size = 3 * sizeof(glm::vec4);
+        VkPipelineLayoutCreateInfo ci{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        ci.setLayoutCount = 2;
+        ci.pSetLayouts = setLayouts;
+        ci.pushConstantRangeCount = 1;
+        ci.pPushConstantRanges = &range;
+        vkCreatePipelineLayout(device, &ci, nullptr, &fireVolumeLayout_);
+    }
+
     // Smoke pipeline layout: set 0 = perFrame
     // Push constant: float screenHeight (4 bytes)
     {
@@ -1410,12 +1530,14 @@ void M2Renderer::shutdown() {
     destroyPipeline(additivePipeline_);
     destroyPipeline(particlePipeline_);
     destroyPipeline(particleAdditivePipeline_);
+    destroyPipeline(fireVolumePipeline_);
     destroyPipeline(smokePipeline_);
     destroyPipeline(ribbonPipeline_);
     destroyPipeline(ribbonAdditivePipeline_);
 
     destroy(device, pipelineLayout_);
     destroy(device, particlePipelineLayout_);
+    destroy(device, fireVolumeLayout_);
     if (particleDepthPool_) {
         vkDestroyDescriptorPool(device, particleDepthPool_, nullptr);
         particleDepthPool_ = VK_NULL_HANDLE;

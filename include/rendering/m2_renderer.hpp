@@ -320,6 +320,9 @@ struct M2Instance {
     glm::mat4 rtMatrix{0.0f};
     glm::vec3 worldBoundsMin;
     glm::vec3 worldBoundsMax;
+    // How much of its big flame particles a hearth still draws: less as its
+    // fire volume (TASK_10) takes over. Set each frame by gatherLocalLights.
+    mutable float flameParticleFade = 1.0f;
 
     // Animation state
     float animTime = 0.0f;       // Current animation time (ms)
@@ -650,6 +653,20 @@ public:
      *  next instead of stepping. `depthView` is that copy for frame-in-flight
      *  `frame`; set before the particles are recorded. Off, they draw as ever. */
     void setSoftParticles(bool on, uint32_t frame = 0, VkImageView depthView = VK_NULL_HANDLE);
+
+    /** Fire volumes (TASK_10, step 3, the headset's): the hearths, braziers and
+     *  campfires within `maxDistance` burn as a ray-marched volume in a box
+     *  round their flames, their big flame particles fading out as it fades
+     *  in. Needs the soft particles' depth (setSoftParticles) and is drawn by
+     *  renderFireVolumes, before the particles. */
+    struct FireVolumeParams {
+        bool enabled = false;
+        float maxDistance = 15.0f;
+        int steps = 20;
+    };
+    void setFireVolumeParams(const FireVolumeParams& p) { fireVolumeParams_ = p; }
+    void renderFireVolumes(VkCommandBuffer cmd, VkDescriptorSet perFrameSet);
+    [[nodiscard]] uint32_t fireVolumeCount() const { return static_cast<uint32_t>(fireVolumes_.size()); }
 
     /**
      * Render smoke particles from chimneys etc.
@@ -1358,6 +1375,17 @@ private:
     }
     FireLightParams fireParams_;
     mutable uint32_t lastFireLightCount_ = 0;
+    FireVolumeParams fireVolumeParams_;
+    struct FireVolume {
+        glm::vec3 boxMin{0.0f};
+        glm::vec3 boxMax{0.0f};
+        float brightness = 1.0f;
+        float seed = 0.0f;
+    };
+    mutable std::vector<FireVolume> fireVolumes_;
+    mutable std::vector<size_t> fireVolumeInstances_;   // whose flame particles were faded
+    VkPipeline fireVolumePipeline_ = VK_NULL_HANDLE;
+    VkPipelineLayout fireVolumeLayout_ = VK_NULL_HANDLE;
 
     // Smoke particle system
     std::vector<SmokeParticle> smokeParticles;

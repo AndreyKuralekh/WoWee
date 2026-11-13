@@ -866,6 +866,15 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             }
 
             const auto& em = *cachedEm;
+            // A hearth burning as a volume (TASK_10) lets its big flames go;
+            // its sparks - small to begin with - stay.
+            float volumeFade = 1.0f;
+            if (softParticles_ && inst.flameParticleFade < 1.0f) {
+                float biggest = 0.0f;
+                for (float v : em.particleScale.floatValues) biggest = std::max(biggest, v);
+                if (biggest > 0.2f) volumeFade = inst.flameParticleFade;
+            }
+            if (volumeFade <= 0.01f) continue;
             float lifeRatio = p.life / std::max(p.maxLife, 0.001f);
             glm::vec3 color = interpFBlockVec3(em.particleColor, lifeRatio);
             float alpha = std::min(interpFBlockFloat(em.particleAlpha, lifeRatio), 1.0f);
@@ -938,6 +947,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 }
             }
 
+            alpha *= volumeFade;
             if (vbWritten >= MAX_M2_PARTICLE_VERTS) break;
             // A run per stretch of particles sharing a group. The group only
             // changes when the emitter does, and particles from one emitter
@@ -1177,6 +1187,26 @@ void M2Renderer::bindParticleDepthSet(VkCommandBuffer cmd, bool soft) const {
     const VkDescriptorSet set = soft ? particleDepthSets_[softParticleFrame_]
                                      : particleDepthSets_[kSoftDepthFrames];
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, particlePipelineLayout_, 2, 1, &set, 0, nullptr);
+}
+
+void M2Renderer::renderFireVolumes(VkCommandBuffer cmd, VkDescriptorSet perFrameSet) {
+    if (fireVolumes_.empty() || !fireVolumePipeline_ || !softParticles_ || !perFrameSet) return;
+    if (!ensureParticleDepthSets() || particleDepthViews_[softParticleFrame_] == VK_NULL_HANDLE) return;
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireVolumePipeline_);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireVolumeLayout_, 0, 1, &perFrameSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireVolumeLayout_, 1, 1,
+                            &particleDepthSets_[softParticleFrame_], 0, nullptr);
+    const float steps = static_cast<float>(std::clamp(fireVolumeParams_.steps, 8, 64));
+    for (const FireVolume& v : fireVolumes_) {
+        const glm::vec4 push[3] = {
+            glm::vec4(v.boxMin, fireParams_.seconds),
+            glm::vec4(v.boxMax, v.brightness),
+            glm::vec4(steps, v.seed, 0.0f, 0.0f),
+        };
+        vkCmdPushConstants(cmd, fireVolumeLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(push), push);
+        vkCmdDraw(cmd, 36, 1, 0, 0);
+    }
 }
 
 void M2Renderer::renderSmokeParticles(VkCommandBuffer cmd, VkDescriptorSet perFrameSet) {
