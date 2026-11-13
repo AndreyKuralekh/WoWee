@@ -345,7 +345,10 @@ void Renderer::vrBeginViews() {
     // so the mouse and the keys turn the view as they turn the character.
     glm::vec3 reference = camera->getPosition();
     const glm::vec3* followed = cameraController ? cameraController->getFollowTarget() : nullptr;
-    if (followed && cameraController->isThirdPerson()) {
+    // WOWEE_DEBUG_CAMERA holds the camera at a point of the world (see
+    // Renderer::update); the head stands there instead of in the character.
+    static const bool kDebugCameraHeld = std::getenv("WOWEE_DEBUG_CAMERA") != nullptr;
+    if (followed && cameraController->isThirdPerson() && !kDebugCameraHeld) {
         const float eyeZ = followed->z + cameraController->followedEyeHeight();
         if (xr::system().firstPerson()) {
             reference = glm::vec3(followed->x, followed->y, eyeZ);
