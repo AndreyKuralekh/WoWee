@@ -89,7 +89,7 @@ private:
     };
 
     static constexpr int MAX_RIPPLE_PARTICLES = 600;
-    static constexpr int MAX_SPRAY_PARTICLES = 900;   // at the feet of waterfalls, drawn with the ripples
+    static constexpr int MAX_SPRAY_PARTICLES = 2400;   // at the feet of waterfalls, drawn with the ripples
     static constexpr int MAX_BUBBLE_PARTICLES = 150;
     static constexpr int MAX_INSECT_PARTICLES = 50;
 
