@@ -239,31 +239,35 @@ WMOModel WMOLoader::load(const std::vector<uint8_t>& wmoData) {
 
             case MOLT: {
                 // Lights
-                uint32_t nLights = chunkSize / 48;  // Approximate size
-                for (uint32_t i = 0; i < nLights && offset < chunkEnd; i++) {
+                // 48 bytes a light: type and useAttenuation as bytes, two of
+                // padding, the colour as BGRA bytes, position, intensity, four
+                // floats unused here, attenuation start and end. Read as 64
+                // (type a u32, the colour four floats) every value was garbage
+                // and only three quarters of the lights were read at all.
+                const uint32_t nLights = chunkSize / 48;
+                for (uint32_t i = 0; i < nLights && offset + 48 <= chunkEnd; i++) {
                     WMOLight light;
-                    light.type = read<uint32_t>(wmoData, offset);
+                    light.type = read<uint8_t>(wmoData, offset);
                     light.useAttenuation = read<uint8_t>(wmoData, offset);
                     light.pad[0] = read<uint8_t>(wmoData, offset);
                     light.pad[1] = read<uint8_t>(wmoData, offset);
-                    light.pad[2] = read<uint8_t>(wmoData, offset);
-
-                    light.color.r = read<float>(wmoData, offset);
-                    light.color.g = read<float>(wmoData, offset);
-                    light.color.b = read<float>(wmoData, offset);
-                    light.color.a = read<float>(wmoData, offset);
+                    light.pad[2] = 0;
+                    const uint8_t cb = read<uint8_t>(wmoData, offset);
+                    const uint8_t cg = read<uint8_t>(wmoData, offset);
+                    const uint8_t cr = read<uint8_t>(wmoData, offset);
+                    const uint8_t ca = read<uint8_t>(wmoData, offset);
+                    light.color = glm::vec4(cr, cg, cb, ca) / 255.0f;
 
                     light.position.x = read<float>(wmoData, offset);
                     light.position.y = read<float>(wmoData, offset);
                     light.position.z = read<float>(wmoData, offset);
 
                     light.intensity = read<float>(wmoData, offset);
-                    light.attenuationStart = read<float>(wmoData, offset);
-                    light.attenuationEnd = read<float>(wmoData, offset);
-
                     for (float& value : light.unknown) {
                         value = read<float>(wmoData, offset);
                     }
+                    light.attenuationStart = read<float>(wmoData, offset);
+                    light.attenuationEnd = read<float>(wmoData, offset);
 
                     model.lights.push_back(light);
                 }

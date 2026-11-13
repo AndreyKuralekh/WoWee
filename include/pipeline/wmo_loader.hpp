@@ -44,10 +44,10 @@ struct WMOGroupInfo {
 
 // WMO Light
 struct WMOLight {
-    uint32_t type;              // 0=omni, 1=spot, 2=directional, 3=ambient
+    uint32_t type;              // 0=omni, 1=spot, 2=directional, 3=ambient (a byte on disk)
     uint8_t useAttenuation;
     uint8_t pad[3];
-    glm::vec4 color;
+    glm::vec4 color;            // rgba 0..1, BGRA bytes on disk
     glm::vec3 position;
     float intensity;
     float attenuationStart;
