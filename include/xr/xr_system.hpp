@@ -192,6 +192,9 @@ public:
     // Caustics: the light the waves focus on the bed, by day (TASK_12).
     void setWaterCaustics(float s) { waterCaustics_ = std::clamp(s, 0.0f, 2.0f); }
     [[nodiscard]] float waterCaustics() const { return waterCaustics_; }
+    // The air at a waterfall's foot wavers in its spray (TASK_12).
+    void setWaterfallMist(bool on) { waterfallMist_ = on; }
+    [[nodiscard]] bool waterfallMist() const { return waterfallMist_; }
     [[nodiscard]] float fireFlicker() const { return fireFlicker_; }
     void setHeadsetShadowStrength(float strength) { headsetShadowStrength_ = strength; }
     [[nodiscard]] float headsetShadowStrength() const { return headsetShadowStrength_; }
@@ -655,6 +658,7 @@ private:
     bool underwaterView_ = true;
     float underwaterSway_ = 1.0f;
     float waterCaustics_ = 1.0f;
+    bool waterfallMist_ = true;
     bool sheathToggle_ = false;
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;

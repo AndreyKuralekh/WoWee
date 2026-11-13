@@ -1053,6 +1053,9 @@ constexpr SettingDesc kSchema[] = {
     {"vrwatercaustics", "Water caustics", SettingKind::Float, 0.0f, 2.0f, 0.1f, "VR view", "Picture",
      "The rippling light the waves throw on the bed of shallow water by\n"
      "day, seen from above and from under the water. 0 none.", "", 1.0f},
+    {"vrwaterfallmist", "Waterfall mist", SettingKind::Bool, 0, 0, 0, "VR view", "Picture",
+     "The air at the foot of a waterfall wavers in its spray. Needs Soft\n"
+     "particles.", "", 1},
     {"vreyescale", "Eye resolution", SettingKind::Int, 70, 150, 5, "VR view", "Picture",
      "How many pixels each eye's picture has, in percent of what the\n"
      "headset asks for along each side. Above 100 the edges are smoother\n"

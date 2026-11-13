@@ -909,6 +909,7 @@ void Renderer::vrRenderEyes() {
         const VkImageView depth = waterRenderer->prepareEyeSceneDepth(vrEyes_->extent, frame);
         vrParticlesApart_ = depth != VK_NULL_HANDLE;
         m2Renderer->setSoftParticles(vrParticlesApart_, frame, depth, waterRenderer->eyeSceneColor(frame));
+        if (swimEffects) swimEffects->setSoftDepth(vrParticlesApart_, frame, depth);
     } else if (m2Renderer) {
         m2Renderer->setSoftParticles(false);
     }
@@ -1048,6 +1049,7 @@ void Renderer::vrRenderEyes() {
     vrParticlesApart_ = false;
     vrParticlesCmd_ = VK_NULL_HANDLE;
     if (m2Renderer) m2Renderer->setSoftParticles(false);
+    if (swimEffects) swimEffects->setSoftDepth(false);
     vrFogWanted_ = false;
     vrPerFrameSet_ = VK_NULL_HANDLE;
     vrEyeView_ = nullptr;

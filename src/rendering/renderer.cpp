@@ -757,10 +757,14 @@ void Renderer::updatePerFrameUBO() {
         m2Renderer->setFireLightParams(fire);
         M2Renderer::FireVolumeParams volume;
 #ifdef WOWEE_VR
-        volume.enabled = vrHeadsetFrame() && xr::system().fireVolume() && xr::system().softParticles();
+        // On for the waterfalls' mist too, which shares the volumes' pass.
+        volume.enabled = vrHeadsetFrame() && xr::system().softParticles() &&
+                         (xr::system().fireVolume() || xr::system().waterfallMist());
         volume.maxDistance = static_cast<float>(xr::system().fireVolumeDistance());
         volume.steps = xr::system().fireVolumeSteps();
         volume.heatHaze = xr::system().fireHeatHaze();
+        volume.waterfallMist = xr::system().waterfallMist();
+        volume.volumes = xr::system().fireVolume();
         if (waterRenderer) waterRenderer->setEyeRefractionStrength(xr::system().waterRefraction());
         if (waterRenderer) waterRenderer->setEyeCaustics(xr::system().waterCaustics());
 #endif
