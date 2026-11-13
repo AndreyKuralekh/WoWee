@@ -762,6 +762,7 @@ void Renderer::updatePerFrameUBO() {
         volume.steps = xr::system().fireVolumeSteps();
         volume.heatHaze = xr::system().fireHeatHaze();
         if (waterRenderer) waterRenderer->setEyeRefractionStrength(xr::system().waterRefraction());
+        if (waterRenderer) waterRenderer->setEyeCaustics(xr::system().waterCaustics());
 #endif
         m2Renderer->setFireVolumeParams(volume);
     }

@@ -189,6 +189,9 @@ public:
     [[nodiscard]] bool underwaterView() const { return underwaterView_; }
     void setUnderwaterSway(float s) { underwaterSway_ = std::clamp(s, 0.0f, 2.0f); }
     [[nodiscard]] float underwaterSway() const { return underwaterSway_; }
+    // Caustics: the light the waves focus on the bed, by day (TASK_12).
+    void setWaterCaustics(float s) { waterCaustics_ = std::clamp(s, 0.0f, 2.0f); }
+    [[nodiscard]] float waterCaustics() const { return waterCaustics_; }
     [[nodiscard]] float fireFlicker() const { return fireFlicker_; }
     void setHeadsetShadowStrength(float strength) { headsetShadowStrength_ = strength; }
     [[nodiscard]] float headsetShadowStrength() const { return headsetShadowStrength_; }
@@ -651,6 +654,7 @@ private:
     float waterRefraction_ = 1.0f;
     bool underwaterView_ = true;
     float underwaterSway_ = 1.0f;
+    float waterCaustics_ = 1.0f;
     bool sheathToggle_ = false;
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;

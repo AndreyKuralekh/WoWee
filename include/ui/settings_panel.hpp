@@ -264,6 +264,7 @@ public:
     float pendingVrWaterRefraction = 1.0f;  // how much the bed under water sways, 0 still
     bool pendingVrUnderwater = true;        // the view from under the water
     float pendingVrUnderwaterSway = 1.0f;   // how much it wavers, 0 still
+    float pendingVrWaterCaustics = 1.0f;    // light the waves throw on the bed, 0 none
     int pendingVrEyeScale = 100;            // eye picture size in percent of the headset's; read at start - see xr::XrSystem
     bool pendingVrDrawByReach = true;       // a reach to the sheath and the grip draws the weapon
     bool pendingVrKeepCasting = false;      // the loaded spell is cast again while its button is held

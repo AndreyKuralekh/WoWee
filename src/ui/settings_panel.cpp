@@ -886,7 +886,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "daylight", "waterclarity", "waterreflections", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrfirelight", "vrfirelightmax", "vrfireflicker", "vrsoftparticles", "vrfirevolume", "vrfirevolumedist", "vrfirevolumesteps", "vrfireheathaze", "vrwaterrefraction", "vrunderwater", "vrunderwatersway", "vrdrawbyreach", "vrkeepcasting", "vrhapticstrength", "vrswingstrike", "vrswingspeed", "vrbars", "vrbarsize", "vrbaropacity", "vrbarscombatonly", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrfirelight", "vrfirelightmax", "vrfireflicker", "vrsoftparticles", "vrfirevolume", "vrfirevolumedist", "vrfirevolumesteps", "vrfireheathaze", "vrwaterrefraction", "vrunderwater", "vrunderwatersway", "vrwatercaustics", "vrdrawbyreach", "vrkeepcasting", "vrhapticstrength", "vrswingstrike", "vrswingspeed", "vrbars", "vrbarsize", "vrbaropacity", "vrbarscombatonly", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1109,6 +1109,7 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrwaterrefraction", .asFloat = &SettingsPanel::pendingVrWaterRefraction},
     {.key = "vrunderwater",      .asBool  = &SettingsPanel::pendingVrUnderwater},
     {.key = "vrunderwatersway",  .asFloat = &SettingsPanel::pendingVrUnderwaterSway},
+    {.key = "vrwatercaustics",   .asFloat = &SettingsPanel::pendingVrWaterCaustics},
     {.key = "vreyescale",        .asInt   = &SettingsPanel::pendingVrEyeScale},
     {.key = "vrdrawbyreach",     .asBool  = &SettingsPanel::pendingVrDrawByReach},
     {.key = "vrkeepcasting",     .asBool  = &SettingsPanel::pendingVrKeepCasting},
@@ -1406,6 +1407,10 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     }
     if (key == "vrunderwatersway") {
         xr::system().setUnderwaterSway(pendingVrUnderwaterSway);
+        return;
+    }
+    if (key == "vrwatercaustics") {
+        xr::system().setWaterCaustics(pendingVrWaterCaustics);
         return;
     }
     // The eye images are made before the settings are read; XrSystem reads
