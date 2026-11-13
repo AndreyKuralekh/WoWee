@@ -5,6 +5,7 @@
 #include "core/logger.hpp"
 #include <random>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 namespace wowee {
@@ -483,6 +484,14 @@ void AmbientSoundManager::updateFireLoops(const glm::vec3& listenerPos) {
         const uint32_t id = audio.playSound3DLoop(samples[0].data, f.position, volume, minDistance, kHear);
         if (id == 0) continue;
         fireLoops_.push_back({.position = f.position, .kind = f.kind, .soundId = id});
+    }
+
+    // Every ten seconds, how the nearest loop actually sounds - a fire that
+    // is "playing" and silent is otherwise invisible from here.
+    static auto lastState = std::chrono::steady_clock::now();
+    if (!fireLoops_.empty() && std::chrono::steady_clock::now() - lastState > std::chrono::seconds(10)) {
+        lastState = std::chrono::steady_clock::now();
+        LOG_INFO("Fire sound: ", audio.describeSound(fireLoops_.front().soundId));
     }
 
     static size_t lastSaid = static_cast<size_t>(-1);

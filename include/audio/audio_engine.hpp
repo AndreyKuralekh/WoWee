@@ -88,6 +88,8 @@ public:
     void setSoundPosition(uint32_t id, const glm::vec3& position);
     // Fades a sound out and lets it go; update() frees it once silent.
     void stopSoundFading(uint32_t id, uint32_t fadeOutMs = 400);
+    // A sound's state, for the log: playing, volume, fade, cursor, distance.
+    [[nodiscard]] std::string describeSound(uint32_t id) const;
 
     // Music streaming (for background music)
     // Retains shared ownership: the decoder streams directly from encoded tracks that

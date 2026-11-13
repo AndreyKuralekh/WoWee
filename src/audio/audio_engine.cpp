@@ -572,7 +572,9 @@ uint32_t AudioEngine::playSound3DLoop(const std::vector<uint8_t>& wavData, const
     // Not every loop starts at its beginning, or a room's fires crackle in step.
     const ma_uint64 start = decoded.frames > 1 ? static_cast<ma_uint64>(std::rand()) % decoded.frames : 0;
     ma_sound_seek_to_pcm_frame(sound.get(), start);
-    ma_sound_set_volume(sound.get(), 0.0f);
+    // The fade alone carries the level: a sound's volume and its fade are
+    // multiplied, and with the volume at nought the fade rose to silence.
+    ma_sound_set_volume(sound.get(), 1.0f);
     ma_sound_set_fade_in_milliseconds(sound.get(), 0.0f, volume, fadeInMs);
     if (ma_sound_start(sound.get()) != MA_SUCCESS) return 0;
 
@@ -591,6 +593,22 @@ void AudioEngine::setSoundVolume(uint32_t id, float volume) {
             return;
         }
     }
+}
+
+std::string AudioEngine::describeSound(uint32_t id) const {
+    for (const auto& s : activeSounds_) {
+        if (s.id != id) continue;
+        float cursor = 0.0f;
+        ma_sound_get_cursor_in_seconds(s.sound, &cursor);
+        ma_vec3f p = ma_sound_get_position(s.sound);
+        const glm::vec3 d = glm::vec3(p.x, p.y, p.z) - listenerPosition_;
+        return "playing=" + std::to_string(ma_sound_is_playing(s.sound) ? 1 : 0) +
+               " volume=" + std::to_string(ma_sound_get_volume(s.sound)) +
+               " fade=" + std::to_string(ma_sound_get_current_fade_volume(s.sound)) +
+               " cursor=" + std::to_string(cursor) + "s distance=" + std::to_string(glm::length(d)) +
+               " master=" + std::to_string(masterVolume_);
+    }
+    return "gone";
 }
 
 void AudioEngine::setSoundPosition(uint32_t id, const glm::vec3& position) {
