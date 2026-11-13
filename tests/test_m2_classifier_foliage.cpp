@@ -502,12 +502,12 @@ TEST_CASE("the fire sound and the fire rendering agree on what a fire is",
 }
 
 TEST_CASE("a lit pile of firewood is a fire, its wood is not a flame", "[m2][classifier][fire]") {
-    const auto lit = classifyM2Model("World\Generic\Human\Passive Doodads\firewood\FirewoodPile01.mdx",
+    const auto lit = classifyM2Model("World\\Generic\\Human\\Passive Doodads\\firewood\\FirewoodPile01.mdx",
                                      glm::vec3(-0.6f, -0.8f, 0.0f), glm::vec3(1.0f, 0.5f, 0.9f), 90, 2);
     CHECK(lit.isBrazierOrFire);
     // The same name with nothing burning on it stays a pile of logs.
-    CHECK_FALSE(classify("World\Generic\Human\Passive Doodads\firewood\FirewoodPile03.m2").isBrazierOrFire);
+    CHECK_FALSE(classify("World\\Generic\\Human\\Passive Doodads\\firewood\\FirewoodPile03.m2").isBrazierOrFire);
     // Its bark is drawn solid, not keyed out as a flame card's backing.
     CHECK_FALSE(wowee::rendering::assetNameLooksLikeFlame(
-        "world\generic\human\passive doodads\firewood\firewoodburned01.blp"));
+        "world\\generic\\human\\passive doodads\\firewood\\firewoodburned01.blp"));
 }
