@@ -1485,6 +1485,39 @@ M2Model M2Loader::load(const std::vector<uint8_t>& m2Data) {
         core::Logger::getInstance().debug("  Cameras: ", model.cameras.size());
     }
 
+    // M2Light, WotLK layout only (156 bytes: type, bone, position, then seven
+    // tracks - ambient colour and intensity, diffuse colour and intensity,
+    // attenuation start and end, visibility). Read until now as a count alone.
+    if (header.version >= 264 && header.nLights > 0 && header.nLights < 64 &&
+        static_cast<size_t>(header.ofsLights) + static_cast<size_t>(header.nLights) * 156u <= m2Data.size()) {
+        std::vector<uint32_t> lightSeqFlags;
+        for (const auto& seq : model.sequences) lightSeqFlags.push_back(seq.flags);
+        auto firstVec3 = [&](uint32_t ofs, glm::vec3 fallback) {
+            M2AnimationTrack t;
+            parseAnimTrack(m2Data, readValue<M2TrackDisk>(m2Data, ofs), t, TrackType::VEC3, lightSeqFlags);
+            for (const auto& k : t.sequences) if (!k.vec3Values.empty()) return k.vec3Values.front();
+            return fallback;
+        };
+        auto firstFloat = [&](uint32_t ofs, float fallback) {
+            M2AnimationTrack t;
+            parseAnimTrack(m2Data, readValue<M2TrackDisk>(m2Data, ofs), t, TrackType::FLOAT, lightSeqFlags);
+            for (const auto& k : t.sequences) if (!k.floatValues.empty()) return k.floatValues.front();
+            return fallback;
+        };
+        for (uint32_t li = 0; li < header.nLights; ++li) {
+            const uint32_t b = header.ofsLights + li * 156u;
+            M2Light light;
+            light.type = readValue<uint16_t>(m2Data, b);
+            light.bone = readValue<int16_t>(m2Data, b + 2);
+            light.position = readValue<glm::vec3>(m2Data, b + 4);
+            light.diffuseColor = firstVec3(b + 16 + 40, glm::vec3(1.0f));
+            light.diffuseIntensity = firstFloat(b + 16 + 60, 1.0f);
+            light.attenuationStart = firstFloat(b + 16 + 80, 0.0f);
+            light.attenuationEnd = firstFloat(b + 16 + 100, 0.0f);
+            model.lights.push_back(light);
+        }
+    }
+
     // Parse particle emitters - struct size differs between versions:
     //   WotLK (version >= 264): M2ParticleOld = 0x1DC (476) bytes, M2TrackDisk (20 bytes), FBlocks
     //   Vanilla (version < 264): 0x1F8 (504) bytes, M2TrackDiskVanilla (28 bytes), static lifecycle arrays

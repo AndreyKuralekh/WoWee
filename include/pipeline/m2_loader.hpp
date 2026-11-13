@@ -218,6 +218,19 @@ struct M2RibbonEmitter {
 };
 
 // Complete M2 model structure
+// A light the model carries (M2Light, WotLK layout, 156 bytes): a torch's or a
+// lantern's own colour and reach. Values are the first key of the first
+// sequence - what the model shows standing - which is all the fixtures use.
+struct M2Light {
+    uint16_t type = 1;              // 0 directional, 1 point
+    int16_t bone = -1;              // bone the light rides, -1 none
+    glm::vec3 position{0.0f};       // relative to the bone's pivot
+    glm::vec3 diffuseColor{1.0f};
+    float diffuseIntensity = 1.0f;
+    float attenuationStart = 0.0f;  // yards
+    float attenuationEnd = 0.0f;
+};
+
 struct M2Model {
     // Model metadata
     std::string name;
@@ -296,6 +309,7 @@ struct M2Model {
 
     // Particle emitters
     std::vector<M2ParticleEmitter> particleEmitters;
+    std::vector<M2Light> lights;    // M2Light (WotLK files only)
 
     // Ribbon emitters
     std::vector<M2RibbonEmitter> ribbonEmitters;
