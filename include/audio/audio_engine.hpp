@@ -78,6 +78,17 @@ public:
     bool playSound3D(const std::string& mpqPath, const glm::vec3& position,
                      float volume = 1.0f, float pitch = 1.0f, float maxDistance = 100.0f);
 
+    // A looping positional sound - a fire's crackle - until stopped: a handle,
+    // or 0. It fades in over fadeInMs, and is as loud as `volume` from
+    // minDistance in, falling off in a straight line to nothing at maxDistance
+    // (the only attenuation: the caller must not scale for distance too).
+    uint32_t playSound3DLoop(const std::vector<uint8_t>& wavData, const glm::vec3& position,
+                             float volume, float minDistance, float maxDistance, uint32_t fadeInMs = 400);
+    void setSoundVolume(uint32_t id, float volume);
+    void setSoundPosition(uint32_t id, const glm::vec3& position);
+    // Fades a sound out and lets it go; update() frees it once silent.
+    void stopSoundFading(uint32_t id, uint32_t fadeOutMs = 400);
+
     // Music streaming (for background music)
     // Retains shared ownership: the decoder streams directly from encoded tracks that
     // run to several MB, so cached music must not be copied for every playback.

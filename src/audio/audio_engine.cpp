@@ -537,6 +537,83 @@ bool AudioEngine::playSound3D(const std::vector<uint8_t>& wavData, const glm::ve
     return true;
 }
 
+uint32_t AudioEngine::playSound3DLoop(const std::vector<uint8_t>& wavData, const glm::vec3& position,
+                                      float volume, float minDistance, float maxDistance, uint32_t fadeInMs) {
+    if (!initialized_ || !engine_ || wavData.empty()) return 0;
+    if (masterVolume_ <= 0.0f) return 0;
+
+    DecodedWavCacheEntry decoded;
+    if (!decodeWavCached(wavData, decoded) || !decoded.pcmData || decoded.frames == 0) return 0;
+
+    ma_audio_buffer_config bufferConfig = ma_audio_buffer_config_init(
+        decoded.format, decoded.channels, decoded.frames, decoded.pcmData->data(), nullptr);
+    bufferConfig.sampleRate = decoded.sampleRate;
+    AudioBufferStorage audioBuffer;
+    if (!audioBuffer) return 0;
+    if (ma_audio_buffer_init(&bufferConfig, audioBuffer.get()) != MA_SUCCESS) return 0;
+    audioBuffer.markInitialised();
+
+    SoundStorage sound;
+    if (!sound) return 0;
+    if (ma_sound_init_from_data_source(engine_, audioBuffer.get(), MA_SOUND_FLAG_DECODE, nullptr, sound.get()) !=
+        MA_SUCCESS) {
+        return 0;
+    }
+    sound.markInitialised();
+
+    ma_sound_set_looping(sound.get(), MA_TRUE);
+    ma_sound_set_position(sound.get(), position.x, position.y, position.z);
+    ma_sound_set_attenuation_model(sound.get(), ma_attenuation_model_linear);
+    ma_sound_set_min_gain(sound.get(), 0.0f);
+    ma_sound_set_max_gain(sound.get(), 1.0f);
+    ma_sound_set_min_distance(sound.get(), std::max(minDistance, 0.1f));
+    ma_sound_set_max_distance(sound.get(), std::max(maxDistance, minDistance + 0.5f));
+    ma_sound_set_rolloff(sound.get(), 1.0f);
+    // Not every loop starts at its beginning, or a room's fires crackle in step.
+    const ma_uint64 start = decoded.frames > 1 ? static_cast<ma_uint64>(std::rand()) % decoded.frames : 0;
+    ma_sound_seek_to_pcm_frame(sound.get(), start);
+    ma_sound_set_volume(sound.get(), 0.0f);
+    ma_sound_set_fade_in_milliseconds(sound.get(), 0.0f, volume, fadeInMs);
+    if (ma_sound_start(sound.get()) != MA_SUCCESS) return 0;
+
+    const uint32_t id = nextSoundId_++;
+    activeSounds_.push_back({sound.release(), audioBuffer.release(), decoded.pcmData, id});
+    return id;
+}
+
+void AudioEngine::setSoundVolume(uint32_t id, float volume) {
+    if (id == 0) return;
+    for (auto& s : activeSounds_) {
+        if (s.id == id) {
+            // Over a short fade, not a step: a fire's level changes as it is
+            // walked past, and a stepped level clicks.
+            ma_sound_set_fade_in_milliseconds(s.sound, -1.0f, volume, 100);
+            return;
+        }
+    }
+}
+
+void AudioEngine::setSoundPosition(uint32_t id, const glm::vec3& position) {
+    if (id == 0) return;
+    for (auto& s : activeSounds_) {
+        if (s.id == id) {
+            ma_sound_set_position(s.sound, position.x, position.y, position.z);
+            return;
+        }
+    }
+}
+
+void AudioEngine::stopSoundFading(uint32_t id, uint32_t fadeOutMs) {
+    if (id == 0) return;
+    for (auto& s : activeSounds_) {
+        if (s.id == id) {
+            ma_sound_stop_with_fade_in_milliseconds(s.sound, fadeOutMs);
+            s.id = 0;  // no longer the caller's; freed by update() when silent
+            return;
+        }
+    }
+}
+
 bool AudioEngine::playSound3D(const std::string& mpqPath, const glm::vec3& position,
                               float volume, float pitch, float maxDistance) {
     if (!assetManager_) {
