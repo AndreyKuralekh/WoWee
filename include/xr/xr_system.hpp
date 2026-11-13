@@ -179,6 +179,10 @@ public:
     // Heat haze: the air over a 3D fire wavers.
     void setFireHeatHaze(bool on) { fireHeatHaze_ = on; }
     [[nodiscard]] bool fireHeatHaze() const { return fireHeatHaze_; }
+    // How much the bed under the water sways with the waves in the headset
+    // (TASK_12): 1 as designed, 0 still.
+    void setWaterRefraction(float s) { waterRefraction_ = std::clamp(s, 0.0f, 2.0f); }
+    [[nodiscard]] float waterRefraction() const { return waterRefraction_; }
     [[nodiscard]] float fireFlicker() const { return fireFlicker_; }
     void setHeadsetShadowStrength(float strength) { headsetShadowStrength_ = strength; }
     [[nodiscard]] float headsetShadowStrength() const { return headsetShadowStrength_; }
@@ -638,6 +642,7 @@ private:
     int fireVolumeDistance_ = 15;
     int fireVolumeSteps_ = 20;
     bool fireHeatHaze_ = true;
+    float waterRefraction_ = 1.0f;
     bool sheathToggle_ = false;
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;

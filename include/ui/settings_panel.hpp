@@ -261,6 +261,7 @@ public:
     int pendingVrFireVolumeDist = 15;       // within so many yards
     int pendingVrFireVolumeSteps = 20;      // marched in so many steps
     bool pendingVrFireHeatHaze = true;      // the air over them wavers
+    float pendingVrWaterRefraction = 1.0f;  // how much the bed under water sways, 0 still
     int pendingVrEyeScale = 100;            // eye picture size in percent of the headset's; read at start - see xr::XrSystem
     bool pendingVrDrawByReach = true;       // a reach to the sheath and the grip draws the weapon
     bool pendingVrKeepCasting = false;      // the loaded spell is cast again while its button is held

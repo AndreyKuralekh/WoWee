@@ -1041,6 +1041,9 @@ constexpr SettingDesc kSchema[] = {
      "the graphics card more.", "", 20},
     {"vrfireheathaze", "Heat haze", SettingKind::Bool, 0, 0, 0, "VR view", "Picture",
      "The air over a 3D fire wavers with the heat.", "", 1},
+    {"vrwaterrefraction", "Water bed sway", SettingKind::Float, 0.0f, 2.0f, 0.1f, "VR view", "Picture",
+     "How much the bed under the water sways with the waves. 0 holds it\n"
+     "still, 1 as designed.", "", 1.0f},
     {"vreyescale", "Eye resolution", SettingKind::Int, 70, 150, 5, "VR view", "Picture",
      "How many pixels each eye's picture has, in percent of what the\n"
      "headset asks for along each side. Above 100 the edges are smoother\n"

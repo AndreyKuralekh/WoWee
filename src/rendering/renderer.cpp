@@ -756,6 +756,7 @@ void Renderer::updatePerFrameUBO() {
         volume.maxDistance = static_cast<float>(xr::system().fireVolumeDistance());
         volume.steps = xr::system().fireVolumeSteps();
         volume.heatHaze = xr::system().fireHeatHaze();
+        if (waterRenderer) waterRenderer->setEyeRefractionStrength(xr::system().waterRefraction());
 #endif
         m2Renderer->setFireVolumeParams(volume);
     }
