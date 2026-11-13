@@ -33,6 +33,68 @@ static float randFloat(float lo, float hi) {
 }
 
 SwimEffects::SwimEffects() = default;
+
+bool SwimEffects::createSoftDepthResources() {
+    if (softLayout_) return true;
+    VkDevice device = vkCtx->getDevice();
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo li{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    li.bindingCount = 1;
+    li.pBindings = &binding;
+    if (vkCreateDescriptorSetLayout(device, &li, nullptr, &softLayout_) != VK_SUCCESS) return false;
+    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSoftSets};
+    VkDescriptorPoolCreateInfo pi{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pi.maxSets = kSoftSets;
+    pi.poolSizeCount = 1;
+    pi.pPoolSizes = &size;
+    if (vkCreateDescriptorPool(device, &pi, nullptr, &softPool_) != VK_SUCCESS) return false;
+    VkDescriptorSetLayout layouts[kSoftSets];
+    for (auto& l : layouts) l = softLayout_;
+    VkDescriptorSetAllocateInfo ai{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    ai.descriptorPool = softPool_;
+    ai.descriptorSetCount = kSoftSets;
+    ai.pSetLayouts = layouts;
+    if (vkAllocateDescriptorSets(device, &ai, softSets_) != VK_SUCCESS) return false;
+    const uint8_t white[4] = {255, 255, 255, 255};
+    softWhite_ = std::make_unique<VkTexture>();
+    if (!softWhite_->upload(*vkCtx, white, 1, 1, VK_FORMAT_R8G8B8A8_UNORM)) return false;
+    softWhite_->createSampler(device, VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+    VkDescriptorImageInfo img = softWhite_->descriptorInfo();
+    VkWriteDescriptorSet writes[kSoftSets]{};
+    for (uint32_t i = 0; i < kSoftSets; ++i) {
+        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[i].dstSet = softSets_[i];
+        writes[i].descriptorCount = 1;
+        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[i].pImageInfo = &img;
+    }
+    vkUpdateDescriptorSets(device, kSoftSets, writes, 0, nullptr);
+    return true;
+}
+
+void SwimEffects::setSoftDepth(bool on, uint32_t frame, VkImageView depthView) {
+    softOn_ = on && depthView != VK_NULL_HANDLE && softLayout_;
+    softFrame_ = frame % kSoftFrames;
+    if (!softOn_ || softViews_[softFrame_] == depthView) return;
+    VkSamplerCreateInfo si{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    si.magFilter = si.minFilter = VK_FILTER_NEAREST;
+    si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VkDescriptorImageInfo img{};
+    img.sampler = vkCtx->getOrCreateSampler(si);
+    img.imageView = depthView;
+    img.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkWriteDescriptorSet write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = softSets_[softFrame_];
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &img;
+    vkUpdateDescriptorSets(vkCtx->getDevice(), 1, &write, 0, nullptr);
+    softViews_[softFrame_] = depthView;
+}
 SwimEffects::~SwimEffects() { shutdown(); }
 
 /// The ripple pipeline: the rings that spread where a swimmer breaks the
@@ -96,7 +158,9 @@ void SwimEffects::buildInsectPipeline(
         .setVertexInput({binding}, attrs)
         .setTopology(VK_PRIMITIVE_TOPOLOGY_POINT_LIST)
         .setRasterization(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE)
-        .setDepthTest(false, false, VK_COMPARE_OP_LESS)
+        // Tested against the scene: untested, the midges over a pond were
+        // seen through the walls of every house near it.
+        .setDepthTest(true, false, VK_COMPARE_OP_LESS_OR_EQUAL)
         .setColorBlendAttachment(PipelineBuilder::blendAlpha())
         .setMultisample(targetSamples_)
         .setLayout(insectPipelineLayout)
@@ -123,6 +187,10 @@ bool SwimEffects::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayou
     std::vector<VkVertexInputAttributeDescription> attrs = positionPlusTwoFloatsAttrs();
 
 
+    // ---- Soft edges (TASK_12): set 1 of the ripples and bubbles, the scene's
+    // depth or a white stand-in that changes nothing ----
+    if (!createSoftDepthResources()) return false;
+
     // ---- Ripple pipeline ----
     {
         auto shaders = loadShaderPair(device, "assets/shaders/swim_ripple.vert.spv", "assets/shaders/swim_ripple.frag.spv", "swim_ripple");
@@ -130,7 +198,7 @@ bool SwimEffects::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayou
         const auto& vertStage = shaders.vertStage;
         const auto& fragStage = shaders.fragStage;
 
-        ripplePipelineLayout = createPipelineLayout(device, {perFrameLayout}, {kDropSizeRange});
+        ripplePipelineLayout = createPipelineLayout(device, {perFrameLayout, softLayout_}, {kDropSizeRange});
         if (ripplePipelineLayout == VK_NULL_HANDLE) {
             LOG_ERROR("Failed to create ripple pipeline layout");
             return false;
@@ -152,7 +220,7 @@ bool SwimEffects::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayou
         const auto& vertStage = shaders.vertStage;
         const auto& fragStage = shaders.fragStage;
 
-        bubblePipelineLayout = createPipelineLayout(device, {perFrameLayout}, {kDropSizeRange});
+        bubblePipelineLayout = createPipelineLayout(device, {perFrameLayout, softLayout_}, {kDropSizeRange});
         if (bubblePipelineLayout == VK_NULL_HANDLE) {
             LOG_ERROR("Failed to create bubble pipeline layout");
             return false;
@@ -246,6 +314,11 @@ void SwimEffects::shutdown() {
     if (vkCtx) {
         VkDevice device = vkCtx->getDevice();
         VmaAllocator allocator = vkCtx->getAllocator();
+        if (softPool_) { vkDestroyDescriptorPool(device, softPool_, nullptr); softPool_ = VK_NULL_HANDLE; }
+        if (softLayout_) { vkDestroyDescriptorSetLayout(device, softLayout_, nullptr); softLayout_ = VK_NULL_HANDLE; }
+        for (auto& s : softSets_) s = VK_NULL_HANDLE;
+        for (auto& v : softViews_) v = VK_NULL_HANDLE;
+        softWhite_.reset();
 
         destroy(device, ripplePipeline);
         destroy(device, ripplePipelineLayout);
@@ -700,6 +773,10 @@ void SwimEffects::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, float
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ripplePipelineLayout,
             0, 1, &perFrameSet, 0, nullptr);
         vkCmdPushConstants(cmd, ripplePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &halfHeight);
+        {
+            const VkDescriptorSet soft = softSet();
+            if (soft) vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ripplePipelineLayout, 1, 1, &soft, 0, nullptr);
+        }
         vkCmdBindVertexBuffers(cmd, 0, 1, &rippleDynamicVB, &offset);
         vkCmdDraw(cmd, static_cast<uint32_t>(rippleVertexData.size() / 5), 1, 0, 0);
     }
@@ -715,6 +792,10 @@ void SwimEffects::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, float
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bubblePipelineLayout,
             0, 1, &perFrameSet, 0, nullptr);
         vkCmdPushConstants(cmd, bubblePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &halfHeight);
+        {
+            const VkDescriptorSet soft = softSet();
+            if (soft) vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bubblePipelineLayout, 1, 1, &soft, 0, nullptr);
+        }
         vkCmdBindVertexBuffers(cmd, 0, 1, &bubbleDynamicVB, &offset);
         vkCmdDraw(cmd, static_cast<uint32_t>(bubbleVertexData.size() / 5), 1, 0, 0);
     }

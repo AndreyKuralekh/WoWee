@@ -4,6 +4,8 @@
 #include <vk_mem_alloc.h>
 #include <glm/glm.hpp>
 #include <vector>
+#include <memory>
+#include "rendering/vk_texture.hpp"
 
 namespace wowee {
 namespace rendering {
@@ -52,6 +54,10 @@ public:
     /// targetHeight: the height in pixels of the image drawn into; the drops are
     /// sized in the world and turned into pixels with it.
     void render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, float targetHeight);
+    /// Soft edges for the ripples and bubbles (TASK_12): the scene's depth
+    /// copy for frame-in-flight `frame`, set before render; off, they draw as
+    /// they always have.
+    void setSoftDepth(bool on, uint32_t frame = 0, VkImageView depthView = VK_NULL_HANDLE);
     void spawnFootSplash(const glm::vec3& footPos, float waterH);
     void setM2Renderer(M2Renderer* renderer) { m2Renderer = renderer; }
 
@@ -93,6 +99,18 @@ private:
     // Ripple pipeline + dynamic buffer
     VkPipeline ripplePipeline = VK_NULL_HANDLE;
     VkPipelineLayout ripplePipelineLayout = VK_NULL_HANDLE;
+    // Soft edges (TASK_12): set 1 of the ripple and bubble pipelines.
+    static constexpr uint32_t kSoftFrames = 2;
+    static constexpr uint32_t kSoftSets = kSoftFrames + 1;   // one a frame in flight, then the white stand-in
+    VkDescriptorSetLayout softLayout_ = VK_NULL_HANDLE;
+    VkDescriptorPool softPool_ = VK_NULL_HANDLE;
+    VkDescriptorSet softSets_[kSoftSets] = {};
+    VkImageView softViews_[kSoftFrames] = {};
+    std::unique_ptr<VkTexture> softWhite_;
+    bool softOn_ = false;
+    uint32_t softFrame_ = 0;
+    bool createSoftDepthResources();
+    [[nodiscard]] VkDescriptorSet softSet() const { return softOn_ ? softSets_[softFrame_] : softSets_[kSoftFrames]; }
     ::VkBuffer rippleDynamicVB = VK_NULL_HANDLE;
     VmaAllocation rippleDynamicVBAlloc = VK_NULL_HANDLE;
     VmaAllocationInfo rippleDynamicVBAllocInfo{};
