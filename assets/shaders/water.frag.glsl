@@ -360,6 +360,30 @@ void main() {
     float calmFresnel = F0.x + (1.0 - F0.x) * pow(1.0 - max(dot(calmNorm, viewDir), 0.001), 5.0);
 
     // ============================================================
+    // The surface from below, in the headset (TASK_12, step 2)
+    // ============================================================
+    // Seen from under the water, the surface is a window and a mirror: within
+    // about 48 degrees of straight up (Snell's window) the world above shows
+    // through, bent by the waves; beyond it the surface reflects the water's
+    // own dark body. Either way the water between the eye and the surface
+    // hazes it, as the underwater pass does the rest of the view.
+    if (push.refractMode > 0.5 && viewPos.z < FragPos.z) {
+        vec3 up = normalize(FragPos - viewPos.xyz);
+        float window = smoothstep(0.60, 0.70, up.z);
+        vec2 windowUV = clamp(screenUV + norm.xy * 0.05, vec2(0.001), vec2(0.999));
+        vec3 above = push.sceneValid > 0.5 ? texture(SceneColor, windowUV).rgb : waterColor.rgb;
+        vec3 light = ambientColor.rgb * 1.2 + lightColor.rgb * 0.6;
+        vec3 haze = waterColor.rgb * light;
+        vec3 mirror = haze * 0.75;
+        // The window's rim catches the light.
+        float rim = smoothstep(0.58, 0.64, up.z) * (1.0 - smoothstep(0.64, 0.72, up.z));
+        vec3 colour = mix(mirror, above * 0.95, window) + haze * rim * 0.6;
+        float hazeAmount = 1.0 - exp(-dist * 0.035 / max(push.clarity, 0.1));
+        outColor = vec4(mix(colour, haze, hazeAmount), 1.0);
+        return;
+    }
+
+    // ============================================================
     // Refraction (screen-space from scene history)
     // ============================================================
     vec2 refractOffset = norm.xy * (0.02 + 0.03 * fresnel);

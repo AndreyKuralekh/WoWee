@@ -222,6 +222,7 @@ bool WaterRenderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLay
         LOG_ERROR("WaterRenderer: failed to create pipeline");
         return false;
     }
+    buildUnderwaterPipeline();
 
     LOG_INFO("Water renderer initialized (Vulkan)");
     return true;
@@ -245,6 +246,8 @@ void WaterRenderer::recreatePipelines() {
 
     // Destroy old pipeline (keep layout)
     destroy(device, waterPipeline);
+    destroy(device, underwaterPipeline_);
+    buildUnderwaterPipeline();
 
     // Load shaders
     VkShaderModule vertShader, fragShader;
@@ -361,6 +364,7 @@ void WaterRenderer::shutdown() {
     destroySceneHistoryResources(SceneTarget::Window);
     destroySceneHistoryResources(SceneTarget::Eyes);
     destroy(device, waterPipeline);
+    destroy(device, underwaterPipeline_);
     destroy(device, pipelineLayout);
     for (auto& target : sceneTargets_) destroy(device, target.pool);
     destroy(device, sceneSetLayout);
@@ -1778,6 +1782,70 @@ bool WaterRenderer::isWmoWaterAt(float glX, float glY) const {
         }
     }
     return false;
+}
+
+void WaterRenderer::buildUnderwaterPipeline() {
+    if (!vkCtx || !pipelineLayout) return;
+    VkDevice device = vkCtx->getDevice();
+    VkShaderModule vert, frag;
+    if (!vert.loadFromFile(device, "assets/shaders/postprocess.vert.spv") ||
+        !frag.loadFromFile(device, "assets/shaders/water_under.frag.spv")) {
+        LOG_WARNING("Water: underwater view shaders missing - no view from under the water");
+        vert.destroy();
+        frag.destroy();
+        return;
+    }
+    underwaterPipeline_ = PipelineBuilder()
+        .setShaders(vert.stageInfo(VK_SHADER_STAGE_VERTEX_BIT), frag.stageInfo(VK_SHADER_STAGE_FRAGMENT_BIT))
+        .setVertexInput({}, {})
+        .setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+        .setRasterization(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE)
+        .setDepthTest(false, false, VK_COMPARE_OP_ALWAYS)
+        .setColorBlendAttachment(PipelineBuilder::blendDisabled())
+        .setMultisample(vkCtx->getMsaaSamples())
+        .setLayout(pipelineLayout)
+        .setRenderPass(vkCtx->getImGuiRenderPass())
+        .setDynamicStates(viewportAndScissorDynamic())
+        .build(device, vkCtx->getPipelineCache());
+    vert.destroy();
+    frag.destroy();
+}
+
+std::optional<std::pair<float, bool>> WaterRenderer::waterOverhead(const glm::vec3& point) const {
+    const auto level = getNearestWaterHeightAt(point.x, point.y, point.z, 30.0f);
+    if (!level) return std::nullopt;
+    const auto type = getWaterTypeAt(point.x, point.y);
+    const uint16_t t = type.value_or(0);
+    const uint8_t basic = (t == 0) ? 0 : static_cast<uint8_t>((t - 1) % 4);
+    if (basic >= 2) return std::nullopt;  // magma and slime: not water to look through
+    return std::make_pair(*level, basic == 1);
+}
+
+bool WaterRenderer::renderUnderwater(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, uint32_t frameIndex,
+                                     const glm::vec3& eyePos, float seconds, float sway, glm::vec2 depthRange) {
+    if (!underwaterPipeline_ || !perFrameSet) return false;
+    const auto water = waterOverhead(eyePos);
+    // A little over the level as well: a wave over the eyes, a meniscus.
+    if (!water || eyePos.z > water->first + 0.3f) return false;
+    SceneHistoryTarget& target = sceneTarget(SceneTarget::Eyes);
+    const VkDescriptorSet sceneSet = target.frames[frameIndex % SCENE_HISTORY_FRAMES].sceneSet;
+    if (!sceneSet) return false;
+    const uint16_t type = getWaterTypeAt(eyePos.x, eyePos.y).value_or(0);
+    const glm::vec4 colour = getLiquidColor(type);
+    struct {
+        glm::vec4 waterColor;
+        glm::vec4 params;
+        glm::vec4 params2;
+    } push{glm::vec4(glm::vec3(colour), water->second ? 1.0f : 0.0f),
+           glm::vec4(water->first, seconds, sway, clarity_),
+           glm::vec4(depthRange, 0.0f, 0.0f)};
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, underwaterPipeline_);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &perFrameSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 2, 1, &sceneSet, 0, nullptr);
+    vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                       sizeof(push), &push);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    return true;
 }
 
 glm::vec4 WaterRenderer::getLiquidColor(uint16_t liquidType) const {

@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <cstdint>
 #include <functional>
 #include <vulkan/vulkan.h>
@@ -135,6 +136,16 @@ public:
     /// strength (1 as designed, 0 a still bed); below 0, the window's
     /// screen-space refraction as before.
     void setEyeRefractionStrength(float s) { eyeRefractionStrength_ = s; }
+
+    /// The world from under the water for an eye (TASK_12, step 2): drawn in
+    /// the eye's continuation pass after its water, over its scene copy,
+    /// full screen; nothing when the eye is above the water. `sway` is how
+    /// much it wavers (1 as designed). True if it drew.
+    bool renderUnderwater(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, uint32_t frameIndex,
+                          const glm::vec3& eyePos, float seconds, float sway, glm::vec2 depthRange);
+    /// The water level over a point, and whether it is the sea - for what
+    /// asks whether an eye is under the water. Empty with no water there.
+    std::optional<std::pair<float, bool>> waterOverhead(const glm::vec3& point) const;
     /// And the view of its colour, once prepareEyeSceneDepth has made it.
     VkImageView eyeSceneColor(uint32_t frameIndex) {
         return sceneTarget(SceneTarget::Eyes).frames[frameIndex % SCENE_HISTORY_FRAMES].colorView;
@@ -267,6 +278,8 @@ private:
 
     // Pipeline
     VkPipeline waterPipeline = VK_NULL_HANDLE;
+    VkPipeline underwaterPipeline_ = VK_NULL_HANDLE;  // the view from under the water (water_under.frag)
+    void buildUnderwaterPipeline();
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkDescriptorSetLayout materialSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool materialDescPool = VK_NULL_HANDLE;
