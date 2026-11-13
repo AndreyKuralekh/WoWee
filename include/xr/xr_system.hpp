@@ -155,6 +155,15 @@ public:
     void setHeadsetShadows(bool on) { headsetShadows_ = on; }
     /// How dark they are in the headset, 0 none to 1 black: its own, not the
     /// monitor's, which follows the shadow distance and is faint at 160.
+    // Fire lights (TASK_10): hearths, braziers, campfires and torches light
+    // the scene round them in the headset, with a lively flicker - up to
+    // fireLightMax of the nearest. VR view → Picture.
+    void setFireLight(bool on) { fireLight_ = on; }
+    [[nodiscard]] bool fireLight() const { return fireLight_; }
+    void setFireLightMax(int n) { fireLightMax_ = std::clamp(n, 1, 8); }
+    [[nodiscard]] int fireLightMax() const { return fireLightMax_; }
+    void setFireFlicker(float amplitude) { fireFlicker_ = std::clamp(amplitude, 0.0f, 0.4f); }
+    [[nodiscard]] float fireFlicker() const { return fireFlicker_; }
     void setHeadsetShadowStrength(float strength) { headsetShadowStrength_ = strength; }
     [[nodiscard]] float headsetShadowStrength() const { return headsetShadowStrength_; }
 
@@ -605,6 +614,9 @@ private:
     bool drawByReach_ = true;
     bool headsetShadows_ = false;
     float headsetShadowStrength_ = 0.7f;
+    bool fireLight_ = true;
+    int fireLightMax_ = 8;
+    float fireFlicker_ = 0.15f;
     bool sheathToggle_ = false;
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;

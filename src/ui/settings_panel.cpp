@@ -886,7 +886,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "fogskyblend", "fogstrength", "daylight", "waterclarity", "waterreflections", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
-    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrdrawbyreach", "vrkeepcasting", "vrhapticstrength", "vrswingstrike", "vrswingspeed", "vrbars", "vrbarsize", "vrbaropacity", "vrbarscombatonly", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
+    "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrfirelight", "vrfirelightmax", "vrfireflicker", "vrdrawbyreach", "vrkeepcasting", "vrhapticstrength", "vrswingstrike", "vrswingspeed", "vrbars", "vrbarsize", "vrbaropacity", "vrbarscombatonly", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
 #endif
     // Moved off the game's own Effects panel, so this list is now what
     // applies them at startup; the cvar store used to do it.
@@ -1098,6 +1098,9 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "vrglow",            .asFloat = &SettingsPanel::pendingVrGlow},
     {.key = "vrshadows",         .asBool  = &SettingsPanel::pendingVrShadows},
     {.key = "vrshadowstrength",  .asFloat = &SettingsPanel::pendingVrShadowStrength},
+    {.key = "vrfirelight",       .asBool  = &SettingsPanel::pendingVrFireLight},
+    {.key = "vrfirelightmax",    .asInt   = &SettingsPanel::pendingVrFireLightMax},
+    {.key = "vrfireflicker",     .asFloat = &SettingsPanel::pendingVrFireFlicker},
     {.key = "vreyescale",        .asInt   = &SettingsPanel::pendingVrEyeScale},
     {.key = "vrdrawbyreach",     .asBool  = &SettingsPanel::pendingVrDrawByReach},
     {.key = "vrkeepcasting",     .asBool  = &SettingsPanel::pendingVrKeepCasting},
@@ -1351,6 +1354,18 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
     }
     if (key == "vrshadowstrength") {
         xr::system().setHeadsetShadowStrength(pendingVrShadowStrength);
+        return;
+    }
+    if (key == "vrfirelight") {
+        xr::system().setFireLight(pendingVrFireLight);
+        return;
+    }
+    if (key == "vrfirelightmax") {
+        xr::system().setFireLightMax(pendingVrFireLightMax);
+        return;
+    }
+    if (key == "vrfireflicker") {
+        xr::system().setFireFlicker(pendingVrFireFlicker);
         return;
     }
     // The eye images are made before the settings are read; XrSystem reads

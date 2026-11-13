@@ -736,13 +736,33 @@ void Renderer::updatePerFrameUBO() {
               currentFrameData.localLightColorIntensity,
               MAX_LOCAL_LIGHTS)
         : 0;
+    // Fire lights (TASK_10): the headset's, by its VR view settings. Their
+    // range in the list goes to the shaders in meta.y..z - an interior takes
+    // only part of them over its baked light, meta.w in thousandths.
+    const uint32_t lavaLightCount = localLightCount;
+    uint32_t fireLightCount = 0;
+    if (m2Renderer) {
+        M2Renderer::FireLightParams fire;
+#ifdef WOWEE_VR
+        fire.enabled = vrHeadsetFrame() && xr::system().fireLight();
+        fire.maxLights = static_cast<uint32_t>(std::clamp(xr::system().fireLightMax(), 1, 8));
+        fire.flicker = xr::system().fireFlicker();
+#endif
+        fire.seconds = static_cast<float>(globalTime);
+        m2Renderer->setFireLightParams(fire);
+    }
     if (m2Renderer && localLightCount < MAX_LOCAL_LIGHTS) {
         localLightCount += m2Renderer->gatherLocalLights(camera->getPosition(),
             currentFrameData.localLightPosRadius + localLightCount,
             currentFrameData.localLightColorIntensity + localLightCount,
             MAX_LOCAL_LIGHTS - localLightCount);
+        fireLightCount = m2Renderer->lastFireLightCount();
     }
-    currentFrameData.localLightMeta = glm::ivec4(static_cast<int32_t>(localLightCount), 0, 0, 0);
+    currentFrameData.localLightMeta = glm::ivec4(
+        static_cast<int32_t>(localLightCount),
+        static_cast<int32_t>(lavaLightCount),
+        static_cast<int32_t>(lavaLightCount + fireLightCount),
+        static_cast<int32_t>(std::lround(M2Renderer::fireInteriorMix() * 1000.0f)));
     if (m2Renderer) m2Renderer->setLocalLights(currentFrameData.localLightPosRadius, localLightCount);
 
     if (rtLighting_) {

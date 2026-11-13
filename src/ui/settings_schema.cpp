@@ -1018,6 +1018,15 @@ constexpr SettingDesc kSchema[] = {
      "How dark the shadows are in the headset, its own setting: on a\n"
      "monitor it follows the shadow distance, and at the usual distance\n"
      "a shadow on the ground is hard to see. 0 none, 1 black.", "", 0.7f},
+    {"vrfirelight", "Fire light", SettingKind::Bool, 0, 0, 0, "VR view", "Picture",
+     "Hearths, braziers, campfires and torches light the walls, the\n"
+     "furniture and the people round them with their own warm,\n"
+     "flickering light.", "", 1},
+    {"vrfirelightmax", "Fire lights", SettingKind::Int, 1, 8, 1, "VR view", "Picture",
+     "How many of the nearest fires light their surroundings at once.\n"
+     "Fewer costs the graphics card less.", "", 8},
+    {"vrfireflicker", "Fire flicker", SettingKind::Float, 0.0f, 0.4f, 0.05f, "VR view", "Picture",
+     "How much firelight wavers with the flames. 0 holds it steady.", "", 0.15f},
     {"vreyescale", "Eye resolution", SettingKind::Int, 70, 150, 5, "VR view", "Picture",
      "How many pixels each eye's picture has, in percent of what the\n"
      "headset asks for along each side. Above 100 the edges are smoother\n"
