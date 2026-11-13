@@ -1031,6 +1031,14 @@ constexpr SettingDesc kSchema[] = {
      "Fire, smoke and sparks fade softly where they meet logs, walls\n"
      "and the ground instead of ending in a hard line, and flames\n"
      "flow from frame to frame. Costs a copy of each eye's depth.", "", 1},
+    {"vrfirevolume", "3D fire", SettingKind::Bool, 0, 0, 0, "VR view", "Picture",
+     "Hearths, braziers and campfires near you burn as real 3D flames\n"
+     "you can look round, instead of flat sprites. Needs Soft particles.", "", 1},
+    {"vrfirevolumedist", "3D fire distance", SettingKind::Int, 5, 30, 1, "VR view", "Picture",
+     "How near, in yards, a fire has to be to burn in 3D.", "", 15},
+    {"vrfirevolumesteps", "3D fire quality", SettingKind::Int, 8, 48, 4, "VR view", "Picture",
+     "How finely the 3D flames are drawn. Higher is smoother and costs\n"
+     "the graphics card more.", "", 20},
     {"vreyescale", "Eye resolution", SettingKind::Int, 70, 150, 5, "VR view", "Picture",
      "How many pixels each eye's picture has, in percent of what the\n"
      "headset asks for along each side. Above 100 the edges are smoother\n"

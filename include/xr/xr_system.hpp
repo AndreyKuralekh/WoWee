@@ -167,6 +167,15 @@ public:
     // and the ground instead of being cut by them, and flame frames blend.
     void setSoftParticles(bool on) { softParticles_ = on; }
     [[nodiscard]] bool softParticles() const { return softParticles_; }
+    // Fire volumes: near hearths, braziers and campfires burn as a 3D flame
+    // (needs soft particles), within fireVolumeDistance yards, marched in
+    // fireVolumeSteps steps.
+    void setFireVolume(bool on) { fireVolume_ = on; }
+    [[nodiscard]] bool fireVolume() const { return fireVolume_; }
+    void setFireVolumeDistance(int yards) { fireVolumeDistance_ = std::clamp(yards, 5, 30); }
+    [[nodiscard]] int fireVolumeDistance() const { return fireVolumeDistance_; }
+    void setFireVolumeSteps(int steps) { fireVolumeSteps_ = std::clamp(steps, 8, 48); }
+    [[nodiscard]] int fireVolumeSteps() const { return fireVolumeSteps_; }
     [[nodiscard]] float fireFlicker() const { return fireFlicker_; }
     void setHeadsetShadowStrength(float strength) { headsetShadowStrength_ = strength; }
     [[nodiscard]] float headsetShadowStrength() const { return headsetShadowStrength_; }
@@ -622,6 +631,9 @@ private:
     int fireLightMax_ = 8;
     float fireFlicker_ = 0.15f;
     bool softParticles_ = true;
+    bool fireVolume_ = true;
+    int fireVolumeDistance_ = 15;
+    int fireVolumeSteps_ = 20;
     bool sheathToggle_ = false;
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;

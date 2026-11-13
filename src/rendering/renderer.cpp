@@ -750,6 +750,13 @@ void Renderer::updatePerFrameUBO() {
 #endif
         fire.seconds = static_cast<float>(globalTime);
         m2Renderer->setFireLightParams(fire);
+        M2Renderer::FireVolumeParams volume;
+#ifdef WOWEE_VR
+        volume.enabled = vrHeadsetFrame() && xr::system().fireVolume() && xr::system().softParticles();
+        volume.maxDistance = static_cast<float>(xr::system().fireVolumeDistance());
+        volume.steps = xr::system().fireVolumeSteps();
+#endif
+        m2Renderer->setFireVolumeParams(volume);
     }
     if (m2Renderer && localLightCount < MAX_LOCAL_LIGHTS) {
         localLightCount += m2Renderer->gatherLocalLights(camera->getPosition(),
@@ -3521,6 +3528,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
                 if (vrParticlesApart_) {
                     particleCmd = beginSecondary(SEC_PARTICLES);
                     setSecondaryViewportScissor(particleCmd);
+                    m2Renderer->renderFireVolumes(particleCmd, perFrameSet);
                 }
 #endif
                 m2Renderer->renderM2Particles(particleCmd, perFrameSet);
