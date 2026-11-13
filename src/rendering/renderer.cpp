@@ -755,6 +755,7 @@ void Renderer::updatePerFrameUBO() {
         volume.enabled = vrHeadsetFrame() && xr::system().fireVolume() && xr::system().softParticles();
         volume.maxDistance = static_cast<float>(xr::system().fireVolumeDistance());
         volume.steps = xr::system().fireVolumeSteps();
+        volume.heatHaze = xr::system().fireHeatHaze();
 #endif
         m2Renderer->setFireVolumeParams(volume);
     }

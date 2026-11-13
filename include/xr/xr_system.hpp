@@ -176,6 +176,9 @@ public:
     [[nodiscard]] int fireVolumeDistance() const { return fireVolumeDistance_; }
     void setFireVolumeSteps(int steps) { fireVolumeSteps_ = std::clamp(steps, 8, 48); }
     [[nodiscard]] int fireVolumeSteps() const { return fireVolumeSteps_; }
+    // Heat haze: the air over a 3D fire wavers.
+    void setFireHeatHaze(bool on) { fireHeatHaze_ = on; }
+    [[nodiscard]] bool fireHeatHaze() const { return fireHeatHaze_; }
     [[nodiscard]] float fireFlicker() const { return fireFlicker_; }
     void setHeadsetShadowStrength(float strength) { headsetShadowStrength_ = strength; }
     [[nodiscard]] float headsetShadowStrength() const { return headsetShadowStrength_; }
@@ -634,6 +637,7 @@ private:
     bool fireVolume_ = true;
     int fireVolumeDistance_ = 15;
     int fireVolumeSteps_ = 20;
+    bool fireHeatHaze_ = true;
     bool sheathToggle_ = false;
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;

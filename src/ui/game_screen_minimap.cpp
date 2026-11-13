@@ -1848,6 +1848,7 @@ void GameScreen::saveSettings() {
     out << "vr_fire_volume=" << (settingsPanel_.pendingVrFireVolume ? 1 : 0) << "\n";
     out << "vr_fire_volume_dist=" << settingsPanel_.pendingVrFireVolumeDist << "\n";
     out << "vr_fire_volume_steps=" << settingsPanel_.pendingVrFireVolumeSteps << "\n";
+    out << "vr_fire_heat_haze=" << (settingsPanel_.pendingVrFireHeatHaze ? 1 : 0) << "\n";
     out << "vr_eye_scale=" << settingsPanel_.pendingVrEyeScale << "\n";
     out << "vr_draw_by_reach=" << (settingsPanel_.pendingVrDrawByReach ? 1 : 0) << "\n";
     out << "vr_keep_casting=" << (settingsPanel_.pendingVrKeepCasting ? 1 : 0) << "\n";
@@ -2163,6 +2164,7 @@ void GameScreen::loadSettings() {
             else if (key == "vr_fire_volume") settingsPanel_.pendingVrFireVolume = (val == "1");
             else if (key == "vr_fire_volume_dist") settingsPanel_.pendingVrFireVolumeDist = std::clamp(std::stoi(val), 5, 30);
             else if (key == "vr_fire_volume_steps") settingsPanel_.pendingVrFireVolumeSteps = std::clamp(std::stoi(val), 8, 48);
+            else if (key == "vr_fire_heat_haze") settingsPanel_.pendingVrFireHeatHaze = (val == "1");
             else if (key == "vr_eye_scale") settingsPanel_.pendingVrEyeScale = std::clamp(std::stoi(val), 70, 150);
             else if (key == "vr_draw_by_reach") settingsPanel_.pendingVrDrawByReach = (val == "1");
             else if (key == "vr_keep_casting") settingsPanel_.pendingVrKeepCasting = (val == "1");

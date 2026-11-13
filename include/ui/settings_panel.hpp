@@ -260,6 +260,7 @@ public:
     bool pendingVrFireVolume = true;        // near fires burn as a 3D volume
     int pendingVrFireVolumeDist = 15;       // within so many yards
     int pendingVrFireVolumeSteps = 20;      // marched in so many steps
+    bool pendingVrFireHeatHaze = true;      // the air over them wavers
     int pendingVrEyeScale = 100;            // eye picture size in percent of the headset's; read at start - see xr::XrSystem
     bool pendingVrDrawByReach = true;       // a reach to the sheath and the grip draws the weapon
     bool pendingVrKeepCasting = false;      // the loaded spell is cast again while its button is held

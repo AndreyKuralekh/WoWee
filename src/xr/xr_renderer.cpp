@@ -885,7 +885,7 @@ void Renderer::vrRenderEyes() {
     if (shared && xr::system().softParticles() && vrEyeWaterAfterPass() && m2Renderer) {
         const VkImageView depth = waterRenderer->prepareEyeSceneDepth(vrEyes_->extent, frame);
         vrParticlesApart_ = depth != VK_NULL_HANDLE;
-        m2Renderer->setSoftParticles(vrParticlesApart_, frame, depth);
+        m2Renderer->setSoftParticles(vrParticlesApart_, frame, depth, waterRenderer->eyeSceneColor(frame));
     } else if (m2Renderer) {
         m2Renderer->setSoftParticles(false);
     }

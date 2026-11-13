@@ -1039,6 +1039,8 @@ constexpr SettingDesc kSchema[] = {
     {"vrfirevolumesteps", "3D fire quality", SettingKind::Int, 8, 48, 4, "VR view", "Picture",
      "How finely the 3D flames are drawn. Higher is smoother and costs\n"
      "the graphics card more.", "", 20},
+    {"vrfireheathaze", "Heat haze", SettingKind::Bool, 0, 0, 0, "VR view", "Picture",
+     "The air over a 3D fire wavers with the heat.", "", 1},
     {"vreyescale", "Eye resolution", SettingKind::Int, 70, 150, 5, "VR view", "Picture",
      "How many pixels each eye's picture has, in percent of what the\n"
      "headset asks for along each side. Above 100 the edges are smoother\n"
