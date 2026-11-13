@@ -130,6 +130,11 @@ public:
     /// its depth for frame-in-flight `frameIndex` - for what is recorded
     /// against it before the copy is taken. VK_NULL_HANDLE if it cannot be.
     VkImageView prepareEyeSceneDepth(VkExtent2D extent, uint32_t frameIndex);
+
+    /// The eyes' water refracts the bed by moving it in the world, at this
+    /// strength (1 as designed, 0 a still bed); below 0, the window's
+    /// screen-space refraction as before.
+    void setEyeRefractionStrength(float s) { eyeRefractionStrength_ = s; }
     /// And the view of its colour, once prepareEyeSceneDepth has made it.
     VkImageView eyeSceneColor(uint32_t frameIndex) {
         return sceneTarget(SceneTarget::Eyes).frames[frameIndex % SCENE_HISTORY_FRAMES].colorView;
@@ -342,6 +347,7 @@ private:
     VkExtent2D renderExtent_{.width = 0, .height = 0};
     std::optional<glm::vec2> depthRangeOverride_;
     float clarity_ = 1.3f;
+    float eyeRefractionStrength_ = -1.0f;  // < 0: screen-space refraction in the eyes too
     // The reflection pass ran this frame and set its matrix. Without it the
     // reflection texture holds whatever was last drawn into it, from another
     // camera and maybe another place, and the water is told to leave it out.

@@ -32,7 +32,7 @@ layout(push_constant) uniform Push {
     float sceneValid; // 1 once the refraction capture holds a frame, 0 before it
     float clarity;    // how far the eye sees into the water, 1 as designed (Water clarity)
     float skyProbe;   // 1 when SkyProbe holds the whole sky and reflections want it
-    float pad2;
+    float refractMode; // 0: screen-space refraction; 1 + s: the bed moved in the world, strength s (TASK_12)
 } push;
 
 layout(set = 1, binding = 0) uniform WaterMaterial {
@@ -364,6 +364,39 @@ void main() {
     // ============================================================
     vec2 refractOffset = norm.xy * (0.02 + 0.03 * fresnel);
     vec2 refractUV = clamp(screenUV + refractOffset, vec2(0.001), vec2(0.999));
+    // In the headset (TASK_12, step 1) the bed is moved in the world instead:
+    // the point straight behind the surface, shifted along the water's slope
+    // by how deep it lies, seen through each eye's own matrices. A screen
+    // offset turned with the head (it was the world normal laid on the
+    // screen), was as strong at the horizon as at the feet and put the bed at
+    // a different depth in each eye; this is nothing at the water's edge,
+    // more the deeper it is, less the further, and one bed in both eyes.
+    // What stands in front of the water - feet, the bank - is not moved
+    // into it: where the moved point lands on something nearer than the
+    // surface, the bed is read where it is.
+    if (push.refractMode > 0.5) {
+        float strength = push.refractMode - 1.0;
+        float nearPlane = push.depthRange.x;
+        float farPlane = push.depthRange.y;
+        float surfaceLin = linearizeDepth(gl_FragCoord.z, nearPlane, farPlane);
+        float bedLin = linearizeDepth(texture(SceneDepth, screenUV).r, nearPlane, farPlane);
+        float behind = max(bedLin - surfaceLin, 0.0);
+        vec3 rayDir = -viewDir;
+        vec3 forward = -vec3(view[0][2], view[1][2], view[2][2]);
+        vec3 bed = FragPos + rayDir * (behind / max(dot(rayDir, forward), 0.05));
+        float bedDepth = min(max(FragPos.z - bed.z, 0.0), 4.0);
+        // A third of a yard even in the shallows, and more the deeper the bed:
+        // the slopes of inland waves are gentle, and at their own size the bed
+        // barely stirred.
+        vec3 moved = bed + vec3(norm.xy, 0.0) * ((0.35 + bedDepth * 1.35) * smoothstep(0.0, 0.35, bedDepth) * strength);
+        vec4 clip = projection * view * vec4(moved, 1.0);
+        refractUV = screenUV;
+        if (clip.w > 0.01) {
+            vec2 uv = clamp(clip.xy / clip.w * 0.5 + 0.5, vec2(0.001), vec2(0.999));
+            float movedLin = linearizeDepth(texture(SceneDepth, uv).r, nearPlane, farPlane);
+            if (movedLin > surfaceLin) refractUV = uv;
+        }
+    }
     // The capture is taken after the scene is drawn and before the water goes
     // over it, so it holds no water and has had no display post-processing
     // applied yet. That means a single sharp tap is correct: there is no

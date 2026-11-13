@@ -45,7 +45,7 @@ struct WaterPushConstants {
     float sceneValid = 0.0f; // 1 once captureSceneHistory has run; the shader used to guess this per pixel
     float clarity = 1.0f;  // Water clarity: depths the water clouds over are divided by it
     float skyProbe = 0.0f; // 1 when the sky probe holds all six faces and reflections want it
-    float pad2 = 0.0f;
+    float refractMode = 0.0f; // 0 screen-space refraction; 1 + strength: the bed moved in the world
 };
 static_assert(sizeof(WaterPushConstants) == 112, "the two shader declarations of this range are laid out for 112 bytes");
 
@@ -1365,6 +1365,9 @@ void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
         push.sceneValid = sceneValid ? 1.0f : 0.0f;
         push.clarity = clarity_;
         push.skyProbe = (skyProbeReady_ && skyReflection_) ? 1.0f : 0.0f;
+        // The eyes' water moves the bed in the world (TASK_12), when asked.
+        push.refractMode = (targetWanted == SceneTarget::Eyes && eyeRefractionStrength_ >= 0.0f)
+                               ? 1.0f + eyeRefractionStrength_ : 0.0f;
 
         vkCmdPushConstants(cmd, pipelineLayout,
                             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
