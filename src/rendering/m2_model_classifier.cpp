@@ -201,6 +201,11 @@ bool assetNameLooksLikeFlame(const std::string& path) {
             if (token == "fire" && assetTokenName(path).find("firewood") != std::string::npos) {
                 continue;
             }
+            // Nor is a torch's own skin: 6TorchDif is the stick and the
+            // wrapping, keyed out it was full of holes on every Stormwind wall.
+            if (token == "torch" && assetTokenName(path).find("dif") != std::string::npos) {
+                continue;
+            }
             if (token == "lamp") {
                 const std::string name = assetTokenName(path);
                 if (name.find("lamppost") != std::string::npos ||

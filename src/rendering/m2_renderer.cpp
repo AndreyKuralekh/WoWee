@@ -276,7 +276,15 @@ void M2Renderer::gatherFireSounds(const glm::vec3& center, float radius, std::ve
         const M2ModelGPU* model = instance.cachedModel;
         if (!model || !model->fireLight.valid) continue;
         glm::vec3 pos = instance.cachedCullCenter;
-        if (!model->particleEmitters.empty()) {
+        if (model->fireLight.atLight) {
+            // Where the model's own light is - a torch's head - as the light does.
+            glm::mat4 bone(1.0f);
+            const auto& fl = model->fireLight;
+            if (fl.bone >= 0 && static_cast<size_t>(fl.bone) < instance.boneMatrices.size()) {
+                bone = instance.boneMatrices[static_cast<size_t>(fl.bone)];
+            }
+            pos = glm::vec3(instance.modelMatrix * bone * glm::vec4(fl.position, 1.0f));
+        } else if (!model->particleEmitters.empty()) {
             pos = glm::vec3(0.0f);
             for (const auto& emitter : model->particleEmitters) {
                 glm::mat4 bone(1.0f);
@@ -2395,6 +2403,50 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
 
     // Copy particle emitter data and resolve textures
     gpuModel.particleEmitters = model.particleEmitters;
+    // A torch whose flame emitter stands far off it - the HD torch.m2 (also
+    // Reforged's) puts it 17 yards up its own bone with a 16-yard sphere, a
+    // scale the original client copes with and this one does not - burns at
+    // its head instead: the emitter's place across the model kept, raised to
+    // the top of the wood, its sphere a tenth of a yard, on no bone.
+    if (gpuModel.isTorch) {
+        const glm::vec3 size = gpuModel.boundMax - gpuModel.boundMin;
+        // The head: the middle of the wood's top eighth.
+        glm::vec3 headSum(0.0f);
+        uint32_t headCount = 0;
+        for (const auto& v : model.vertices) {
+            if (v.position.z >= gpuModel.boundMax.z - 0.125f * size.z) {
+                headSum += v.position;
+                ++headCount;
+            }
+        }
+        for (size_t ei = 0; ei < gpuModel.particleEmitters.size(); ++ei) {
+            auto& em = gpuModel.particleEmitters[ei];
+            const glm::vec3 nearest = glm::clamp(em.position, gpuModel.boundMin, gpuModel.boundMax);
+            if (glm::length(em.position - nearest) <= std::max(2.0f, 2.0f * glm::length(size))) continue;
+            glm::vec3 head(nearest.x, nearest.y, gpuModel.boundMax.z - 0.12f * size.z);
+            if (headCount > 0) head = headSum / static_cast<float>(headCount);
+            // Where the model's own light is, if it has one: the author put
+            // that at the flame, and it is where the torch is lit on screen -
+            // the wood's top vertices are moved by its bones when drawn.
+            for (const auto& light : model.lights) {
+                if (light.type == 1 && light.bone >= 0 && static_cast<size_t>(light.bone) < model.bones.size() &&
+                    model.bones[static_cast<size_t>(light.bone)].translation.sequences.empty() &&
+                    model.bones[static_cast<size_t>(light.bone)].rotation.sequences.empty()) {
+                    head = light.position + glm::vec3(0.0f, 0.0f, 0.2f);  // the flame rises off the light's heart
+                    break;
+                }
+            }
+            LOG_INFO("Torch emitter off its torch, moved to its head: '", gpuModel.name, "' #", ei,
+                     " from (", em.position.x, ",", em.position.y, ",", em.position.z, ") to z=", head.z);
+            em.position = head;
+            em.bone = 0xFFFF;  // no bone: placed in the model's own space
+            for (auto* track : {&em.emissionAreaLength, &em.emissionAreaWidth}) {
+                for (auto& keys : track->sequences) {
+                    for (float& v : keys.floatValues) v = std::min(v, 0.1f);
+                }
+            }
+        }
+    }
     gpuModel.particleTextures.resize(model.particleEmitters.size(), whiteTexture_.get());
     for (size_t ei = 0; ei < model.particleEmitters.size(); ei++) {
         uint16_t texIdx = model.particleEmitters[ei].texture;
