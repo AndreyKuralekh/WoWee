@@ -27,6 +27,8 @@ public:
     // picks). Each nearby one crackles as a loop where it burns - camp and
     // hearth fires the renderer knows of, game objects included.
     void setFireSources(const std::vector<FireSoundSource>& fires) { fireSources_ = fires; }
+    // Waterfalls and fountains to be heard this frame, likewise as loops.
+    void setWaterSources(const std::vector<WaterSoundSource>& waters) { waterSources_ = waters; }
 
     // Main update loop - called from renderer
     void update(float deltaTime, const glm::vec3& cameraPos, bool isIndoor, bool isSwimming = false, bool isBlacksmith = false);
@@ -180,6 +182,13 @@ private:
     std::vector<FireLoop> fireLoops_;
     void updateFireLoops(const glm::vec3& listenerPos);
     void stopFireLoops();
+
+    // Falling water heard as loops (see setWaterSources)
+    std::vector<WaterSoundSource> waterSources_;
+    std::vector<FireLoop> waterLoops_;
+    std::vector<AmbientSample> waterfallLargeSounds_;
+    void updateWaterLoops(const glm::vec3& listenerPos);
+    void stopWaterLoops();
 
     // Active emitters
     std::vector<AmbientEmitter> emitters_;

@@ -12,5 +12,12 @@ struct FireSoundSource {
     int kind = 0;
 };
 
+// Falling water to be heard (TASK_13): 0 a small waterfall, 1 a tall one,
+// 2 a fountain.
+struct WaterSoundSource {
+    glm::vec3 position{0.0f};
+    int kind = 0;
+};
+
 } // namespace audio
 } // namespace wowee

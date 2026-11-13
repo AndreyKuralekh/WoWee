@@ -308,6 +308,44 @@ void M2Renderer::gatherFireSounds(const glm::vec3& center, float radius, std::ve
     }
 }
 
+void M2Renderer::gatherWaterSounds(const glm::vec3& center, float radius, std::vector<WaterSound>& out) const {
+    out.clear();
+    const float radiusSq = radius * radius;
+    for (const auto& instance : instances) {
+        const M2ModelGPU* model = instance.cachedModel;
+        if (!model || !(model->isWaterfall || model->isFountain)) continue;
+        const glm::vec3 lo = instance.worldBoundsMin;
+        const glm::vec3 hi = instance.worldBoundsMax;
+        const glm::vec2 mid(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y));
+        // A quick reject before the water query: the box's nearest point.
+        const glm::vec3 nearBox = glm::clamp(center, lo, hi);
+        if (glm::dot(nearBox - center, nearBox - center) > radiusSq) continue;
+        glm::vec3 pos(mid, lo.z);
+        int kind = 2;
+        if (model->isWaterfall) {
+            // From the pool it falls into - the model's own foot can stand
+            // yards under the ground - up to its top, the point of that span
+            // nearest the listener: a tall fall is heard beside you as you
+            // climb past it, not from its foot.
+            float foot = lo.z;
+            if (waterLevelQuery_) {
+                if (const auto level = waterLevelQuery_(glm::vec3(mid, lo.z), hi.z - lo.z)) foot = *level;
+            }
+            const float top = std::max(hi.z, foot);
+            pos.z = std::clamp(center.z, foot, top);
+            kind = (top - foot) > 12.0f ? 1 : 0;
+        } else {
+            pos.z = 0.5f * (lo.z + hi.z);
+        }
+        if (glm::dot(pos - center, pos - center) > radiusSq) continue;
+        bool merged = false;
+        for (const auto& w : out) {
+            if (glm::distance(w.position, pos) < 4.0f) { merged = true; break; }
+        }
+        if (!merged) out.push_back({.position = pos, .kind = kind});
+    }
+}
+
 uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                                        glm::vec4* outPosRadius,
                                        glm::vec4* outColorIntensity,
@@ -2180,6 +2218,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     gpuModel.isLanternLike               = cls.isLanternLike;
     gpuModel.isKoboldFlame               = cls.isKoboldFlame;
     gpuModel.isWaterfall                 = cls.isWaterfall;
+    gpuModel.isFountain                  = cls.isFountain && !cls.isWaterfall;
     gpuModel.isBrazierOrFire             = cls.isBrazierOrFire;
     gpuModel.isGroundFire                = cls.isGroundFire;
     gpuModel.isForge                     = cls.isForge;

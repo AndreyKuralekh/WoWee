@@ -165,6 +165,7 @@ struct M2ModelGPU {
     bool isWaterVegetation = false; // Cattails, reeds, kelp etc. near water (insect spawning)
     bool isFireflyEffect = false;   // Firefly/fireflies M2 (exempt from particle dampeners)
     bool isWaterfall = false;       // Waterfall model (ambient sound + splash particles)
+    bool isFountain = false;        // Fountain model (heard as a looping splash)
     bool isBrazierOrFire = false;   // Brazier / campfire / bonfire model
     bool isGroundFire = false;      // Ground fire whose halo follows its lowest flame emitter
     bool isTorch = false;           // Wall-mounted or standing torch
@@ -611,6 +612,15 @@ public:
         int kind = 0;
     };
     void gatherFireSounds(const glm::vec3& center, float radius, std::vector<FireSound>& out) const;
+    /** The falling water within `radius` of `center` to be heard (TASK_13):
+     *  waterfalls and fountains. A fall is heard at the point of its sheet
+     *  nearest the listener, from the pool it falls into up to its top;
+     *  kind 0 a small fall, 1 a tall one, 2 a fountain. */
+    struct WaterSound {
+        glm::vec3 position{0.0f};
+        int kind = 0;
+    };
+    void gatherWaterSounds(const glm::vec3& center, float radius, std::vector<WaterSound>& out) const;
     /** The point lights this frame's shaders read, in their order. Each
      *  instance drawn is then given the bits of the ones that reach it. */
     void setLocalLights(const glm::vec4* posRadius, uint32_t count);

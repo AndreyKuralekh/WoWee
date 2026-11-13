@@ -142,6 +142,7 @@ void AudioCoordinator::updateZoneAudio(const ZoneAudioContext& ctx) {
         }
         ambientSoundManager_->setWeather(audioWeatherType);
         ambientSoundManager_->setFireSources(ctx.fires);
+        ambientSoundManager_->setWaterSources(ctx.waters);
         ambientSoundManager_->update(deltaTime, ctx.cameraPosition, ctx.insideWmo, ctx.isSwimming, isBlacksmith);
     }
 

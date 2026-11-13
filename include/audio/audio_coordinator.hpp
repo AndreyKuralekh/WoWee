@@ -31,6 +31,8 @@ struct ZoneAudioContext {
     glm::vec3 cameraPosition{0.0f};
     // The nearest fires, each heard as a looping crackle where it burns.
     std::vector<FireSoundSource> fires;
+    // The nearest waterfalls and fountains, each a looping rush.
+    std::vector<WaterSoundSource> waters;
     bool isSwimming = false;
     bool insideWmo = false;
     uint32_t insideWmoId = 0;

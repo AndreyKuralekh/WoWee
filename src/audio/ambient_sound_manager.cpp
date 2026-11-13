@@ -66,6 +66,8 @@ bool AmbientSoundManager::initialize(pipeline::AssetManager* assets) {
 
     waterfallSounds_.resize(1);
     loadSound("Sound\\Doodad\\WaterFallSmall.wav", waterfallSounds_[0], assets);
+    waterfallLargeSounds_.resize(1);
+    loadSound("Sound\\Doodad\\WaterFallLarge.wav", waterfallLargeSounds_[0], assets);
 
     // Load fountain sounds
     fountainSounds_.resize(1);
@@ -256,6 +258,7 @@ bool AmbientSoundManager::initialize(pipeline::AssetManager* assets) {
 
 void AmbientSoundManager::shutdown() {
     stopFireLoops();
+    stopWaterLoops();
     emitters_.clear();
     activeSounds_.clear();
     initialized_ = false;
@@ -271,6 +274,7 @@ void AmbientSoundManager::update(float deltaTime, const glm::vec3& cameraPos, bo
     // Update all emitter systems
     updatePositionalEmitters(deltaTime, cameraPos);
     updateFireLoops(cameraPos);
+    updateWaterLoops(cameraPos);
 
     // Don't play outdoor periodic sounds (birds) when indoors OR in blacksmith
     if (!isIndoor && !isBlacksmith) {
@@ -326,10 +330,14 @@ void AmbientSoundManager::updatePositionalEmitters(float deltaTime, const glm::v
             // a one-shot restarted every three seconds overlapped or left gaps.
             emitter.active = false;
             continue;
+        } else if (emitter.type == AmbientType::WATERFALL || emitter.type == AmbientType::FOUNTAIN) {
+            // Heard as loops from the renderer's falls and fountains instead
+            // (updateWaterLoops): those include the ones out in the open,
+            // which no emitter was made for.
+            emitter.active = false;
+            continue;
         } else if (emitter.type == AmbientType::WATER_SURFACE ||
-                   emitter.type == AmbientType::RIVER ||
-                   emitter.type == AmbientType::WATERFALL ||
-                   emitter.type == AmbientType::FOUNTAIN) {
+                   emitter.type == AmbientType::RIVER) {
             maxDist = MAX_WATER_DISTANCE;
             isWater = true;
         }
@@ -500,6 +508,79 @@ void AmbientSoundManager::updateFireLoops(const glm::vec3& listenerPos) {
         LOG_INFO("Fire sounds: ", fireLoops_.size(), " looping of ", fireSources_.size(), " fires near",
                  wanted.empty() ? std::string() : ", nearest " + std::to_string(wanted.front().first) + " yd");
     }
+}
+
+void AmbientSoundManager::updateWaterLoops(const glm::vec3& listenerPos) {
+    constexpr float kHear = 40.0f;
+    constexpr float kKeep = 44.0f;
+    constexpr size_t kMax = 4;
+    // Wide: a fall's sound point slides up and down its sheet with the
+    // listener, and must stay the same loop while it does.
+    constexpr float kSame = 8.0f;
+
+    std::vector<std::pair<float, const WaterSoundSource*>> wanted;
+    for (const auto& w : waterSources_) {
+        const float d = glm::length(w.position - listenerPos);
+        bool playing = false;
+        for (const auto& l : waterLoops_) {
+            if (l.kind == w.kind && glm::length(l.position - w.position) < kSame) { playing = true; break; }
+        }
+        if (d < (playing ? kKeep : kHear)) wanted.push_back({d, &w});
+    }
+    std::sort(wanted.begin(), wanted.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    if (wanted.size() > kMax) wanted.resize(kMax);
+
+    for (auto it = waterLoops_.begin(); it != waterLoops_.end();) {
+        bool keep = false;
+        for (const auto& w : wanted) {
+            if (w.second->kind == it->kind && glm::length(w.second->position - it->position) < kSame) {
+                keep = true;
+                break;
+            }
+        }
+        if (keep) {
+            ++it;
+        } else {
+            AudioEngine::instance().stopSoundFading(it->soundId, 800);
+            it = waterLoops_.erase(it);
+        }
+    }
+
+    auto& audio = AudioEngine::instance();
+    for (const auto& w : wanted) {
+        const WaterSoundSource& s = *w.second;
+        const float volume = WATER_VOLUME * volumeScale_ * (s.kind == 1 ? 1.3f : (s.kind == 2 ? 0.8f : 1.1f));
+        FireLoop* loop = nullptr;
+        for (auto& l : waterLoops_) {
+            if (l.kind == s.kind && glm::length(l.position - s.position) < kSame) { loop = &l; break; }
+        }
+        if (loop) {
+            loop->position = s.position;
+            audio.setSoundPosition(loop->soundId, s.position);
+            audio.setSoundVolume(loop->soundId, volume);
+            continue;
+        }
+        const std::vector<AmbientSample>& samples =
+            s.kind == 1 ? waterfallLargeSounds_ : (s.kind == 2 ? fountainSounds_ : waterfallSounds_);
+        if (samples.empty() || !samples[0].loaded) continue;
+        const float minDistance = s.kind == 1 ? 6.0f : 3.0f;
+        const uint32_t id = audio.playSound3DLoop(samples[0].data, s.position, volume, minDistance, kHear, 800);
+        if (id == 0) continue;
+        waterLoops_.push_back({.position = s.position, .kind = s.kind, .soundId = id});
+    }
+
+    static size_t lastSaid = static_cast<size_t>(-1);
+    if (waterLoops_.size() != lastSaid) {
+        lastSaid = waterLoops_.size();
+        LOG_INFO("Water sounds: ", waterLoops_.size(), " looping of ", waterSources_.size(), " falls and fountains near",
+                 wanted.empty() ? std::string() : ", nearest " + std::to_string(wanted.front().first) + " yd kind " +
+                 std::to_string(wanted.front().second->kind));
+    }
+}
+
+void AmbientSoundManager::stopWaterLoops() {
+    for (const auto& l : waterLoops_) AudioEngine::instance().stopSoundFading(l.soundId, 200);
+    waterLoops_.clear();
 }
 
 void AmbientSoundManager::stopFireLoops() {

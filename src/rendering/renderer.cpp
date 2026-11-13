@@ -2674,6 +2674,16 @@ void Renderer::update(float deltaTime) {
             m2Renderer->gatherFireSounds(audioListenerPos_, 30.0f, fires);
             zctx.fires.reserve(fires.size());
             for (const auto& f : fires) zctx.fires.push_back({.position = f.position, .kind = f.kind});
+            // Falling water likewise, gathered a few times a second: it is a
+            // walk over every model instance, and falls do not move.
+            static std::vector<M2Renderer::WaterSound> waters;
+            static int waterGatherFrame = 0;
+            if (++waterGatherFrame >= 10) {
+                waterGatherFrame = 0;
+                m2Renderer->gatherWaterSounds(audioListenerPos_, 45.0f, waters);
+            }
+            zctx.waters.reserve(waters.size());
+            for (const auto& w : waters) zctx.waters.push_back({.position = w.position, .kind = w.kind});
             zctx.cameraPosition = audioListenerPos_;
         }
         zctx.isSwimming = cameraController ? cameraController->isSwimming() : false;

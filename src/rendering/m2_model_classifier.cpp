@@ -277,6 +277,7 @@ M2ClassificationResult classifyM2Model(
                         || has(n, "waterlily");
 
     r.isWaterfall       = has(n, "waterfall");
+    r.isFountain        = has(n, "fountain");
 
     r.isElvenLike   = has(n, "elf")     || has(n, "elven") || has(n, "quel");
     // Directional volumetric light effects (lighthouse beam, light rays/shafts) match
