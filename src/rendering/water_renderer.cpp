@@ -1381,6 +1381,17 @@ void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
     }
 }
 
+VkImageView WaterRenderer::prepareEyeSceneDepth(VkExtent2D extent, uint32_t frameIndex) {
+    if (!vkCtx || extent.width == 0 || extent.height == 0) return VK_NULL_HANDLE;
+    SceneHistoryTarget& target = sceneTarget(SceneTarget::Eyes);
+    if (target.extent.width != extent.width || target.extent.height != extent.height) {
+        vkDeviceWaitIdle(vkCtx->getDevice());
+        createSceneHistoryResources(SceneTarget::Eyes, extent, vkCtx->getSwapchainFormat(), vkCtx->getDepthFormat());
+        LOG_INFO("Water: eye scene copy ", extent.width, "x", extent.height);
+    }
+    return target.frames[frameIndex % SCENE_HISTORY_FRAMES].depthView;
+}
+
 void WaterRenderer::captureSceneHistory(VkCommandBuffer cmd,
                                         VkImage srcColorImage,
                                         VkImage srcDepthImage,

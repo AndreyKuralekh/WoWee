@@ -125,6 +125,12 @@ public:
                              uint32_t frameIndex = 0,
                              SceneTarget target = SceneTarget::Window);
 
+    /// The eyes' scene copy at `extent`, made now if it is not (waiting the
+    /// frames in flight out, as captureSceneHistory would), and the view of
+    /// its depth for frame-in-flight `frameIndex` - for what is recorded
+    /// against it before the copy is taken. VK_NULL_HANDLE if it cannot be.
+    VkImageView prepareEyeSceneDepth(VkExtent2D extent, uint32_t frameIndex);
+
     // --- Planar reflection pass ---
     // Call sequence: beginReflectionPass → [render scene] → endReflectionPass
     bool beginReflectionPass(VkCommandBuffer cmd);

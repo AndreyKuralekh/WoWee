@@ -813,6 +813,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         uint32_t cachedAnimFrame = 0;
         float cachedTilesFloat = 1.0f;
         bool cachedIsTiled = false;
+        float cachedAnimFraction = 0.0f;
         float invAnimMs = 1.0f / 1000.0f;
 
         // How far this instance's particles actually reach, against how far
@@ -853,10 +854,13 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 }
 
                 cachedIsTiled = (cachedEm->flags & kParticleFlagTiled) && cachedTotalTiles > 1;
+                cachedAnimFraction = 0.0f;
                 if (cachedIsTiled) {
                     float animSeconds = inst.animTime * invAnimMs;
-                    cachedAnimFrame = static_cast<uint32_t>(std::floor(animSeconds * cachedTotalTiles))
+                    const float frames = animSeconds * static_cast<float>(cachedTotalTiles);
+                    cachedAnimFrame = static_cast<uint32_t>(std::floor(frames))
                                       % cachedTotalTiles;
+                    cachedAnimFraction = frames - std::floor(frames);
                     cachedTilesFloat = static_cast<float>(cachedTotalTiles);
                 }
             }
@@ -959,15 +963,20 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             // each point of its life, so a skull forms and comes apart as it
             // rises. Without it every particle showed the same frame - the
             // first, when the emitter lacked the tiled flag.
+            // With soft particles the fraction is kept: the shader blends the
+            // frame into the next by it (whole frames floor to themselves).
             if (!em.headCell.floatValues.empty() && cachedTotalTiles > 1 &&
                 !(em.flags & kParticleFlagRandomized)) {
-                tileIndex = std::fmod(std::floor(interpFBlockFloat(em.headCell, lifeRatio)),
-                                      static_cast<float>(cachedTotalTiles));
+                const float cell = std::max(interpFBlockFloat(em.headCell, lifeRatio), 0.0f);
+                const float whole = std::floor(cell);
+                tileIndex = std::fmod(whole, static_cast<float>(cachedTotalTiles));
+                if (softParticles_) tileIndex += std::min(cell - whole, 0.999f);
             } else if (cachedIsTiled) {
                 tileIndex = p.tileIndex + static_cast<float>(cachedAnimFrame);
                 while (tileIndex >= cachedTilesFloat) {
                     tileIndex -= cachedTilesFloat;
                 }
+                if (softParticles_) tileIndex += std::min(cachedAnimFraction, 0.999f);
             }
             vd[8] = tileIndex;
             ++vbWritten;
@@ -1032,6 +1041,9 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
     // Bind per-frame set (set 0) for particle pipeline
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             particlePipelineLayout_, 0, 1, &perFrameSet, 0, nullptr);
+    const bool soft = softParticles_ && ensureParticleDepthSets() &&
+                      particleDepthViews_[softParticleFrame_ % kSoftDepthFrames] != VK_NULL_HANDLE;
+    bindParticleDepthSet(cmd, soft);
 
     VkDeviceSize vbOffset = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &m2ParticleVB_, &vbOffset);
@@ -1078,9 +1090,11 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         }
 
         // Push constants: tileCount + alphaKey
-        struct { float tileX, tileY; int alphaKey; } pc = {
+        // flags: 1 soft (fade into the scene), 2 blend an atlas frame into the next.
+        struct { float tileX, tileY; int alphaKey; int flags; } pc = {
             .tileX = static_cast<float>(group.tilesX), .tileY = static_cast<float>(group.tilesY),
-            .alphaKey = (blendType == 1) ? 1 : 0
+            .alphaKey = (blendType == 1) ? 1 : 0,
+            .flags = soft ? 3 : 0
         };
         vkCmdPushConstants(cmd, particlePipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(pc), &pc);
@@ -1094,6 +1108,75 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         // whatever had been copied last.
         vkCmdDraw(cmd, run.count, 1, run.first, 0);
     }
+}
+
+void M2Renderer::setSoftParticles(bool on, uint32_t frame, VkImageView depthView) {
+    softParticles_ = on && depthView != VK_NULL_HANDLE;
+    softParticleFrame_ = frame % kSoftDepthFrames;
+    if (!softParticles_ || !ensureParticleDepthSets()) return;
+    VkImageView& seen = particleDepthViews_[softParticleFrame_];
+    if (seen == depthView) return;
+    // Rewritten only when the copy itself is new (the eye resolution changed),
+    // and only this frame in flight's set, which no frame still running reads.
+    VkSamplerCreateInfo si{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    si.magFilter = VK_FILTER_NEAREST;
+    si.minFilter = VK_FILTER_NEAREST;
+    si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VkDescriptorImageInfo img{};
+    img.sampler = vkCtx_->getOrCreateSampler(si);
+    img.imageView = depthView;
+    img.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkWriteDescriptorSet write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = particleDepthSets_[softParticleFrame_];
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &img;
+    vkUpdateDescriptorSets(vkCtx_->getDevice(), 1, &write, 0, nullptr);
+    seen = depthView;
+}
+
+bool M2Renderer::ensureParticleDepthSets() {
+    if (particleDepthPool_) return true;
+    if (!vkCtx_ || !particleTexLayout_ || !whiteTexture_ || !whiteTexture_->isValid()) return false;
+    const VkDevice device = vkCtx_->getDevice();
+    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSoftDepthFrames + 1};
+    VkDescriptorPoolCreateInfo pi{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pi.maxSets = kSoftDepthFrames + 1;
+    pi.poolSizeCount = 1;
+    pi.pPoolSizes = &size;
+    if (vkCreateDescriptorPool(device, &pi, nullptr, &particleDepthPool_) != VK_SUCCESS) return false;
+    VkDescriptorSetLayout layouts[kSoftDepthFrames + 1];
+    for (auto& l : layouts) l = particleTexLayout_;
+    VkDescriptorSetAllocateInfo ai{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    ai.descriptorPool = particleDepthPool_;
+    ai.descriptorSetCount = kSoftDepthFrames + 1;
+    ai.pSetLayouts = layouts;
+    if (vkAllocateDescriptorSets(device, &ai, particleDepthSets_) != VK_SUCCESS) {
+        vkDestroyDescriptorPool(device, particleDepthPool_, nullptr);
+        particleDepthPool_ = VK_NULL_HANDLE;
+        return false;
+    }
+    // Every set starts on the white texture, so a set bound before its depth
+    // copy is ever written still holds an image in the layout it names.
+    VkDescriptorImageInfo white = whiteTexture_->descriptorInfo();
+    VkWriteDescriptorSet writes[kSoftDepthFrames + 1]{};
+    for (uint32_t i = 0; i < kSoftDepthFrames + 1; ++i) {
+        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[i].dstSet = particleDepthSets_[i];
+        writes[i].descriptorCount = 1;
+        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[i].pImageInfo = &white;
+    }
+    vkUpdateDescriptorSets(device, kSoftDepthFrames + 1, writes, 0, nullptr);
+    return true;
+}
+
+void M2Renderer::bindParticleDepthSet(VkCommandBuffer cmd, bool soft) const {
+    if (!particleDepthPool_ && !const_cast<M2Renderer*>(this)->ensureParticleDepthSets()) return;
+    const VkDescriptorSet set = soft ? particleDepthSets_[softParticleFrame_]
+                                     : particleDepthSets_[kSoftDepthFrames];
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, particlePipelineLayout_, 2, 1, &set, 0, nullptr);
 }
 
 void M2Renderer::renderSmokeParticles(VkCommandBuffer cmd, VkDescriptorSet perFrameSet) {

@@ -387,6 +387,19 @@ inline float lampFlicker(const glm::vec3& phaseSeed, float seconds,
                 + fastAmp * std::sin(seconds * 3.90f + phase * 1.7f);
 }
 
+// Firelight (TASK_10, the headset's fire lights) dances quicker than a wick
+// gutters: three beats with a phase from where the fire stands, on the game's
+// clock, the same for both eyes. The light and the halo of a fire share it.
+inline float fireFlicker(const glm::vec3& seedPos, float seconds, float amplitude) {
+    const glm::vec3 cell = glm::floor(seedPos);
+    float h = std::sin(cell.x * 12.9898f + cell.y * 78.233f + cell.z * 37.719f) * 43758.5453f;
+    const float p = (h - std::floor(h)) * 6.2831853f;
+    const float n = 0.5f * std::sin(seconds * 1.9f + p)
+                  + 0.3f * std::sin(seconds * 4.7f + p * 1.3f)
+                  + 0.2f * std::sin(seconds * 11.3f + p * 2.1f);
+    return 1.0f + amplitude * n;
+}
+
 /// Seconds since process start, shared by the flicker animations.
 inline float lampFlickerClockSeconds() {
     static const auto start = std::chrono::steady_clock::now();

@@ -644,6 +644,13 @@ public:
      */
     void renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrameSet);
 
+    /** Soft particles (TASK_10, the headset's): the particles fade where they
+     *  meet the scene, by the depth under them - a copy of the eye's depth
+     *  taken before they are drawn - and a flame's atlas frames blend into the
+     *  next instead of stepping. `depthView` is that copy for frame-in-flight
+     *  `frame`; set before the particles are recorded. Off, they draw as ever. */
+    void setSoftParticles(bool on, uint32_t frame = 0, VkImageView depthView = VK_NULL_HANDLE);
+
     /**
      * Render smoke particles from chimneys etc.
      */
@@ -951,6 +958,16 @@ private:
     VkDescriptorSetLayout materialSetLayout_ = VK_NULL_HANDLE;  // set 1
     VkDescriptorSetLayout boneSetLayout_ = VK_NULL_HANDLE;      // set 2
     VkDescriptorSetLayout particleTexLayout_ = VK_NULL_HANDLE;  // particle set 1 (texture only)
+    // Particle set 2: the scene depth for soft particles - one per frame in
+    // flight, and a stand-in (the white texture) when they are off.
+    static constexpr uint32_t kSoftDepthFrames = 2;
+    VkDescriptorPool particleDepthPool_ = VK_NULL_HANDLE;
+    VkDescriptorSet particleDepthSets_[kSoftDepthFrames + 1] = {};
+    VkImageView particleDepthViews_[kSoftDepthFrames] = {};
+    bool softParticles_ = false;
+    uint32_t softParticleFrame_ = 0;
+    bool ensureParticleDepthSets();
+    void bindParticleDepthSet(VkCommandBuffer cmd, bool soft) const;
 
     // Descriptor pools
     VkDescriptorPool materialDescPool_ = VK_NULL_HANDLE;

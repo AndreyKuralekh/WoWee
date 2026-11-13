@@ -263,18 +263,6 @@ M2ModelGPU::FireLight resolveFireLight(const M2ModelGPU& gpu, const pipeline::M2
     return f;
 }
 
-// Firelight dances quicker than a wick gutters: three beats with a phase from
-// where the fire stands, on the game's clock, the same for both eyes.
-float fireFlicker(const glm::vec3& seedPos, float seconds, float amplitude) {
-    const glm::vec3 cell = glm::floor(seedPos);
-    float h = std::sin(cell.x * 12.9898f + cell.y * 78.233f + cell.z * 37.719f) * 43758.5453f;
-    const float p = (h - std::floor(h)) * 6.2831853f;
-    const float n = 0.5f * std::sin(seconds * 1.9f + p)
-                  + 0.3f * std::sin(seconds * 4.7f + p * 1.3f)
-                  + 0.2f * std::sin(seconds * 11.3f + p * 2.1f);
-    return 1.0f + amplitude * n;
-}
-
 } // namespace
 
 float M2Renderer::fireInteriorMix() { return fireLightTable().interiorMix; }
@@ -1207,20 +1195,21 @@ bool M2Renderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayout
         vkCreatePipelineLayout(device, &ci, nullptr, &pipelineLayout_);
     }
 
-    // Particle pipeline layout: set 0 = perFrame, set 1 = particleTex
-    // Push constant: vec2 tileCount + int alphaKey (12 bytes)
+    // Particle pipeline layout: set 0 = perFrame, set 1 = particleTex,
+    // set 2 = scene depth for soft particles (same single-sampler layout).
+    // Push constant: vec2 tileCount + int alphaKey + int flags (16 bytes)
     {
-        VkDescriptorSetLayout setLayouts[] = {perFrameLayout, particleTexLayout_};
+        VkDescriptorSetLayout setLayouts[] = {perFrameLayout, particleTexLayout_, particleTexLayout_};
         VkPushConstantRange pushRanges[2]{};
         pushRanges[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         pushRanges[0].offset = 0;
-        pushRanges[0].size = 12; // vec2 + int
+        pushRanges[0].size = 16; // vec2 + int + int
         pushRanges[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
         pushRanges[1].offset = kParticleSizePushOffset;
         pushRanges[1].size = sizeof(ParticleSizePush);
 
         VkPipelineLayoutCreateInfo ci{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        ci.setLayoutCount = 2;
+        ci.setLayoutCount = 3;
         ci.pSetLayouts = setLayouts;
         ci.pushConstantRangeCount = 2;
         ci.pPushConstantRanges = pushRanges;
@@ -1427,6 +1416,12 @@ void M2Renderer::shutdown() {
 
     destroy(device, pipelineLayout_);
     destroy(device, particlePipelineLayout_);
+    if (particleDepthPool_) {
+        vkDestroyDescriptorPool(device, particleDepthPool_, nullptr);
+        particleDepthPool_ = VK_NULL_HANDLE;
+        for (auto& set : particleDepthSets_) set = VK_NULL_HANDLE;
+        for (auto& view : particleDepthViews_) view = VK_NULL_HANDLE;
+    }
     destroy(device, smokePipelineLayout_);
     destroy(device, ribbonPipelineLayout_);
 

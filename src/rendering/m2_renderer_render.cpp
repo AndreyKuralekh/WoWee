@@ -1848,9 +1848,13 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                                 // Same clock and parameters as the local light in
                                 // gatherLocalLights, so the sprite and the pool of
                                 // light it casts rise and fall together.
-                                const float flicker = lampFlicker(
-                                    inst.position, lampFlickerClockSeconds(),
-                                    0.82f, 0.12f, 0.06f);
+                                // A fire with the headset's fire light on
+                                // breathes with that light instead.
+                                const float flicker =
+                                    (fireParams_.enabled && model.fireLight.valid)
+                                        ? fireFlicker(inst.position, fireParams_.seconds, fireParams_.flicker)
+                                        : lampFlicker(inst.position, lampFlickerClockSeconds(),
+                                                      0.82f, 0.12f, 0.06f);
                                 gs.color.a *= flicker;
                                 gs.size    *= 0.98f + 0.02f * flicker;
                             }
@@ -2384,8 +2388,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 particlePipelineLayout_, 1, 1, &glowTexDescSet_, 0, nullptr);
 
-        // Push constants for particle: tileCount(vec2) + alphaKey(int)
-        struct { float tileX, tileY; int alphaKey; } particlePush = {.tileX = 1.0f, .tileY = 1.0f, .alphaKey = 0};
+        bindParticleDepthSet(cmd, false);
+        // Push constants for particle: tileCount(vec2) + alphaKey(int) + flags(int)
+        struct { float tileX, tileY; int alphaKey; int flags; } particlePush = {.tileX = 1.0f, .tileY = 1.0f, .alphaKey = 0, .flags = 0};
         vkCmdPushConstants(cmd, particlePipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(particlePush), &particlePush);
         const ParticleSizePush sizePush{.viewHeight = viewHeight_};
