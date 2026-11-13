@@ -4,6 +4,8 @@
 #include <memory>
 #include <string>
 #include <glm/vec3.hpp>
+#include <vector>
+#include "audio/fire_sound_source.hpp"
 
 namespace wowee {
 namespace pipeline { class AssetManager; }
@@ -27,6 +29,8 @@ class MovementSoundManager;
 struct ZoneAudioContext {
     float deltaTime = 0.0f;
     glm::vec3 cameraPosition{0.0f};
+    // The nearest fires, each heard as a looping crackle where it burns.
+    std::vector<FireSoundSource> fires;
     bool isSwimming = false;
     bool insideWmo = false;
     uint32_t insideWmoId = 0;

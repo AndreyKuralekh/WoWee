@@ -735,6 +735,16 @@ void Renderer::vrDrawEyeWater(uint32_t eye, VkDescriptorSet perFrameSet) {
     vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkWater));
 }
 
+bool Renderer::vrHeadPose(glm::vec3& position, glm::vec3& forward, glm::vec3& up) const {
+    if (!vrInWorld_ || !vrEyes_ || !vrEyes_->viewsValid) return false;
+    const xr::EyeView& center = vrEyes_->views.center;
+    const glm::mat4 world = glm::inverse(center.view);
+    position = center.position;
+    forward = -glm::normalize(glm::vec3(world[2]));
+    up = glm::normalize(glm::vec3(world[1]));
+    return true;
+}
+
 // The particles recorded apart (soft particles), over the eye's finished
 // scene and water, in one more continuation of its pass; they read the copy
 // of its depth, taken here unless the water took it already.

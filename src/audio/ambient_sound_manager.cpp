@@ -254,6 +254,7 @@ bool AmbientSoundManager::initialize(pipeline::AssetManager* assets) {
 }
 
 void AmbientSoundManager::shutdown() {
+    stopFireLoops();
     emitters_.clear();
     activeSounds_.clear();
     initialized_ = false;
@@ -268,6 +269,7 @@ void AmbientSoundManager::update(float deltaTime, const glm::vec3& cameraPos, bo
 
     // Update all emitter systems
     updatePositionalEmitters(deltaTime, cameraPos);
+    updateFireLoops(cameraPos);
 
     // Don't play outdoor periodic sounds (birds) when indoors OR in blacksmith
     if (!isIndoor && !isBlacksmith) {
@@ -318,8 +320,11 @@ void AmbientSoundManager::updatePositionalEmitters(float deltaTime, const glm::v
         if (emitter.type == AmbientType::FIREPLACE_SMALL ||
             emitter.type == AmbientType::FIREPLACE_LARGE ||
             emitter.type == AmbientType::TORCH) {
-            maxDist = MAX_FIRE_DISTANCE;
-            isFire = true;
+            // Heard as loops from the renderer's fires instead (updateFireLoops):
+            // those include the hearths and campfires that are game objects, and
+            // a one-shot restarted every three seconds overlapped or left gaps.
+            emitter.active = false;
+            continue;
         } else if (emitter.type == AmbientType::WATER_SURFACE ||
                    emitter.type == AmbientType::RIVER ||
                    emitter.type == AmbientType::WATERFALL ||
@@ -414,6 +419,83 @@ void AmbientSoundManager::updatePositionalEmitters(float deltaTime, const glm::v
                 break;
         }
     }
+}
+
+// The nearest fires crackle as loops where they burn. Up to six, within 25
+// yards, kept until 28 so that standing at the edge does not start and stop
+// them; one fade in and one fade out each. Distance is the audio engine's
+// alone - in a straight line to nothing at 25 yards - where it used to be
+// both this manager's and miniaudio's, which left a fire faint at arm's length.
+void AmbientSoundManager::updateFireLoops(const glm::vec3& listenerPos) {
+    constexpr float kHear = 25.0f;
+    constexpr float kKeep = 28.0f;
+    constexpr size_t kMaxFires = 6;
+    constexpr float kSame = 2.5f;
+
+    // Nearest first, the kept ones' reach a little longer.
+    std::vector<std::pair<float, const FireSoundSource*>> wanted;
+    for (const auto& f : fireSources_) {
+        const float d = glm::length(f.position - listenerPos);
+        bool playing = false;
+        for (const auto& l : fireLoops_) {
+            if (glm::length(l.position - f.position) < kSame) { playing = true; break; }
+        }
+        if (d < (playing ? kKeep : kHear)) wanted.push_back({d, &f});
+    }
+    std::sort(wanted.begin(), wanted.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    if (wanted.size() > kMaxFires) wanted.resize(kMaxFires);
+
+    // Fires that are no longer wanted fade out.
+    for (auto it = fireLoops_.begin(); it != fireLoops_.end();) {
+        bool keep = false;
+        for (const auto& w : wanted) {
+            if (glm::length(w.second->position - it->position) < kSame) {
+                keep = true;
+                it->position = w.second->position;
+                break;
+            }
+        }
+        if (keep) {
+            ++it;
+        } else {
+            AudioEngine::instance().stopSoundFading(it->soundId, 600);
+            it = fireLoops_.erase(it);
+        }
+    }
+
+    auto& audio = AudioEngine::instance();
+    for (const auto& w : wanted) {
+        const FireSoundSource& f = *w.second;
+        const float volume = FIRE_VOLUME * volumeScale_ * (f.kind == 2 ? 0.7f : 1.0f);
+        FireLoop* loop = nullptr;
+        for (auto& l : fireLoops_) {
+            if (glm::length(l.position - f.position) < kSame) { loop = &l; break; }
+        }
+        if (loop) {
+            audio.setSoundPosition(loop->soundId, f.position);
+            audio.setSoundVolume(loop->soundId, volume);
+            continue;
+        }
+        const std::vector<AmbientSample>& samples =
+            f.kind == 1 ? fireSoundsLarge_ : (f.kind == 2 ? torchSounds_ : fireSoundsSmall_);
+        if (samples.empty() || !samples[0].loaded) continue;
+        const float minDistance = f.kind == 1 ? 3.0f : 1.5f;
+        const uint32_t id = audio.playSound3DLoop(samples[0].data, f.position, volume, minDistance, kHear);
+        if (id == 0) continue;
+        fireLoops_.push_back({.position = f.position, .kind = f.kind, .soundId = id});
+    }
+
+    static size_t lastSaid = static_cast<size_t>(-1);
+    if (fireLoops_.size() != lastSaid) {
+        lastSaid = fireLoops_.size();
+        LOG_INFO("Fire sounds: ", fireLoops_.size(), " looping of ", fireSources_.size(), " fires near",
+                 wanted.empty() ? std::string() : ", nearest " + std::to_string(wanted.front().first) + " yd");
+    }
+}
+
+void AmbientSoundManager::stopFireLoops() {
+    for (const auto& l : fireLoops_) AudioEngine::instance().stopSoundFading(l.soundId, 200);
+    fireLoops_.clear();
 }
 
 void AmbientSoundManager::updatePeriodicSounds(float deltaTime, bool isIndoor, bool isSwimming) {

@@ -2284,8 +2284,21 @@ void Renderer::update(float deltaTime) {
             glm::vec3 up = glm::cross(right, fwd);
             float uLen = glm::length(up);
             up = (uLen < 1e-6f) ? glm::vec3(0.0f, 0.0f, 1.0f) : up / uLen;
-            audio::AudioEngine::instance().setListenerPosition(camera->getPosition());
-            audio::AudioEngine::instance().setListenerOrientation(fwd, up);
+            // In the headset the ears are where the head is and turn with it;
+            // the game's camera stands behind the character.
+            glm::vec3 listener = camera->getPosition();
+            glm::vec3 listenerFwd = fwd, listenerUp = up;
+#ifdef WOWEE_VR
+            glm::vec3 headPos, headFwd, headUp;
+            if (vrHeadPose(headPos, headFwd, headUp)) {
+                listener = headPos;
+                listenerFwd = headFwd;
+                listenerUp = headUp;
+            }
+#endif
+            audioListenerPos_ = listener;
+            audio::AudioEngine::instance().setListenerPosition(listener);
+            audio::AudioEngine::instance().setListenerOrientation(listenerFwd, listenerUp);
         }
     } else {
         lastCameraUpdateMs = 0.0;
@@ -2619,6 +2632,14 @@ void Renderer::update(float deltaTime) {
         audio::ZoneAudioContext zctx;
         zctx.deltaTime = deltaTime;
         zctx.cameraPosition = camPos;
+        // The fires to be heard, round the listener.
+        if (m2Renderer) {
+            std::vector<M2Renderer::FireSound> fires;
+            m2Renderer->gatherFireSounds(audioListenerPos_, 30.0f, fires);
+            zctx.fires.reserve(fires.size());
+            for (const auto& f : fires) zctx.fires.push_back({.position = f.position, .kind = f.kind});
+            zctx.cameraPosition = audioListenerPos_;
+        }
         zctx.isSwimming = cameraController ? cameraController->isSwimming() : false;
         zctx.insideWmo = insideWmo;
         zctx.insideWmoId = insideWmoId;

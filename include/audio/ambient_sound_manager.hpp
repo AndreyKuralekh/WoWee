@@ -5,6 +5,7 @@
 #include <string>
 #include <cstdint>
 #include <glm/vec3.hpp>
+#include "audio/fire_sound_source.hpp"
 
 namespace wowee {
 namespace pipeline {
@@ -21,6 +22,11 @@ public:
     // Initialization
     bool initialize(pipeline::AssetManager* assets);
     void shutdown();
+
+    // The fires to be heard this frame (nearest first or not; the manager
+    // picks). Each nearby one crackles as a loop where it burns - camp and
+    // hearth fires the renderer knows of, game objects included.
+    void setFireSources(const std::vector<FireSoundSource>& fires) { fireSources_ = fires; }
 
     // Main update loop - called from renderer
     void update(float deltaTime, const glm::vec3& cameraPos, bool isIndoor, bool isSwimming = false, bool isBlacksmith = false);
@@ -163,6 +169,17 @@ private:
     std::vector<AmbientSample> bellHordeSounds_;
     std::vector<AmbientSample> bellNightElfSounds_;
     std::vector<AmbientSample> bellTribalSounds_;
+
+    // Fires heard as loops (see setFireSources)
+    struct FireLoop {
+        glm::vec3 position{0.0f};
+        int kind = 0;
+        uint32_t soundId = 0;
+    };
+    std::vector<FireSoundSource> fireSources_;
+    std::vector<FireLoop> fireLoops_;
+    void updateFireLoops(const glm::vec3& listenerPos);
+    void stopFireLoops();
 
     // Active emitters
     std::vector<AmbientEmitter> emitters_;

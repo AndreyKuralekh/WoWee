@@ -539,6 +539,9 @@ private:
     // SEC_PARTICLES, and drawn after the eye's pass over a copy of its depth.
     bool vrParticlesApart_ = false;
     void vrDrawEyeParticles(uint32_t eye, bool depthCopied);
+    // The head of the last stereo frame, for the audio listener: where it is
+    // and which way it faces. False without one.
+    bool vrHeadPose(glm::vec3& position, glm::vec3& forward, glm::vec3& up) const;
     VkCommandBuffer vrParticlesCmd_ = VK_NULL_HANDLE;
     VkCommandBuffer vrWorldCmds_[8] = {};
     uint32_t vrWorldCmdCount_ = 0;
@@ -580,6 +583,7 @@ private:
     void* perFrameUBOMapped[MAX_FRAMES] = {};
     GPUPerFrameData currentFrameData{};
     float globalTime = 0.0f;
+    glm::vec3 audioListenerPos_{0.0f};  // where the audio listener was put this frame
 
     // Per-frame reflection UBO (mirrors camera for planar reflections)
     VkBuffer reflPerFrameUBO = VK_NULL_HANDLE;

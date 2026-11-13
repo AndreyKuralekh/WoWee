@@ -267,6 +267,39 @@ M2ModelGPU::FireLight resolveFireLight(const M2ModelGPU& gpu, const pipeline::M2
 
 float M2Renderer::fireInteriorMix() { return fireLightTable().interiorMix; }
 
+void M2Renderer::gatherFireSounds(const glm::vec3& center, float radius, std::vector<FireSound>& out) const {
+    out.clear();
+    const float radiusSq = radius * radius;
+    for (const size_t index : lightInstanceIndices_) {
+        if (index >= instances.size()) continue;
+        const auto& instance = instances[index];
+        const M2ModelGPU* model = instance.cachedModel;
+        if (!model || !model->fireLight.valid) continue;
+        glm::vec3 pos = instance.cachedCullCenter;
+        if (!model->particleEmitters.empty()) {
+            pos = glm::vec3(0.0f);
+            for (const auto& emitter : model->particleEmitters) {
+                glm::mat4 bone(1.0f);
+                if (emitter.bone < instance.boneMatrices.size()) bone = instance.boneMatrices[emitter.bone];
+                pos += glm::vec3(instance.modelMatrix * bone * glm::vec4(emitter.position, 1.0f));
+            }
+            pos /= static_cast<float>(model->particleEmitters.size());
+        }
+        const glm::vec3 d = pos - center;
+        if (glm::dot(d, d) > radiusSq) continue;
+        bool merged = false;
+        for (const auto& f : out) {
+            if (glm::distance(f.position, pos) < 2.5f) { merged = true; break; }
+        }
+        if (merged) continue;
+        const glm::vec3 size = (model->boundMax - model->boundMin) * instance.scale;
+        int kind = 0;
+        if (model->isTorch) kind = 2;
+        else if (std::max(size.x, size.y) > 3.0f || model->name.find("onfire") != std::string::npos) kind = 1;
+        out.push_back({.position = pos, .kind = kind});
+    }
+}
+
 uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                                        glm::vec4* outPosRadius,
                                        glm::vec4* outColorIntensity,

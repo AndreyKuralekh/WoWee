@@ -602,6 +602,15 @@ public:
     /** Share of a fire light an interior WMO group takes on top of its baked
      *  light (fire_lights.cfg `interior_mix`). */
     [[nodiscard]] static float fireInteriorMix();
+
+    /** The fires within `radius` of `center` to be heard: where their flames
+     *  are and what kind (0 small fire or hearth, 1 large, 2 torch), the fires
+     *  of one grate as one. From the fire registry, in the flat frame too. */
+    struct FireSound {
+        glm::vec3 position{0.0f};
+        int kind = 0;
+    };
+    void gatherFireSounds(const glm::vec3& center, float radius, std::vector<FireSound>& out) const;
     /** The point lights this frame's shaders read, in their order. Each
      *  instance drawn is then given the bits of the ones that reach it. */
     void setLocalLights(const glm::vec4* posRadius, uint32_t count);
