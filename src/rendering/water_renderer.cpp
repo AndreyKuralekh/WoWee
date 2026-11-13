@@ -46,8 +46,9 @@ struct WaterPushConstants {
     float clarity = 1.0f;  // Water clarity: depths the water clouds over are divided by it
     float skyProbe = 0.0f; // 1 when the sky probe holds all six faces and reflections want it
     float refractMode = 0.0f; // 0 screen-space refraction; 1 + strength: the bed moved in the world
+    glm::vec4 extra{0.0f};    // x = caustics strength in the eyes
 };
-static_assert(sizeof(WaterPushConstants) == 112, "the two shader declarations of this range are laid out for 112 bytes");
+static_assert(sizeof(WaterPushConstants) == 128, "water.frag lays this range out for 128 bytes (water.vert reads the first 112)");
 
 
 
@@ -1372,6 +1373,7 @@ void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
         // The eyes' water moves the bed in the world (TASK_12), when asked.
         push.refractMode = (targetWanted == SceneTarget::Eyes && eyeRefractionStrength_ >= 0.0f)
                                ? 1.0f + eyeRefractionStrength_ : 0.0f;
+        push.extra.x = targetWanted == SceneTarget::Eyes ? eyeCaustics_ : 0.0f;
 
         vkCmdPushConstants(cmd, pipelineLayout,
                             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -1838,7 +1840,7 @@ bool WaterRenderer::renderUnderwater(VkCommandBuffer cmd, VkDescriptorSet perFra
         glm::vec4 params2;
     } push{glm::vec4(glm::vec3(colour), water->second ? 1.0f : 0.0f),
            glm::vec4(water->first, seconds, sway, clarity_),
-           glm::vec4(depthRange, 0.0f, 0.0f)};
+           glm::vec4(depthRange, eyeCaustics_, 0.0f)};
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, underwaterPipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &perFrameSet, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 2, 1, &sceneSet, 0, nullptr);

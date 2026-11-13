@@ -136,6 +136,9 @@ public:
     /// strength (1 as designed, 0 a still bed); below 0, the window's
     /// screen-space refraction as before.
     void setEyeRefractionStrength(float s) { eyeRefractionStrength_ = s; }
+    /// Caustics on the bed in the eyes, from above and below (TASK_12): 1 as
+    /// designed, 0 none.
+    void setEyeCaustics(float s) { eyeCaustics_ = s; }
 
     /// The world from under the water for an eye (TASK_12, step 2): drawn in
     /// the eye's continuation pass after its water, over its scene copy,
@@ -361,6 +364,7 @@ private:
     std::optional<glm::vec2> depthRangeOverride_;
     float clarity_ = 1.3f;
     float eyeRefractionStrength_ = -1.0f;  // < 0: screen-space refraction in the eyes too
+    float eyeCaustics_ = 0.0f;
     // The reflection pass ran this frame and set its matrix. Without it the
     // reflection texture holds whatever was last drawn into it, from another
     // camera and maybe another place, and the water is told to leave it out.

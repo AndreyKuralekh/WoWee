@@ -33,6 +33,7 @@ layout(push_constant) uniform Push {
     float clarity;    // how far the eye sees into the water, 1 as designed (Water clarity)
     float skyProbe;   // 1 when SkyProbe holds the whole sky and reflections want it
     float refractMode; // 0: screen-space refraction; 1 + s: the bed moved in the world, strength s (TASK_12)
+    vec4 extra;       // x = caustics strength in the eyes (TASK_12), 0 none
 } push;
 
 layout(set = 1, binding = 0) uniform WaterMaterial {
@@ -141,6 +142,47 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
 // ============================================================
 // Linearize depth
 // ============================================================
+
+// Caustics (TASK_12, step 3): the light the waves focus on the bed, as two
+// cell webs drifting across each other - each the brightness along the edges
+// between the nearest two of a field of moving points - their meeting a
+// brighter thread. In yards on the world's ground plane, the same in both
+// eyes. Written for this client.
+vec2 causticHash(vec2 p) {
+    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+    return fract(sin(p) * 43758.5453);
+}
+
+float causticWeb(vec2 p, float t) {
+    vec2 cell = floor(p);
+    vec2 f = fract(p);
+    float d1 = 8.0;
+    float d2 = 8.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            vec2 o = vec2(float(x), float(y));
+            vec2 h = causticHash(cell + o);
+            vec2 point = o + 0.5 + 0.4 * sin(t * 0.9 + 6.2831 * h);
+            float d = length(point - f);
+            if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) { d2 = d; }
+        }
+    }
+    return 1.0 - smoothstep(0.0, 0.2, d2 - d1);
+}
+
+// How much caustic light falls on a point `depth` yards under the surface:
+// none at the very edge, most a little under it, fading as the water deepens.
+float causticLight(vec3 worldPos, float depth, float t) {
+    if (depth <= 0.0) return 0.0;
+    vec2 p = worldPos.xy * 0.7;
+    // Two webs added, not multiplied: multiplied they met in rare slivers and
+    // the bed showed a few sparks instead of a net of light.
+    float a = causticWeb(p + vec2(t * 0.11, t * 0.07), t);
+    float b = causticWeb(p * 1.37 - vec2(t * 0.06, t * 0.12), t * 1.2);
+    float web = pow(0.5 * (a + b), 1.6) + 0.6 * a * b;
+    return web * smoothstep(0.0, 0.4, depth) * exp(-depth * 0.12);
+}
+
 float linearizeDepth(float d, float near, float far) {
     return near * far / (far - d * (far - near));
 }
@@ -398,6 +440,8 @@ void main() {
     // What stands in front of the water - feet, the bank - is not moved
     // into it: where the moved point lands on something nearer than the
     // surface, the bed is read where it is.
+    vec3 causticBed = vec3(0.0);
+    float causticDepth = 0.0;
     if (push.refractMode > 0.5) {
         float strength = push.refractMode - 1.0;
         float nearPlane = push.depthRange.x;
@@ -409,6 +453,8 @@ void main() {
         vec3 forward = -vec3(view[0][2], view[1][2], view[2][2]);
         vec3 bed = FragPos + rayDir * (behind / max(dot(rayDir, forward), 0.05));
         float bedDepth = min(max(FragPos.z - bed.z, 0.0), 4.0);
+        causticBed = bed;
+        causticDepth = max(FragPos.z - bed.z, 0.0);
         // A third of a yard even in the shallows, and more the deeper the bed:
         // the slopes of inland waves are gentle, and at their own size the bed
         // barely stirred.
@@ -426,6 +472,12 @@ void main() {
     // applied yet. That means a single sharp tap is correct: there is no
     // feedback loop to smear out, and no baked-in brightness to divide back off.
     vec3 sceneRefract = texture(SceneColor, refractUV).rgb;
+    // The bed seen through the water carries the light its waves focus.
+    if (push.extra.x > 0.0 && causticDepth > 0.0) {
+        float sun = (1.0 - lightDir.w) * clamp(-lightDir.z * 1.5, 0.0, 1.0);
+        float c = causticLight(causticBed, causticDepth, time) * push.extra.x * sun;
+        sceneRefract += sceneRefract * lightColor.rgb * (c * 1.6);
+    }
 
     float sceneDepth = texture(SceneDepth, refractUV).r;
 
