@@ -312,6 +312,14 @@ private:
     // Dependencies (non-owning)
     rendering::Renderer* renderer_;
     pipeline::AssetManager* assetManager_;
+    /// Where a creature's weapons hang, as one number to notice a change by:
+    /// its sheath state (UNIT_FIELD_BYTES_2 byte 0), and +16 when the
+    /// animation of its emote state takes the weapon in hand, +32 when it puts
+    /// it away (AnimationData WeaponFlags 32 / 16).
+    uint8_t creatureWeaponState(uint64_t guid) const;
+    /// AnimationData.dbc WeaponFlags of an animation: 32 weapon in hand, 16
+    /// put away, 0 as it is. Read once.
+    uint32_t animationWeaponFlags(uint32_t animId) const;
     game::GameHandler* gameHandler_;
     game::GameServices* gameServices_;
 

@@ -458,11 +458,22 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
     // local character's would be: in the hands, or a one-hander on the hip, a
     // two-hander and a shield on the back. Marshal McBride stands with his
     // put away; every NPC used to hold its weapons whatever it said.
-    const uint16_t bytes2Index = game::fieldIndex(game::UF::UNIT_FIELD_BYTES_2);
-    const uint8_t sheathState = bytes2Index != 0xFFFF
-        ? static_cast<uint8_t>(entity->getField(bytes2Index) & 0xFF) : uint8_t{1};
-    const bool sheathed = sheathState != 1;
-    creatureWeaponSheath_[guid] = sheathState;    for (uint32_t point : {kAttachShield, kAttachRightHand, kAttachLeftHand, kAttachBack,
+    // And the animation it is playing has the last word, as in the original
+    // client: a peasant chopping wood (emote state 234, EmoteWorkNoSheathe)
+    // is sent with its axe put away and swings it from his hand.
+    const uint8_t weaponState = creatureWeaponState(guid);
+    const uint8_t sheathState = weaponState & 0x0F;
+    const bool sheathed = (weaponState & 16) ? false : ((weaponState & 32) ? true : sheathState != 1);
+    {
+        // Said when an emote state overrides the sheath state, so a peasant
+        // with its axe in the wrong place can be looked up.
+        const auto prev = creatureWeaponSheath_.find(guid);
+        if ((weaponState & 48) != 0 && (prev == creatureWeaponSheath_.end() || prev->second != weaponState)) {
+            LOG_DEBUG("NPC weapons ", (weaponState & 16) ? "in hand" : "put away", " for its emote state: guid 0x",
+                      std::hex, guid, std::dec, " sheath state ", static_cast<int>(sheathState));
+        }
+    }
+    creatureWeaponSheath_[guid] = weaponState;    for (uint32_t point : {kAttachShield, kAttachRightHand, kAttachLeftHand, kAttachBack,
                            kAttachSheathShield, kAttachHipWeaponLeft, kAttachHipWeaponRight}) {
         charRenderer->detachWeapon(instanceId, point);
     }
@@ -571,16 +582,46 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
     return hadWeaponCandidate && attachedMain;
 }
 
+uint32_t EntitySpawner::animationWeaponFlags(uint32_t animId) const {
+    static std::unordered_map<uint32_t, uint32_t> flags;
+    static bool loaded = false;
+    if (!loaded && assetManager_) {
+        loaded = true;
+        if (auto dbc = assetManager_->loadDBCOptional("AnimationData.dbc"); dbc && dbc->isLoaded()) {
+            // ID, Name, WeaponFlags, BodyFlags, Flags, Fallback, BehaviorID, BehaviorTier
+            for (uint32_t i = 0; i < dbc->getRecordCount(); ++i) {
+                flags[dbc->getUInt32(i, 0)] = dbc->getUInt32(i, 2);
+            }
+        }
+    }
+    const auto it = flags.find(animId);
+    return it != flags.end() ? it->second : 0u;
+}
+
+uint8_t EntitySpawner::creatureWeaponState(uint64_t guid) const {
+    if (!gameHandler_) return 1;
+    auto entity = gameHandler_->getEntityManager().getEntity(guid);
+    if (!entity) return 1;
+    const uint16_t bytes2Index = game::fieldIndex(game::UF::UNIT_FIELD_BYTES_2);
+    uint8_t state = bytes2Index != 0xFFFF ? static_cast<uint8_t>(entity->getField(bytes2Index) & 0x0F) : uint8_t{1};
+    if (entity->getType() == game::ObjectType::UNIT) {
+        const uint32_t emote = std::static_pointer_cast<game::Unit>(entity)->getNpcEmoteState();
+        const uint32_t anim = emote != 0 ? rendering::AnimationController::getEmoteAnimByEmotesId(emote) : 0;
+        const uint32_t weaponFlags = anim != 0 ? animationWeaponFlags(anim) : 0;
+        if (weaponFlags & 32) state |= 16;
+        else if (weaponFlags & 16) state |= 32;
+    }
+    return state;
+}
+
 bool EntitySpawner::retryCreatureVirtualWeapons(uint64_t guid, uint32_t instanceId,
                                                 uint8_t maxAttempts) {
     if (creatureWeaponsAttached_.count(guid)) {
         // Hung already: again only when the sheath state has changed since -
-        // an NPC drawing its weapons to fight, or putting them away after.
-        const uint16_t bytes2Index = game::fieldIndex(game::UF::UNIT_FIELD_BYTES_2);
-        if (bytes2Index == 0xFFFF || !gameHandler_) return false;
-        auto entity = gameHandler_->getEntityManager().getEntity(guid);
-        if (!entity) return false;
-        const uint8_t now = static_cast<uint8_t>(entity->getField(bytes2Index) & 0xFF);
+        // an NPC drawing its weapons to fight, or putting them away after -
+        // or its emote state takes the weapon in hand or puts it away.
+        if (!gameHandler_) return false;
+        const uint8_t now = creatureWeaponState(guid);
         auto it = creatureWeaponSheath_.find(guid);
         if (it == creatureWeaponSheath_.end() || it->second == now) return false;
         tryAttachCreatureVirtualWeapons(guid, instanceId);
