@@ -667,11 +667,11 @@ void SwimEffects::update(const Camera& camera, const CameraController& cc,
 
     // --- Spray at the feet of near waterfalls (TASK_12) ---
     // The falling water strikes the pool and throws drops up and out along
-    // the fall's width: about 160 a second a fall (at forty there were too few
-    // to read as spray), each up to a couple of
+    // the fall's width: about 320 a second a fall (at forty there were too few
+    // to read as spray, at 160 still thin), each up to a couple of
     // yards high, falling back into the water it came from.
     if (!waterfallFeet_.empty()) {
-        sprayAccum_ += deltaTime * 160.0f * static_cast<float>(waterfallFeet_.size());
+        sprayAccum_ += deltaTime * 320.0f * static_cast<float>(waterfallFeet_.size());
         while (sprayAccum_ >= 1.0f && static_cast<int>(spray_.size()) < MAX_SPRAY_PARTICLES) {
             sprayAccum_ -= 1.0f;
             const glm::vec4& foot = waterfallFeet_[static_cast<size_t>(randFloat(0.0f, 0.999f) *
@@ -681,7 +681,7 @@ void SwimEffects::update(const Camera& camera, const CameraController& cc,
             s.surface = foot.z;
             s.p.position = glm::vec3(foot.x + randFloat(-half, half), foot.y + randFloat(-half, half), foot.z + 0.1f);
             const float a = randFloat(0.0f, 6.2831853f);
-            const float out = randFloat(0.5f, 2.5f);
+            const float out = randFloat(0.5f, 3.5f);
             s.p.velocity = glm::vec3(std::cos(a) * out, std::sin(a) * out, randFloat(2.5f, 6.0f));
             s.p.lifetime = 0.0f;
             s.p.maxLifetime = randFloat(0.7f, 1.4f);
