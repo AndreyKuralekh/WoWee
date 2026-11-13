@@ -33,7 +33,7 @@ layout(push_constant) uniform Push {
     float clarity;    // how far the eye sees into the water, 1 as designed (Water clarity)
     float skyProbe;   // 1 when SkyProbe holds the whole sky and reflections want it
     float refractMode; // 0: screen-space refraction; 1 + s: the bed moved in the world, strength s (TASK_12)
-    vec4 extra;       // x = caustics strength in the eyes (TASK_12), 0 none
+    vec4 extra;       // x = caustics strength in the eyes (TASK_12), 0 none; y = 1: screen-space reflections
 } push;
 
 layout(set = 1, binding = 0) uniform WaterMaterial {
@@ -661,6 +661,84 @@ void main() {
         // buildings and the shore the sky probe cannot.
         envReflect = mix(envReflect, texReflect * 0.9, reflValidity);
         reflAmount = mix(reflAmount, 1.0, reflValidity);
+    }
+
+    // Screen-space reflection: what stands above the water and is in the
+    // frame - the far bank, a wall, a bridge, lamps - found by walking the
+    // reflected ray through the frame's own depth, in each eye with its own
+    // matrices. Over the sky and the planar one where it hits; where the ray
+    // leaves the frame or passes behind something, they stay. The capture is
+    // the scene before the water, so it holds no water to feed back.
+    if (push.extra.y > 0.5 && push.sceneValid > 0.5 && dist < 400.0) {
+        // Marched off the flat surface, so neighbouring pixels find the same
+        // thing: off the ripples, each found a different one and the mirror
+        // broke into specks. The waves move the image afterwards instead.
+        vec3 R = reflect(-viewDir, vec3(0.0, 0.0, 1.0));
+        if (R.z > 0.0) {
+            mat4 viewProj = projection * view;
+            float nearP = push.depthRange.x;
+            float farP = push.depthRange.y;
+            // A step that grows, so a few dozen reach from the near bank to
+            // the far one; the start a little above the surface, clear of it.
+            const int kSteps = 28;
+            float t = 0.35;
+            float prevT = 0.0;
+            vec2 hitUV = vec2(-1.0);
+            float hitStep = 0.0;
+            vec3 forward = -vec3(view[0][2], view[1][2], view[2][2]);
+            // Which way the projection's y runs against the frame: the window's
+            // projection and a headset eye's differ, so it is read off this
+            // very pixel, which projects onto itself.
+            vec4 selfClip = viewProj * vec4(FragPos, 1.0);
+            float selfY = selfClip.y / selfClip.w * 0.5 + 0.5;
+            bool flipY = abs((1.0 - selfY) - screenUV.y) < abs(selfY - screenUV.y);
+            for (int i = 0; i < kSteps; ++i) {
+                vec3 P = FragPos + R * t;
+                vec4 clip = viewProj * vec4(P, 1.0);
+                if (clip.w < nearP) break;
+                vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+                if (flipY) uv.y = 1.0 - uv.y;
+                if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
+                float sceneLin = linearizeDepth(textureLod(SceneDepth, uv, 0.0).r, nearP, farP);
+                float gap = clip.w - sceneLin;
+                // Behind what the frame shows there, and not by more than that
+                // thing can be thick: a hit. Refined between the last two steps.
+                // What the frame shows there, put back in the world: the
+                // capture holds no water, so the bed and the bank under the
+                // surface are in it too, and a ray passing over them must not
+                // take them for what it reflects.
+                vec3 toP = normalize(P - viewPos.xyz);
+                vec3 scenePoint = viewPos.xyz + toP * (sceneLin / max(dot(toP, forward), 0.05));
+                bool aboveWater = scenePoint.z > FragPos.z + 0.1;
+                if (gap > 0.0 && gap < max(0.6, t * 0.08) && aboveWater) {
+                    float a = prevT, b = t;
+                    for (int k = 0; k < 5; ++k) {
+                        float m = 0.5 * (a + b);
+                        vec4 c = viewProj * vec4(FragPos + R * m, 1.0);
+                        vec2 u = c.xy / c.w * 0.5 + 0.5;
+                        if (flipY) u.y = 1.0 - u.y;
+                        float s = linearizeDepth(textureLod(SceneDepth, u, 0.0).r, nearP, farP);
+                        if (c.w > s) b = m; else a = m;
+                    }
+                    vec4 c = viewProj * vec4(FragPos + R * b, 1.0);
+                    hitUV = c.xy / c.w * 0.5 + 0.5;
+                    if (flipY) hitUV.y = 1.0 - hitUV.y;
+                    hitStep = float(i) / float(kSteps);
+                    break;
+                }
+                prevT = t;
+                t = t * 1.28 + 0.15;
+            }
+            if (hitUV.x >= 0.0) {
+                vec2 edge = smoothstep(vec2(0.0), vec2(0.08), hitUV) * smoothstep(vec2(1.0), vec2(0.92), hitUV);
+                float confidence = edge.x * edge.y * (1.0 - hitStep * hitStep);
+                // Rippled a little by the waves, as the planar one is.
+                vec2 uv = clamp(hitUV + detailNorm.xy * (0.012 * detailFade), vec2(0.001), vec2(0.999));
+                vec3 seen = texture(SceneColor, uv).rgb;
+                envReflect = mix(envReflect, seen * 0.9, confidence);
+                reflAmount = mix(reflAmount, 1.0, confidence);
+            }
+        }
     }
 
     // ============================================================

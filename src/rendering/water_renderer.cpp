@@ -1374,6 +1374,9 @@ void WaterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
         push.refractMode = (targetWanted == SceneTarget::Eyes && eyeRefractionStrength_ >= 0.0f)
                                ? 1.0f + eyeRefractionStrength_ : 0.0f;
         push.extra.x = targetWanted == SceneTarget::Eyes ? eyeCaustics_ : 0.0f;
+        // Screen-space reflections wherever the sky's are wanted: the frame's
+        // own colour and depth are what the water reads for refraction anyway.
+        push.extra.y = skyReflection_ ? 1.0f : 0.0f;
 
         vkCmdPushConstants(cmd, pipelineLayout,
                             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
