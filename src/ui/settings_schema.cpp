@@ -1044,6 +1044,12 @@ constexpr SettingDesc kSchema[] = {
     {"vrwaterrefraction", "Water bed sway", SettingKind::Float, 0.0f, 2.0f, 0.1f, "VR view", "Picture",
      "How much the bed under the water sways with the waves. 0 holds it\n"
      "still, 1 as designed.", "", 1.0f},
+    {"vrunderwater", "Underwater view", SettingKind::Bool, 0, 0, 0, "VR view", "Picture",
+     "Under the water the world wavers and fades into the water's own\n"
+     "colour, and the surface above is a window to the sky.", "", 1},
+    {"vrunderwatersway", "Underwater sway", SettingKind::Float, 0.0f, 2.0f, 0.1f, "VR view", "Picture",
+     "How much the world wavers under the water. 0 holds it still - for\n"
+     "anyone it makes uneasy.", "", 1.0f},
     {"vreyescale", "Eye resolution", SettingKind::Int, 70, 150, 5, "VR view", "Picture",
      "How many pixels each eye's picture has, in percent of what the\n"
      "headset asks for along each side. Above 100 the edges are smoother\n"

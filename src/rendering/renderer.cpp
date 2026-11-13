@@ -126,6 +126,8 @@ namespace rendering {
 static bool vrLeanFrame() { return xr::system().leanFrame(); }
 static bool vrLeanShadows() { return xr::system().leanShadows(); }
 static bool vrHeadsetFrame() { return xr::system().sessionRunning() || xr::system().fakeHeadset(); }
+// The eyes draw their own view from under the water (TASK_12).
+static bool vrOwnUnderwaterView() { return vrHeadsetFrame() && xr::system().underwaterView(); }
 static float vrShadowStrength(float flat) {
     return vrHeadsetFrame() ? glm::clamp(xr::system().headsetShadowStrength(), 0.0f, 1.0f) : flat;
 }
@@ -134,6 +136,7 @@ static bool vrLeanFrame() { return false; }
 static bool vrLeanShadows() { return false; }
 static float vrShadowStrength(float flat) { return flat; }
 static bool vrHeadsetFrame() { return false; }
+static bool vrOwnUnderwaterView() { return false; }
 #endif
 
 
@@ -676,7 +679,9 @@ void Renderer::updatePerFrameUBO() {
         currentFrameData.fogParams.y = lp.fogEnd;
 
         // Shift fog to blue when camera is significantly underwater (terrain water only).
-        if (waterRenderer && camera) {
+        // Not in the headset with its own underwater view: the haze is the
+        // eyes' there, and the game's camera stands behind the head.
+        if (waterRenderer && camera && !vrOwnUnderwaterView()) {
             glm::vec3 camPos = camera->getPosition();
             auto waterH = waterRenderer->getNearestWaterHeightAt(camPos.x, camPos.y, camPos.z);
             constexpr float MIN_SUBMERSION = 2.0f;
@@ -2340,6 +2345,17 @@ void Renderer::update(float deltaTime) {
         float gameTime    = gh ? gh->getGameTime() : -1.0f;
         bool isRaining    = gh ? gh->isRaining() : false;
         bool isUnderwater = cameraController ? cameraController->isSwimming() : false;
+#ifdef WOWEE_VR
+        // In the headset, the underwater light is for a head under the water,
+        // not for a character swimming with its head above it.
+        {
+            glm::vec3 headPos, headFwd, headUp;
+            if (xr::system().underwaterView() && waterRenderer && vrHeadPose(headPos, headFwd, headUp)) {
+                const auto water = waterRenderer->waterOverhead(headPos);
+                isUnderwater = water && headPos.z < water->first;
+            }
+        }
+#endif
         const uint32_t resolvedZoneId = getCurrentZoneId();
 
         lightingManager->update(characterPosition, mapId, resolvedZoneId,
@@ -4023,6 +4039,10 @@ void Renderer::syncSwimEffectsTargetPass() {
 }
 
 void Renderer::renderUnderwaterOverlay(VkCommandBuffer cmd) {
+#ifdef WOWEE_VR
+    // The eyes have their own view from under the water (TASK_12).
+    if (vrEyePass_ && xr::system().underwaterView()) return;
+#endif
     // One implementation, called from both recording paths.
     //
     // There were two. The parallel path had this one - a waterline that

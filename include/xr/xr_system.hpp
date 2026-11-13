@@ -183,6 +183,12 @@ public:
     // (TASK_12): 1 as designed, 0 still.
     void setWaterRefraction(float s) { waterRefraction_ = std::clamp(s, 0.0f, 2.0f); }
     [[nodiscard]] float waterRefraction() const { return waterRefraction_; }
+    // The view from under the water (TASK_12): the world beyond wavers and
+    // sinks into the water's body, the surface a window above. Sway: how much.
+    void setUnderwaterView(bool on) { underwaterView_ = on; }
+    [[nodiscard]] bool underwaterView() const { return underwaterView_; }
+    void setUnderwaterSway(float s) { underwaterSway_ = std::clamp(s, 0.0f, 2.0f); }
+    [[nodiscard]] float underwaterSway() const { return underwaterSway_; }
     [[nodiscard]] float fireFlicker() const { return fireFlicker_; }
     void setHeadsetShadowStrength(float strength) { headsetShadowStrength_ = strength; }
     [[nodiscard]] float headsetShadowStrength() const { return headsetShadowStrength_; }
@@ -643,6 +649,8 @@ private:
     int fireVolumeSteps_ = 20;
     bool fireHeatHaze_ = true;
     float waterRefraction_ = 1.0f;
+    bool underwaterView_ = true;
+    float underwaterSway_ = 1.0f;
     bool sheathToggle_ = false;
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;

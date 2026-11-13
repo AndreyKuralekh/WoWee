@@ -1850,6 +1850,8 @@ void GameScreen::saveSettings() {
     out << "vr_fire_volume_steps=" << settingsPanel_.pendingVrFireVolumeSteps << "\n";
     out << "vr_fire_heat_haze=" << (settingsPanel_.pendingVrFireHeatHaze ? 1 : 0) << "\n";
     out << "vr_water_refraction=" << settingsPanel_.pendingVrWaterRefraction << "\n";
+    out << "vr_underwater=" << (settingsPanel_.pendingVrUnderwater ? 1 : 0) << "\n";
+    out << "vr_underwater_sway=" << settingsPanel_.pendingVrUnderwaterSway << "\n";
     out << "vr_eye_scale=" << settingsPanel_.pendingVrEyeScale << "\n";
     out << "vr_draw_by_reach=" << (settingsPanel_.pendingVrDrawByReach ? 1 : 0) << "\n";
     out << "vr_keep_casting=" << (settingsPanel_.pendingVrKeepCasting ? 1 : 0) << "\n";
@@ -2167,6 +2169,8 @@ void GameScreen::loadSettings() {
             else if (key == "vr_fire_volume_steps") settingsPanel_.pendingVrFireVolumeSteps = std::clamp(std::stoi(val), 8, 48);
             else if (key == "vr_fire_heat_haze") settingsPanel_.pendingVrFireHeatHaze = (val == "1");
             else if (key == "vr_water_refraction") settingsPanel_.pendingVrWaterRefraction = std::clamp(std::stof(val), 0.0f, 2.0f);
+            else if (key == "vr_underwater") settingsPanel_.pendingVrUnderwater = (val == "1");
+            else if (key == "vr_underwater_sway") settingsPanel_.pendingVrUnderwaterSway = std::clamp(std::stof(val), 0.0f, 2.0f);
             else if (key == "vr_eye_scale") settingsPanel_.pendingVrEyeScale = std::clamp(std::stoi(val), 70, 150);
             else if (key == "vr_draw_by_reach") settingsPanel_.pendingVrDrawByReach = (val == "1");
             else if (key == "vr_keep_casting") settingsPanel_.pendingVrKeepCasting = (val == "1");

@@ -690,6 +690,13 @@ bool Renderer::vrEyeWaterAfterPass() const {
 
 void Renderer::vrDrawEyeWater(uint32_t eye, VkDescriptorSet perFrameSet) {
     const bool particles = vrParticlesApart_ && vrParticlesCmd_ != VK_NULL_HANDLE;
+    // The view from under the water (TASK_12) reads the same copy.
+    const glm::vec3 eyePos = vrEyes_->views.eye[eye].position;
+    bool underwater = false;
+    if (xr::system().underwaterView() && waterRenderer) {
+        const auto water = waterRenderer->waterOverhead(eyePos);
+        underwater = water && eyePos.z < water->first + 0.3f;
+    }
     if (!vrEyeWaterAfterPass() || !camera || !waterRenderer->hasSurfaces()) {
         if (particles) vrDrawEyeParticles(eye, false);
         vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkWater));
@@ -700,7 +707,7 @@ void Renderer::vrDrawEyeWater(uint32_t eye, VkDescriptorSet perFrameSet) {
     // One copy for both eyes, in turn: the copy's barrier waits for the first
     // eye's water to have read it before the second eye's scene goes in.
     // Soft particles read the same copy after the water.
-    const bool copied = waterRenderer->isRefractionEnabled() || particles;
+    const bool copied = waterRenderer->isRefractionEnabled() || particles || underwater;
     if (copied) {
         waterRenderer->captureSceneHistory(currentCmd, vrEyes_->color[eye].image, vrEyes_->depth[eye].image,
                                            vrEyes_->extent, false, frame, WaterRenderer::SceneTarget::Eyes);
@@ -728,6 +735,12 @@ void Renderer::vrDrawEyeWater(uint32_t eye, VkDescriptorSet perFrameSet) {
     waterRenderer->clearDepthRange();
     // The splashes go on the surface they are thrown off; set up to be drawn
     // with the water, they were drawn nowhere in the eyes.
+    // Under the water, the world beyond the surface wavers and sinks into it.
+    if (underwater) {
+        waterRenderer->renderUnderwater(currentCmd, perFrameSet, frame, eyePos, globalTime,
+                                        xr::system().underwaterSway(),
+                                        glm::vec2(kVrNearPlane, camera->getFarPlane()));
+    }
     if (swimEffects && swimEffectsDrawWithWater_) swimEffects->render(currentCmd, perFrameSet, static_cast<float>(vrEyes_->extent.height));
 
     vkCmdEndRenderPass(currentCmd);
