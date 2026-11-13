@@ -637,8 +637,8 @@ void main() {
         float lod = mix(4.0, 1.0, detailFade);
         vec3 sky = textureLod(SkyProbe, R, lod).rgb;
         sky = mix(fogColor.rgb, sky, smoothstep(0.02, 0.25, R.z));
-        envReflect = sky * 0.8;
-        reflAmount = 0.5 * calmFresnel / max(fresnel, 0.001);
+        envReflect = sky * 0.9;
+        reflAmount = calmFresnel / max(fresnel, 0.001);
     }
 
     vec4 reflClip = reflViewProj * vec4(FragPos, 1.0);
@@ -659,8 +659,8 @@ void main() {
 
         // The planar one over the sky where it holds something: it has the
         // buildings and the shore the sky probe cannot.
-        envReflect = mix(envReflect, texReflect * 0.5, reflValidity);
-        reflAmount = mix(reflAmount, 0.4, reflValidity);
+        envReflect = mix(envReflect, texReflect * 0.9, reflValidity);
+        reflAmount = mix(reflAmount, 1.0, reflValidity);
     }
 
     // ============================================================
@@ -713,8 +713,12 @@ void main() {
     // ============================================================
     // Combine - reflection only where valid, no dark fallback
     // ============================================================
-    // reflAmount is 0 where no valid reflection data exists - no dark arc
-    float reflectWeight = clamp(fresnel * reflAmount, 0.0, 0.30);
+    // reflAmount is 0 where no valid reflection data exists - no dark arc.
+    // Schlick's weight as it is: next to nothing looking down, most of the
+    // light toward the horizon, where water is a mirror. Held to 0.30 before,
+    // so even at a grazing look seven tenths were the bed and the canal wall
+    // under the surface, and the water read as glass.
+    float reflectWeight = clamp(fresnel * reflAmount * 1.2, 0.0, 0.90);
     vec3 color = mix(refractedColor, envReflect, reflectWeight);
     color += specular + sssColor;
 
@@ -900,6 +904,9 @@ void main() {
     // ...and the surface itself lets a little more through, half as much again.
     alpha /= mix(1.0, max(push.clarity, 0.1), 0.5);
     alpha = clamp(alpha, 0.15, 0.92);
+    // What the surface reflects is not seen through: the sheet goes opaque by
+    // the reflection's weight, or the scene behind would thin the mirror out.
+    alpha = mix(alpha, 1.0, reflectWeight);
     // Wet sand is a band on the beach, not a film of water, so it needs enough
     // presence to darken what is under it; foam has to be close to opaque or it
     // does not read at all.
