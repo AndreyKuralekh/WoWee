@@ -678,8 +678,16 @@ public:
         bool volumes = true;         // the fire volumes themselves (off: only the mist, say)
     };
     void setFireVolumeParams(const FireVolumeParams& p) { fireVolumeParams_ = p; }
+    /// The water's level over a point, searched up to `reach` above it - for
+    /// where a waterfall meets its pool. Unset: the foot of its model.
+    void setWaterLevelQuery(std::function<std::optional<float>(const glm::vec3&, float)> q) {
+        waterLevelQuery_ = std::move(q);
+    }
     void renderFireVolumes(VkCommandBuffer cmd, VkDescriptorSet perFrameSet);
     [[nodiscard]] uint32_t fireVolumeCount() const { return static_cast<uint32_t>(fireVolumes_.size()); }
+    /// The feet of the waterfalls given mist this frame: xyz where the fall
+    /// meets its pool, w its width (TASK_12) - for the spray.
+    [[nodiscard]] const std::vector<glm::vec4>& waterfallFeet() const { return waterfallFeet_; }
 
     /**
      * Render smoke particles from chimneys etc.
@@ -1397,9 +1405,12 @@ private:
         glm::vec3 boxMax{0.0f};
         float brightness = 1.0f;
         float seed = 0.0f;
+        float pool = -1.0e6f;   // a waterfall mist's pool level: nothing wavers below it
     };
     mutable std::vector<FireVolume> fireVolumes_;
     mutable std::vector<FireVolume> waterfallMists_;  // boxes at the feet of near waterfalls (brightness = strength)
+    mutable std::vector<glm::vec4> waterfallFeet_;
+    std::function<std::optional<float>(const glm::vec3&, float)> waterLevelQuery_;
     mutable std::vector<size_t> fireVolumeInstances_;   // whose flame particles were faded
     VkPipeline fireVolumePipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout fireVolumeLayout_ = VK_NULL_HANDLE;

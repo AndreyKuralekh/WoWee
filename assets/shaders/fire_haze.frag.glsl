@@ -23,7 +23,8 @@ layout(set = 2, binding = 0) uniform sampler2D uSceneColor;
 layout(push_constant) uniform Push {
     vec4 boxMin;     // xyz; w = seconds
     vec4 boxMax;     // xyz; w = strength
-    vec4 params;     // y = seed
+    vec4 params;     // y = seed, z = a pool's level: nothing under it wavers (the water drawn
+                     // after the copy would be lost from the shifted copy)
 } push;
 
 layout(location = 0) in vec3 vWorldPos;
@@ -67,6 +68,8 @@ void main() {
     vec3 forward = -vec3(view[0][2], view[1][2], view[2][2]);
     float tScene = viewDistance(sceneDepth) / max(dot(rd, forward), 1e-3);
     if (tScene <= tNear) discard;
+    // Only the air over a waterfall's pool, not the water in it.
+    if ((ro + rd * min(tScene, 1.0e4)).z < push.params.z) discard;
 
     // How strong the shimmer is where the ray crosses the box's middle:
     // strongest over the middle of the grate and low down, gone at the edges.

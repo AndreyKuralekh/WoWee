@@ -322,6 +322,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
     // and the view through it wavers (TASK_12): the lowest fifth of each,
     // a little wider, within 45 yards, the four nearest.
     waterfallMists_.clear();
+    waterfallFeet_.clear();
     if (fireVolumeParams_.enabled && fireVolumeParams_.waterfallMist) {
         std::vector<std::pair<float, FireVolume>> falls;
         for (const auto& instance : instances) {
@@ -329,19 +330,41 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             if (!model || !model->isWaterfall) continue;
             const glm::vec3 lo = instance.worldBoundsMin;
             const glm::vec3 hi = instance.worldBoundsMax;
-            const glm::vec3 foot(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), lo.z);
+            glm::vec3 foot(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), lo.z);
+            // Where the fall meets its pool, if it falls into water: the
+            // model's own foot can stand yards under the ground (Elwynn's tall
+            // fall has it twenty under its pool).
+            float pool = -1.0e6f;
+            if (waterLevelQuery_) {
+                if (const auto level = waterLevelQuery_(foot, hi.z - lo.z)) {
+                    foot.z = *level;
+                    pool = *level;
+                }
+            }
             const float dist = glm::distance(foot, cameraPos);
             if (dist > 45.0f) continue;
             FireVolume mist;
             const glm::vec3 grow(1.5f, 1.5f, 0.0f);
-            mist.boxMin = lo - grow;
-            mist.boxMax = glm::vec3(hi.x, hi.y, lo.z + std::max(2.0f, 0.2f * (hi.z - lo.z))) + grow;
-            mist.brightness = 0.6f * std::clamp((45.0f - dist) / 10.0f, 0.0f, 1.0f);
+            mist.boxMin = glm::vec3(lo.x, lo.y, foot.z - 0.5f) - grow;
+            mist.boxMax = glm::vec3(hi.x, hi.y, foot.z + std::clamp(0.15f * (hi.z - lo.z), 3.0f, 8.0f)) + grow;
+            mist.pool = pool;
+            // Strong enough to see against the falling water: at 0.6 it moved
+            // the view three pixels and nobody saw it.
+            mist.brightness = 1.6f * std::clamp((45.0f - dist) / 10.0f, 0.0f, 1.0f);
             mist.seed = std::fmod(std::abs(foot.x * 0.37f + foot.y * 0.11f), 97.0f);
             falls.push_back({dist, mist});
         }
         std::sort(falls.begin(), falls.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-        for (size_t i = 0; i < falls.size() && i < 4; ++i) waterfallMists_.push_back(falls[i].second);
+        for (size_t i = 0; i < falls.size() && i < 4; ++i) {
+            const FireVolume& m = falls[i].second;
+            waterfallMists_.push_back(m);
+            // The foot: the middle of the fall's bottom, the width across its
+            // longer side less the mist's margin.
+            const glm::vec3 lo = m.boxMin + glm::vec3(1.5f, 1.5f, 0.0f);
+            const glm::vec3 hi = m.boxMax - glm::vec3(1.5f, 1.5f, 0.0f);
+            waterfallFeet_.push_back(glm::vec4(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), lo.z + 0.5f,
+                                               std::max(hi.x - lo.x, hi.y - lo.y)));
+        }
         static size_t saidFalls = static_cast<size_t>(-1);
         if (waterfallMists_.size() != saidFalls) {
             saidFalls = waterfallMists_.size();
@@ -820,6 +843,11 @@ bool M2Renderer::buildMainPassPipelines(VkDescriptorSetLayout perFrameLayout) {
         rendering::VkShaderModule hazeFrag;
         if (fireHazeLayout_ && volVert.isValid() &&
             hazeFrag.loadFromFile(device, "assets/shaders/fire_haze.frag.spv")) {
+            // Colour only: the eye's alpha is what its glow is masked by, and
+            // written as one the haze's box showed through the glow as a
+            // darker rectangle.
+            VkPipelineColorBlendAttachmentState colourOnly = PipelineBuilder::blendDisabled();
+            colourOnly.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
             fireHazePipeline_ = PipelineBuilder()
                 .setShaders(volVert.stageInfo(VK_SHADER_STAGE_VERTEX_BIT),
                             hazeFrag.stageInfo(VK_SHADER_STAGE_FRAGMENT_BIT))
@@ -827,7 +855,7 @@ bool M2Renderer::buildMainPassPipelines(VkDescriptorSetLayout perFrameLayout) {
                 .setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
                 .setRasterization(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE)
                 .setDepthTest(false, false, VK_COMPARE_OP_ALWAYS)
-                .setColorBlendAttachment(PipelineBuilder::blendDisabled())
+                .setColorBlendAttachment(colourOnly)
                 .setMultisample(vkCtx_->getMsaaSamples())
                 .setLayout(fireHazeLayout_)
                 .setRenderPass(mainPass)

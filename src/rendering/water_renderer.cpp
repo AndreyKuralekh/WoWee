@@ -1797,13 +1797,17 @@ void WaterRenderer::buildUnderwaterPipeline() {
         frag.destroy();
         return;
     }
+    // Colour only: the eye's alpha masks its glow, and is left as the scene
+    // wrote it.
+    VkPipelineColorBlendAttachmentState colourOnly = PipelineBuilder::blendDisabled();
+    colourOnly.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
     underwaterPipeline_ = PipelineBuilder()
         .setShaders(vert.stageInfo(VK_SHADER_STAGE_VERTEX_BIT), frag.stageInfo(VK_SHADER_STAGE_FRAGMENT_BIT))
         .setVertexInput({}, {})
         .setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
         .setRasterization(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE)
         .setDepthTest(false, false, VK_COMPARE_OP_ALWAYS)
-        .setColorBlendAttachment(PipelineBuilder::blendDisabled())
+        .setColorBlendAttachment(colourOnly)
         .setMultisample(vkCtx->getMsaaSamples())
         .setLayout(pipelineLayout)
         .setRenderPass(vkCtx->getImGuiRenderPass())

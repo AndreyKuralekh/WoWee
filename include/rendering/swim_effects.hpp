@@ -58,6 +58,10 @@ public:
     /// copy for frame-in-flight `frame`, set before render; off, they draw as
     /// they always have.
     void setSoftDepth(bool on, uint32_t frame = 0, VkImageView depthView = VK_NULL_HANDLE);
+    /// Where near waterfalls meet the water (TASK_12): xyz the foot on the
+    /// water's surface, w how wide the fall is. Spray is thrown up there each
+    /// frame; an empty list stops it.
+    void setWaterfallFeet(const std::vector<glm::vec4>& feet) { waterfallFeet_ = feet; }
     void spawnFootSplash(const glm::vec3& footPos, float waterH);
     void setM2Renderer(M2Renderer* renderer) { m2Renderer = renderer; }
 
@@ -85,10 +89,18 @@ private:
     };
 
     static constexpr int MAX_RIPPLE_PARTICLES = 600;
+    static constexpr int MAX_SPRAY_PARTICLES = 900;   // at the feet of waterfalls, drawn with the ripples
     static constexpr int MAX_BUBBLE_PARTICLES = 150;
     static constexpr int MAX_INSECT_PARTICLES = 50;
 
     std::vector<Particle> ripples;
+    struct SprayParticle {
+        Particle p;
+        float surface = 0.0f;   // the water it falls back into
+    };
+    std::vector<SprayParticle> spray_;
+    std::vector<glm::vec4> waterfallFeet_;
+    float sprayAccum_ = 0.0f;
     std::vector<Particle> bubbles;
     std::vector<InsectParticle> insects;
 

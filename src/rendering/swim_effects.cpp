@@ -260,7 +260,7 @@ bool SwimEffects::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayou
     }
 
     // ---- Create dynamic mapped vertex buffers ----
-    rippleDynamicVBSize = MAX_RIPPLE_PARTICLES * 5 * sizeof(float);
+    rippleDynamicVBSize = (MAX_RIPPLE_PARTICLES + MAX_SPRAY_PARTICLES) * 5 * sizeof(float);
     {
         AllocatedBuffer buf = createBuffer(vkCtx->getAllocator(), rippleDynamicVBSize,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
@@ -665,6 +665,46 @@ void SwimEffects::update(const Camera& camera, const CameraController& cc,
         p.size = glm::mix(5.0f, 2.0f, t);
     }
 
+    // --- Spray at the feet of near waterfalls (TASK_12) ---
+    // The falling water strikes the pool and throws drops up and out along
+    // the fall's width: about forty a second a fall, each up to a couple of
+    // yards high, falling back into the water it came from.
+    if (!waterfallFeet_.empty()) {
+        sprayAccum_ += deltaTime * 40.0f * static_cast<float>(waterfallFeet_.size());
+        while (sprayAccum_ >= 1.0f && static_cast<int>(spray_.size()) < MAX_SPRAY_PARTICLES) {
+            sprayAccum_ -= 1.0f;
+            const glm::vec4& foot = waterfallFeet_[static_cast<size_t>(randFloat(0.0f, 0.999f) *
+                                                                       static_cast<float>(waterfallFeet_.size()))];
+            const float half = std::max(foot.w * 0.5f, 1.0f);
+            SprayParticle s;
+            s.surface = foot.z;
+            s.p.position = glm::vec3(foot.x + randFloat(-half, half), foot.y + randFloat(-half, half), foot.z + 0.1f);
+            const float a = randFloat(0.0f, 6.2831853f);
+            const float out = randFloat(0.5f, 2.5f);
+            s.p.velocity = glm::vec3(std::cos(a) * out, std::sin(a) * out, randFloat(2.5f, 6.0f));
+            s.p.lifetime = 0.0f;
+            s.p.maxLifetime = randFloat(0.7f, 1.4f);
+            s.p.size = randFloat(6.0f, 12.0f);
+            s.p.alpha = randFloat(0.35f, 0.6f);
+            spray_.push_back(s);
+        }
+        if (sprayAccum_ > 4.0f) sprayAccum_ = 0.0f;
+    }
+    for (int i = static_cast<int>(spray_.size()) - 1; i >= 0; --i) {
+        auto& s = spray_[static_cast<size_t>(i)];
+        s.p.lifetime += deltaTime;
+        s.p.velocity.z -= 9.8f * deltaTime;
+        s.p.position += s.p.velocity * deltaTime;
+        if (s.p.lifetime >= s.p.maxLifetime || (s.p.position.z < s.surface && s.p.lifetime > 0.1f)) {
+            spray_[static_cast<size_t>(i)] = spray_.back();
+            spray_.pop_back();
+            continue;
+        }
+        const float t = s.p.lifetime / s.p.maxLifetime;
+        s.p.alpha = glm::mix(0.55f, 0.0f, t);
+        s.p.size = glm::mix(12.0f, 5.0f, t);
+    }
+
     // --- Update bubbles ---
     float bubbleCeilH = camWaterH ? *camWaterH : 0.0f;
     for (int i = static_cast<int>(bubbles.size()) - 1; i >= 0; --i) {
@@ -726,13 +766,20 @@ void SwimEffects::update(const Camera& camera, const CameraController& cc,
 
     // --- Build vertex data ---
     rippleVertexData.clear();
-    rippleVertexData.reserve(ripples.size() * 5);
+    rippleVertexData.reserve((ripples.size() + spray_.size()) * 5);
     for (const auto& p : ripples) {
         rippleVertexData.push_back(p.position.x);
         rippleVertexData.push_back(p.position.y);
         rippleVertexData.push_back(p.position.z);
         rippleVertexData.push_back(p.size);
         rippleVertexData.push_back(p.alpha);
+    }
+    for (const auto& s : spray_) {
+        rippleVertexData.push_back(s.p.position.x);
+        rippleVertexData.push_back(s.p.position.y);
+        rippleVertexData.push_back(s.p.position.z);
+        rippleVertexData.push_back(s.p.size);
+        rippleVertexData.push_back(s.p.alpha);
     }
 
     bubbleVertexData.clear();

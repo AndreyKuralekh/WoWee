@@ -1237,7 +1237,7 @@ void M2Renderer::renderFireVolumes(VkCommandBuffer cmd, VkDescriptorSet perFrame
             const glm::vec4 push[3] = {
                 glm::vec4(hazeMin, fireParams_.seconds),
                 glm::vec4(hazeMax, std::min(v.brightness, 1.0f)),
-                glm::vec4(0.0f, v.seed, 0.0f, 0.0f),
+                glm::vec4(0.0f, v.seed, -1.0e6f, 0.0f),
             };
             vkCmdPushConstants(cmd, fireHazeLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                                0, sizeof(push), push);
@@ -1254,7 +1254,7 @@ void M2Renderer::renderFireVolumes(VkCommandBuffer cmd, VkDescriptorSet perFrame
             const glm::vec4 push[3] = {
                 glm::vec4(m.boxMin, fireParams_.seconds * 1.6f),
                 glm::vec4(m.boxMax, m.brightness),
-                glm::vec4(0.0f, m.seed, 0.0f, 0.0f),
+                glm::vec4(0.0f, m.seed, m.pool, 0.0f),
             };
             vkCmdPushConstants(cmd, fireHazeLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                                0, sizeof(push), push);
