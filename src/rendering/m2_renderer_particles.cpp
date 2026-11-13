@@ -1120,10 +1120,28 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
     }
 }
 
-void M2Renderer::setSoftParticles(bool on, uint32_t frame, VkImageView depthView) {
+void M2Renderer::setSoftParticles(bool on, uint32_t frame, VkImageView depthView, VkImageView colorView) {
     softParticles_ = on && depthView != VK_NULL_HANDLE;
     softParticleFrame_ = frame % kSoftDepthFrames;
     if (!softParticles_ || !ensureParticleDepthSets()) return;
+    VkImageView& seenColor = sceneColorViews_[softParticleFrame_];
+    if (colorView != VK_NULL_HANDLE && seenColor != colorView) {
+        VkSamplerCreateInfo ci{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        ci.magFilter = VK_FILTER_LINEAR;
+        ci.minFilter = VK_FILTER_LINEAR;
+        ci.addressModeU = ci.addressModeV = ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        VkDescriptorImageInfo img{};
+        img.sampler = vkCtx_->getOrCreateSampler(ci);
+        img.imageView = colorView;
+        img.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkWriteDescriptorSet write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        write.dstSet = sceneColorSets_[softParticleFrame_];
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &img;
+        vkUpdateDescriptorSets(vkCtx_->getDevice(), 1, &write, 0, nullptr);
+        seenColor = colorView;
+    }
     VkImageView& seen = particleDepthViews_[softParticleFrame_];
     if (seen == depthView) return;
     // Rewritten only when the copy itself is new (the eye resolution changed),
@@ -1150,19 +1168,24 @@ bool M2Renderer::ensureParticleDepthSets() {
     if (particleDepthPool_) return true;
     if (!vkCtx_ || !particleTexLayout_ || !whiteTexture_ || !whiteTexture_->isValid()) return false;
     const VkDevice device = vkCtx_->getDevice();
-    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSoftDepthFrames + 1};
+    constexpr uint32_t kSets = kSoftDepthFrames + 1 + kSoftDepthFrames;
+    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSets};
     VkDescriptorPoolCreateInfo pi{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    pi.maxSets = kSoftDepthFrames + 1;
+    pi.maxSets = kSets;
     pi.poolSizeCount = 1;
     pi.pPoolSizes = &size;
     if (vkCreateDescriptorPool(device, &pi, nullptr, &particleDepthPool_) != VK_SUCCESS) return false;
-    VkDescriptorSetLayout layouts[kSoftDepthFrames + 1];
+    VkDescriptorSetLayout layouts[kSets];
     for (auto& l : layouts) l = particleTexLayout_;
+    VkDescriptorSet sets[kSets] = {};
     VkDescriptorSetAllocateInfo ai{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     ai.descriptorPool = particleDepthPool_;
-    ai.descriptorSetCount = kSoftDepthFrames + 1;
+    ai.descriptorSetCount = kSets;
     ai.pSetLayouts = layouts;
-    if (vkAllocateDescriptorSets(device, &ai, particleDepthSets_) != VK_SUCCESS) {
+    const bool allocated = vkAllocateDescriptorSets(device, &ai, sets) == VK_SUCCESS;
+    for (uint32_t i = 0; allocated && i < kSoftDepthFrames + 1; ++i) particleDepthSets_[i] = sets[i];
+    for (uint32_t i = 0; allocated && i < kSoftDepthFrames; ++i) sceneColorSets_[i] = sets[kSoftDepthFrames + 1 + i];
+    if (!allocated) {
         vkDestroyDescriptorPool(device, particleDepthPool_, nullptr);
         particleDepthPool_ = VK_NULL_HANDLE;
         return false;
@@ -1170,15 +1193,15 @@ bool M2Renderer::ensureParticleDepthSets() {
     // Every set starts on the white texture, so a set bound before its depth
     // copy is ever written still holds an image in the layout it names.
     VkDescriptorImageInfo white = whiteTexture_->descriptorInfo();
-    VkWriteDescriptorSet writes[kSoftDepthFrames + 1]{};
-    for (uint32_t i = 0; i < kSoftDepthFrames + 1; ++i) {
+    VkWriteDescriptorSet writes[kSets]{};
+    for (uint32_t i = 0; i < kSets; ++i) {
         writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet = particleDepthSets_[i];
+        writes[i].dstSet = sets[i];
         writes[i].descriptorCount = 1;
         writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         writes[i].pImageInfo = &white;
     }
-    vkUpdateDescriptorSets(device, kSoftDepthFrames + 1, writes, 0, nullptr);
+    vkUpdateDescriptorSets(device, kSets, writes, 0, nullptr);
     return true;
 }
 
@@ -1192,6 +1215,32 @@ void M2Renderer::bindParticleDepthSet(VkCommandBuffer cmd, bool soft) const {
 void M2Renderer::renderFireVolumes(VkCommandBuffer cmd, VkDescriptorSet perFrameSet) {
     if (fireVolumes_.empty() || !fireVolumePipeline_ || !softParticles_ || !perFrameSet) return;
     if (!ensureParticleDepthSets() || particleDepthViews_[softParticleFrame_] == VK_NULL_HANDLE) return;
+
+    // The heat haze first, over the scene as the copy has it: the flames and
+    // the particles go over it.
+    if (fireVolumeParams_.heatHaze && fireHazePipeline_ &&
+        sceneColorViews_[softParticleFrame_] != VK_NULL_HANDLE) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireHazePipeline_);
+        const VkDescriptorSet sets[3] = {perFrameSet, particleDepthSets_[softParticleFrame_],
+                                         sceneColorSets_[softParticleFrame_]};
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireHazeLayout_, 0, 3, sets, 0, nullptr);
+        for (const FireVolume& v : fireVolumes_) {
+            // Over the flames: the middle of the grate, from below the top of
+            // the fire to a yard and a half above it.
+            const glm::vec3 centre = 0.5f * (v.boxMin + v.boxMax);
+            const glm::vec3 half = 0.5f * (v.boxMax - v.boxMin) * glm::vec3(0.8f, 0.8f, 1.0f);
+            const glm::vec3 hazeMin(centre.x - half.x, centre.y - half.y, v.boxMax.z - 0.4f);
+            const glm::vec3 hazeMax(centre.x + half.x, centre.y + half.y, v.boxMax.z + 1.5f);
+            const glm::vec4 push[3] = {
+                glm::vec4(hazeMin, fireParams_.seconds),
+                glm::vec4(hazeMax, std::min(v.brightness, 1.0f)),
+                glm::vec4(0.0f, v.seed, 0.0f, 0.0f),
+            };
+            vkCmdPushConstants(cmd, fireHazeLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                               0, sizeof(push), push);
+            vkCmdDraw(cmd, 36, 1, 0, 0);
+        }
+    }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireVolumePipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireVolumeLayout_, 0, 1, &perFrameSet, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireVolumeLayout_, 1, 1,

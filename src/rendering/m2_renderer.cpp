@@ -743,6 +743,26 @@ bool M2Renderer::buildMainPassPipelines(VkDescriptorSetLayout perFrameLayout) {
         } else {
             LOG_WARNING("Fire volume shaders missing - no fire volumes");
         }
+        // Heat haze: the same box, writing the shifted copy of the scene
+        // over what is there, unblended.
+        rendering::VkShaderModule hazeFrag;
+        if (fireHazeLayout_ && volVert.isValid() &&
+            hazeFrag.loadFromFile(device, "assets/shaders/fire_haze.frag.spv")) {
+            fireHazePipeline_ = PipelineBuilder()
+                .setShaders(volVert.stageInfo(VK_SHADER_STAGE_VERTEX_BIT),
+                            hazeFrag.stageInfo(VK_SHADER_STAGE_FRAGMENT_BIT))
+                .setVertexInput({}, {})
+                .setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+                .setRasterization(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE)
+                .setDepthTest(false, false, VK_COMPARE_OP_ALWAYS)
+                .setColorBlendAttachment(PipelineBuilder::blendDisabled())
+                .setMultisample(vkCtx_->getMsaaSamples())
+                .setLayout(fireHazeLayout_)
+                .setRenderPass(mainPass)
+                .setDynamicStates(viewportAndScissorDynamic())
+                .build(device, vkCtx_->getPipelineCache());
+        }
+        hazeFrag.destroy();
         volVert.destroy();
         volFrag.destroy();
     }
@@ -1334,6 +1354,11 @@ bool M2Renderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayout
         ci.pushConstantRangeCount = 1;
         ci.pPushConstantRanges = &range;
         vkCreatePipelineLayout(device, &ci, nullptr, &fireVolumeLayout_);
+        // The heat haze adds the scene's colour copy as set 2.
+        VkDescriptorSetLayout hazeLayouts[] = {perFrameLayout, particleTexLayout_, particleTexLayout_};
+        ci.setLayoutCount = 3;
+        ci.pSetLayouts = hazeLayouts;
+        vkCreatePipelineLayout(device, &ci, nullptr, &fireHazeLayout_);
     }
 
     // Smoke pipeline layout: set 0 = perFrame
@@ -1531,6 +1556,7 @@ void M2Renderer::shutdown() {
     destroyPipeline(particlePipeline_);
     destroyPipeline(particleAdditivePipeline_);
     destroyPipeline(fireVolumePipeline_);
+    destroyPipeline(fireHazePipeline_);
     destroyPipeline(smokePipeline_);
     destroyPipeline(ribbonPipeline_);
     destroyPipeline(ribbonAdditivePipeline_);
@@ -1538,11 +1564,14 @@ void M2Renderer::shutdown() {
     destroy(device, pipelineLayout_);
     destroy(device, particlePipelineLayout_);
     destroy(device, fireVolumeLayout_);
+    destroy(device, fireHazeLayout_);
     if (particleDepthPool_) {
         vkDestroyDescriptorPool(device, particleDepthPool_, nullptr);
         particleDepthPool_ = VK_NULL_HANDLE;
         for (auto& set : particleDepthSets_) set = VK_NULL_HANDLE;
         for (auto& view : particleDepthViews_) view = VK_NULL_HANDLE;
+        for (auto& set : sceneColorSets_) set = VK_NULL_HANDLE;
+        for (auto& view : sceneColorViews_) view = VK_NULL_HANDLE;
     }
     destroy(device, smokePipelineLayout_);
     destroy(device, ribbonPipelineLayout_);

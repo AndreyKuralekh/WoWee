@@ -652,7 +652,8 @@ public:
      *  taken before they are drawn - and a flame's atlas frames blend into the
      *  next instead of stepping. `depthView` is that copy for frame-in-flight
      *  `frame`; set before the particles are recorded. Off, they draw as ever. */
-    void setSoftParticles(bool on, uint32_t frame = 0, VkImageView depthView = VK_NULL_HANDLE);
+    void setSoftParticles(bool on, uint32_t frame = 0, VkImageView depthView = VK_NULL_HANDLE,
+                          VkImageView colorView = VK_NULL_HANDLE);
 
     /** Fire volumes (TASK_10, step 3, the headset's): the hearths, braziers and
      *  campfires within `maxDistance` burn as a ray-marched volume in a box
@@ -663,6 +664,7 @@ public:
         bool enabled = false;
         float maxDistance = 15.0f;
         int steps = 20;
+        bool heatHaze = false;   // the air over the flames wavers (needs the scene's colour copy)
     };
     void setFireVolumeParams(const FireVolumeParams& p) { fireVolumeParams_ = p; }
     void renderFireVolumes(VkCommandBuffer cmd, VkDescriptorSet perFrameSet);
@@ -981,6 +983,9 @@ private:
     VkDescriptorPool particleDepthPool_ = VK_NULL_HANDLE;
     VkDescriptorSet particleDepthSets_[kSoftDepthFrames + 1] = {};
     VkImageView particleDepthViews_[kSoftDepthFrames] = {};
+    // The scene's colour copy beside it, for the heat haze.
+    VkDescriptorSet sceneColorSets_[kSoftDepthFrames] = {};
+    VkImageView sceneColorViews_[kSoftDepthFrames] = {};
     bool softParticles_ = false;
     uint32_t softParticleFrame_ = 0;
     bool ensureParticleDepthSets();
@@ -1386,6 +1391,8 @@ private:
     mutable std::vector<size_t> fireVolumeInstances_;   // whose flame particles were faded
     VkPipeline fireVolumePipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout fireVolumeLayout_ = VK_NULL_HANDLE;
+    VkPipeline fireHazePipeline_ = VK_NULL_HANDLE;
+    VkPipelineLayout fireHazeLayout_ = VK_NULL_HANDLE;
 
     // Smoke particle system
     std::vector<SmokeParticle> smokeParticles;

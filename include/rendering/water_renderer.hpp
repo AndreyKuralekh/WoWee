@@ -130,6 +130,10 @@ public:
     /// its depth for frame-in-flight `frameIndex` - for what is recorded
     /// against it before the copy is taken. VK_NULL_HANDLE if it cannot be.
     VkImageView prepareEyeSceneDepth(VkExtent2D extent, uint32_t frameIndex);
+    /// And the view of its colour, once prepareEyeSceneDepth has made it.
+    VkImageView eyeSceneColor(uint32_t frameIndex) {
+        return sceneTarget(SceneTarget::Eyes).frames[frameIndex % SCENE_HISTORY_FRAMES].colorView;
+    }
 
     // --- Planar reflection pass ---
     // Call sequence: beginReflectionPass → [render scene] → endReflectionPass
