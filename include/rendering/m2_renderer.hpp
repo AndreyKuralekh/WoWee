@@ -674,6 +674,8 @@ public:
         float maxDistance = 15.0f;
         int steps = 20;
         bool heatHaze = false;   // the air over the flames wavers (needs the scene's colour copy)
+        bool waterfallMist = false;  // the air at a waterfall's foot wavers in its spray (TASK_12)
+        bool volumes = true;         // the fire volumes themselves (off: only the mist, say)
     };
     void setFireVolumeParams(const FireVolumeParams& p) { fireVolumeParams_ = p; }
     void renderFireVolumes(VkCommandBuffer cmd, VkDescriptorSet perFrameSet);
@@ -1397,6 +1399,7 @@ private:
         float seed = 0.0f;
     };
     mutable std::vector<FireVolume> fireVolumes_;
+    mutable std::vector<FireVolume> waterfallMists_;  // boxes at the feet of near waterfalls (brightness = strength)
     mutable std::vector<size_t> fireVolumeInstances_;   // whose flame particles were faded
     VkPipeline fireVolumePipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout fireVolumeLayout_ = VK_NULL_HANDLE;

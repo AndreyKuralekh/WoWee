@@ -318,6 +318,37 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
     }
     fireVolumeInstances_.clear();
     fireVolumes_.clear();
+    // The feet of the near waterfalls, where their spray hangs in the air
+    // and the view through it wavers (TASK_12): the lowest fifth of each,
+    // a little wider, within 45 yards, the four nearest.
+    waterfallMists_.clear();
+    if (fireVolumeParams_.enabled && fireVolumeParams_.waterfallMist) {
+        std::vector<std::pair<float, FireVolume>> falls;
+        for (const auto& instance : instances) {
+            const M2ModelGPU* model = instance.cachedModel;
+            if (!model || !model->isWaterfall) continue;
+            const glm::vec3 lo = instance.worldBoundsMin;
+            const glm::vec3 hi = instance.worldBoundsMax;
+            const glm::vec3 foot(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), lo.z);
+            const float dist = glm::distance(foot, cameraPos);
+            if (dist > 45.0f) continue;
+            FireVolume mist;
+            const glm::vec3 grow(1.5f, 1.5f, 0.0f);
+            mist.boxMin = lo - grow;
+            mist.boxMax = glm::vec3(hi.x, hi.y, lo.z + std::max(2.0f, 0.2f * (hi.z - lo.z))) + grow;
+            mist.brightness = 0.6f * std::clamp((45.0f - dist) / 10.0f, 0.0f, 1.0f);
+            mist.seed = std::fmod(std::abs(foot.x * 0.37f + foot.y * 0.11f), 97.0f);
+            falls.push_back({dist, mist});
+        }
+        std::sort(falls.begin(), falls.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        for (size_t i = 0; i < falls.size() && i < 4; ++i) waterfallMists_.push_back(falls[i].second);
+        static size_t saidFalls = static_cast<size_t>(-1);
+        if (waterfallMists_.size() != saidFalls) {
+            saidFalls = waterfallMists_.size();
+            LOG_INFO("Waterfall mist: ", waterfallMists_.size(), " near",
+                     falls.empty() ? std::string() : ", nearest " + std::to_string(falls.front().first) + " yd");
+        }
+    }
     if (!outPosRadius || !outColorIntensity || maxLights == 0) return 0;
 
     struct Candidate {
@@ -536,7 +567,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
 
     // The nearest hearths burn as volumes: full inside the distance less two
     // yards, fading out over those two, their flame particles fading in.
-    if (fireVolumeParams_.enabled && fireVolumePipeline_) {
+    if (fireVolumeParams_.enabled && fireVolumeParams_.volumes && fireVolumePipeline_) {
         constexpr uint32_t kMaxVolumes = 4;
         const float reach = std::max(fireVolumeParams_.maxDistance, 3.0f);
         for (const uint32_t f : fireOrder) {

@@ -1213,7 +1213,10 @@ void M2Renderer::bindParticleDepthSet(VkCommandBuffer cmd, bool soft) const {
 }
 
 void M2Renderer::renderFireVolumes(VkCommandBuffer cmd, VkDescriptorSet perFrameSet) {
-    if (fireVolumes_.empty() || !fireVolumePipeline_ || !softParticles_ || !perFrameSet) return;
+    if ((fireVolumes_.empty() && waterfallMists_.empty()) || !fireVolumePipeline_ || !softParticles_ ||
+        !perFrameSet) {
+        return;
+    }
     if (!ensureParticleDepthSets() || particleDepthViews_[softParticleFrame_] == VK_NULL_HANDLE) return;
 
     // The heat haze first, over the scene as the copy has it: the flames and
@@ -1241,6 +1244,24 @@ void M2Renderer::renderFireVolumes(VkCommandBuffer cmd, VkDescriptorSet perFrame
             vkCmdDraw(cmd, 36, 1, 0, 0);
         }
     }
+    // A waterfall's foot wavers in its spray: the same shimmer, in its own box.
+    if (!waterfallMists_.empty() && fireHazePipeline_ && sceneColorViews_[softParticleFrame_] != VK_NULL_HANDLE) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireHazePipeline_);
+        const VkDescriptorSet sets[3] = {perFrameSet, particleDepthSets_[softParticleFrame_],
+                                         sceneColorSets_[softParticleFrame_]};
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireHazeLayout_, 0, 3, sets, 0, nullptr);
+        for (const FireVolume& m : waterfallMists_) {
+            const glm::vec4 push[3] = {
+                glm::vec4(m.boxMin, fireParams_.seconds * 1.6f),
+                glm::vec4(m.boxMax, m.brightness),
+                glm::vec4(0.0f, m.seed, 0.0f, 0.0f),
+            };
+            vkCmdPushConstants(cmd, fireHazeLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                               0, sizeof(push), push);
+            vkCmdDraw(cmd, 36, 1, 0, 0);
+        }
+    }
+    if (fireVolumes_.empty()) return;
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireVolumePipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireVolumeLayout_, 0, 1, &perFrameSet, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fireVolumeLayout_, 1, 1,
