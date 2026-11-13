@@ -82,8 +82,13 @@ float sampleShadowPCF(sampler2DShadow smap, vec3 coords) {
     return shadow / 9.0;
 }
 
-vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo) {
+vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo, bool interior) {
     vec3 sum = vec3(0.0);
+    // Fire lights (the headset's, TASK_10) are meta.y..z of the list. An
+    // interior already has its fire's light baked into its vertex colour, so
+    // it takes only part of them - meta.w thousandths - for the warmth and the
+    // flicker, rather than a second full light over the baked one.
+    float interiorFireShare = float(localLightMeta.w) / 1000.0;
     for (int i = 0; i < min(localLightMeta.x, 64); ++i) {
         vec3 toLight = localLightPosRadius[i].xyz - pos;
         float radius = localLightPosRadius[i].w;
@@ -97,8 +102,9 @@ vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo) {
         float attenuation = 1.0 - dist / radius;
         attenuation *= attenuation;
         float wrappedDiffuse = 0.22 + 0.78 * max(dot(normal, lightVector), 0.0);
+        float share = (interior && i >= localLightMeta.y && i < localLightMeta.z) ? interiorFireShare : 1.0;
         sum += albedo * localLightColorIntensity[i].rgb *
-               (localLightColorIntensity[i].w * attenuation * wrappedDiffuse);
+               (localLightColorIntensity[i].w * attenuation * wrappedDiffuse * share);
     }
     return sum;
 }
@@ -373,7 +379,7 @@ void main() {
     }
 
     if (isWindow == 0 && isLava == 0)
-        result += localLightContribution(FragPos, norm, texColor.rgb);
+        result += localLightContribution(FragPos, norm, texColor.rgb, isInterior != 0 && isLava == 0);
 
     float dist = length(viewPos.xyz - FragPos);
     result = applyFog(result, FragPos, dist);

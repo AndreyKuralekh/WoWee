@@ -39,6 +39,8 @@
 #include <set>
 
 #include <string_view>
+#include <fstream>
+#include <sstream>
 
 namespace wowee {
 namespace rendering {
@@ -160,10 +162,128 @@ std::array<uint32_t, 2> M2Renderer::localLightMask(const M2Instance& instance) c
     return mask;
 }
 
+namespace {
+
+// assets/fire_lights.cfg, read once: which models are fires and how they
+// light. See the file for its format.
+struct FireLightTable {
+    struct Entry {
+        std::string pattern;
+        bool none = false;
+        float radius = 8.0f;
+        glm::vec3 color{1.0f, 0.5f, 0.18f};
+        float intensity = 1.2f;
+    };
+    std::vector<Entry> entries;
+    float interiorMix = 0.5f;
+};
+
+const FireLightTable& fireLightTable() {
+    static const FireLightTable table = [] {
+        FireLightTable t;
+        std::ifstream in("assets/fire_lights.cfg");
+        if (!in) {
+            LOG_WARNING("fire lights: assets/fire_lights.cfg not found - fires light by size alone");
+            return t;
+        }
+        std::string line;
+        while (std::getline(in, line)) {
+            if (const auto hash = line.find('#'); hash != std::string::npos) line.resize(hash);
+            std::istringstream ls(line);
+            std::string key;
+            if (!(ls >> key)) continue;
+            std::transform(key.begin(), key.end(), key.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (key == "interior_mix") {
+                float v = 0.5f;
+                if (ls >> v) t.interiorMix = std::clamp(v, 0.0f, 1.0f);
+                continue;
+            }
+            FireLightTable::Entry e;
+            e.pattern = key;
+            std::string first;
+            if (!(ls >> first)) continue;
+            if (first == "none") {
+                e.none = true;
+            } else {
+                e.radius = std::clamp(static_cast<float>(std::atof(first.c_str())), 1.0f, 30.0f);
+                if (!(ls >> e.color.r >> e.color.g >> e.color.b >> e.intensity)) continue;
+            }
+            t.entries.push_back(std::move(e));
+        }
+        LOG_INFO("fire lights: ", t.entries.size(), " lines from assets/fire_lights.cfg, interior mix ",
+                 t.interiorMix);
+        return t;
+    }();
+    return table;
+}
+
+// Whether, and how, a model is a fire that lights its surroundings.
+M2ModelGPU::FireLight resolveFireLight(const M2ModelGPU& gpu, const pipeline::M2Model& model) {
+    M2ModelGPU::FireLight f;
+    const std::string name = [&] {
+        std::string n = gpu.name;
+        const auto slash = n.find_last_of("\\/");
+        if (slash != std::string::npos) n = n.substr(slash + 1);
+        std::transform(n.begin(), n.end(), n.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return n;
+    }();
+    const FireLightTable::Entry* entry = nullptr;
+    for (const auto& e : fireLightTable().entries) {
+        if (name.find(e.pattern) != std::string::npos) { entry = &e; break; }
+    }
+    if (entry && entry->none) return f;
+    if (entry) {
+        f.valid = true;
+        f.radius = entry->radius;
+        f.color = entry->color;
+        f.intensity = entry->intensity;
+    } else if (gpu.isBrazierOrFire || gpu.isTorch || gpu.isForge) {
+        // Known for a fire, no line: as far as its size says, 6 to 10 yards.
+        const glm::vec3 size = gpu.boundMax - gpu.boundMin;
+        f.valid = true;
+        f.radius = std::clamp(5.0f + std::max(size.x, size.y), 6.0f, 10.0f);
+        f.color = gpu.isTorch ? glm::vec3(1.0f, 0.55f, 0.20f) : glm::vec3(1.0f, 0.5f, 0.17f);
+        f.intensity = gpu.isTorch ? 1.1f : 1.25f;
+    }
+    if (!f.valid) return f;
+    // Its own light where it carries one: a torch's colour and reach.
+    for (const auto& light : model.lights) {
+        if (light.type != 1) continue;
+        const glm::vec3 c = light.diffuseColor;
+        if (std::max({c.r, c.g, c.b}) > 0.05f) f.color = c / std::max({c.r, c.g, c.b});
+        if (light.diffuseIntensity > 0.0f) f.intensity = std::clamp(light.diffuseIntensity, 0.5f, 2.5f);
+        if (light.attenuationEnd > 0.0f) f.radius = std::clamp(light.attenuationEnd, 4.0f, 12.0f);
+        f.atLight = true;
+        f.bone = light.bone;
+        f.position = light.position;
+        break;
+    }
+    return f;
+}
+
+// Firelight dances quicker than a wick gutters: three beats with a phase from
+// where the fire stands, on the game's clock, the same for both eyes.
+float fireFlicker(const glm::vec3& seedPos, float seconds, float amplitude) {
+    const glm::vec3 cell = glm::floor(seedPos);
+    float h = std::sin(cell.x * 12.9898f + cell.y * 78.233f + cell.z * 37.719f) * 43758.5453f;
+    const float p = (h - std::floor(h)) * 6.2831853f;
+    const float n = 0.5f * std::sin(seconds * 1.9f + p)
+                  + 0.3f * std::sin(seconds * 4.7f + p * 1.3f)
+                  + 0.2f * std::sin(seconds * 11.3f + p * 2.1f);
+    return 1.0f + amplitude * n;
+}
+
+} // namespace
+
+float M2Renderer::fireInteriorMix() { return fireLightTable().interiorMix; }
+
 uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                                        glm::vec4* outPosRadius,
                                        glm::vec4* outColorIntensity,
                                        uint32_t maxLights) const {
+    lastFireLightCount_ = 0;
     if (!outPosRadius || !outColorIntensity || maxLights == 0) return 0;
 
     struct Candidate {
@@ -171,12 +291,12 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         glm::vec4 posRadius;
         glm::vec4 colorIntensity;
         bool flame = false;  // lamps/torches/braziers gutter; lava burns steady
-        bool hearth = false; // a fire laid on the ground: wider and livelier
         // Fixture placement, used only to seed the flicker phase. The light's own
         // position animates with the flame, which would re-roll the phase every frame.
         glm::vec3 phaseSeed{0.0f};
     };
     std::vector<Candidate> candidates;
+    std::vector<Candidate> fires;
 
     for (const size_t lightIndex : lightInstanceIndices_) {
         if (lightIndex >= instances.size()) continue;
@@ -184,7 +304,46 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         const M2ModelGPU* model = instance.cachedModel;
         if (!model || (!model->isLanternLike && !model->isTorch &&
                        !model->isBrazierOrFire && !model->isForge &&
-                       !model->isLavaModel)) continue;
+                       !model->isLavaModel && !model->fireLight.valid)) continue;
+
+        // A fire, in the headset: its own light from the flames, the nearest
+        // few of them first in the list (see FireLightParams).
+        if (fireParams_.enabled && model->fireLight.valid) {
+            const auto& fl = model->fireLight;
+            glm::vec3 worldPos(0.0f);
+            if (fl.atLight) {
+                glm::mat4 boneXform(1.0f);
+                if (fl.bone >= 0 && static_cast<size_t>(fl.bone) < instance.boneMatrices.size()) {
+                    boneXform = instance.boneMatrices[static_cast<size_t>(fl.bone)];
+                }
+                worldPos = glm::vec3(instance.modelMatrix * boneXform * glm::vec4(fl.position, 1.0f));
+            } else if (!model->particleEmitters.empty()) {
+                for (const auto& emitter : model->particleEmitters) {
+                    glm::mat4 boneXform(1.0f);
+                    if (emitter.bone < instance.boneMatrices.size()) boneXform = instance.boneMatrices[emitter.bone];
+                    worldPos += glm::vec3(instance.modelMatrix * boneXform * glm::vec4(emitter.position, 1.0f));
+                }
+                worldPos /= static_cast<float>(model->particleEmitters.size());
+            } else {
+                worldPos = instance.cachedCullCenter;
+            }
+            const glm::vec3 delta = worldPos - cameraPos;
+            const float distSq = glm::dot(delta, delta);
+            if (distSq > 300.0f * 300.0f) continue;
+            // Fires laid together in one grate - the Goldshire inn has four
+            // Cozy Fires in one hearth - are one light, or four pools stacked
+            // into a blind white one.
+            bool merged = false;
+            for (const auto& f : fires) {
+                if (glm::distance(glm::vec3(f.posRadius), worldPos) < 2.5f) { merged = true; break; }
+            }
+            if (merged) continue;
+            const float radius = fl.radius * std::clamp(instance.scale, 0.5f, 2.0f);
+            fires.push_back({.distSq = distSq, .posRadius = glm::vec4(worldPos, radius),
+                             .colorIntensity = glm::vec4(fl.color, fl.intensity),
+                             .flame = true, .phaseSeed = instance.position});
+            continue;
+        }
 
         if (model->isLavaModel) {
             const glm::vec3 worldPos = instance.cachedCullCenter;
@@ -300,44 +459,35 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                         intensity = model->isTorch ? 0.95f : 1.05f;
                         color     = glm::vec3(1.0f, 0.50f, 0.18f);
                     }
-                    // A hearth lights the room it warms. Three and a half yards
-                    // lit the firebox and nothing past the mantel: the Goldshire
-                    // inn's fire was a bright hole in a dark wall. Its pool now
-                    // reaches the tables in front of it - the stone round the
-                    // opening faces away from the flame and stays unlit, so the
-                    // chimney the old note warns of does not glow. A hearth laid
-                    // with several fires (the inn has four Cozy Fires in one
-                    // grate) is one light, or four pools stacked blind white.
-                    const bool hearth = model->isBrazierOrFire && !model->isTorch &&
-                                        !model->isLanternLike;
-                    bool merged = false;
-                    if (hearth) {
-                        radius    = 8.0f;
-                        intensity = 1.3f;
-                        color     = glm::vec3(1.0f, 0.47f, 0.15f);
-                        for (const auto& c : candidates) {
-                            if (c.hearth && glm::distance(glm::vec3(c.posRadius), worldPos) < 2.5f) {
-                                merged = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!merged) {
-                        candidates.push_back({.distSq = distSq,
-                            .posRadius = glm::vec4(worldPos, radius),
-                            .colorIntensity = glm::vec4(color, intensity),
-                            .flame = true, .hearth = hearth, .phaseSeed = instance.position});
-                    }
+                    candidates.push_back({.distSq = distSq,
+                        .posRadius = glm::vec4(worldPos, radius),
+                        .colorIntensity = glm::vec4(color, intensity),
+                        .flame = true, .phaseSeed = instance.position});
                 }
             }
         }
     }
 
+    const auto nearer = [](const Candidate& a, const Candidate& b) { return a.distSq < b.distSq; };
+    const uint32_t fireCount = std::min<uint32_t>({static_cast<uint32_t>(fires.size()),
+                                                  fireParams_.maxLights, maxLights});
+    lastFireLightCount_ = fireCount;
+    if (fireCount > 0) {
+        std::partial_sort(fires.begin(), fires.begin() + fireCount, fires.end(), nearer);
+        for (uint32_t i = 0; i < fireCount; ++i) {
+            outPosRadius[i] = fires[i].posRadius;
+            outColorIntensity[i] = fires[i].colorIntensity;
+            outColorIntensity[i].w *= fireFlicker(fires[i].phaseSeed, fireParams_.seconds,
+                                                  fireParams_.flicker);
+        }
+        outPosRadius += fireCount;
+        outColorIntensity += fireCount;
+        maxLights -= fireCount;
+    }
     const uint32_t count = std::min<uint32_t>(maxLights,
         static_cast<uint32_t>(candidates.size()));
-    if (count == 0) return 0;
-    std::partial_sort(candidates.begin(), candidates.begin() + count, candidates.end(),
-        [](const Candidate& a, const Candidate& b) { return a.distSq < b.distSq; });
+    if (count == 0) return fireCount;
+    std::partial_sort(candidates.begin(), candidates.begin() + count, candidates.end(), nearer);
     // Guttering is applied to the light itself, not just the glow sprite: the
     // pool of light a lamp throws on the ground and nearby walls is what the eye
     // actually reads as firelight, so modulating the sprite alone was too subtle
@@ -347,22 +497,13 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         outPosRadius[i] = candidates[i].posRadius;
         outColorIntensity[i] = candidates[i].colorIntensity;
         if (candidates[i].flame) {
-            if (candidates[i].hearth) {
-                // Firelight dances quicker than a wick gutters: the lamp swell
-                // plus a faster beat, so the room breathes with the flames.
-                const glm::vec3 seed = glm::floor(candidates[i].phaseSeed);
-                outColorIntensity[i].w *= lampFlicker(seed, flickerSeconds, 0.80f, 0.10f, 0.08f)
-                    + 0.06f * std::sin(flickerSeconds * 9.7f + seed.x * 0.37f)
-                    + 0.04f * std::sin(flickerSeconds * 15.3f + seed.y * 0.53f);
-            } else {
-                outColorIntensity[i].w *= lampFlicker(candidates[i].phaseSeed,
-                                                      flickerSeconds, 0.82f, 0.12f, 0.06f);
-            }
+            outColorIntensity[i].w *= lampFlicker(candidates[i].phaseSeed,
+                                                  flickerSeconds, 0.82f, 0.12f, 0.06f);
             // A lamp is lit for the night: by day its pool is lost in the sun.
             outColorIntensity[i].w *= 1.0f + 0.6f * nightGlow_;
         }
     }
-    return count;
+    return fireCount + count;
 }
 
 /// The nine main-pass pipelines, built once at startup and again after a
@@ -1865,6 +2006,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     gpuModel.ambientEmitterType          = cls.ambientEmitterType;
     gpuModel.boundMin = tightMin;
     gpuModel.boundMax = tightMax;
+    gpuModel.fireLight = resolveFireLight(gpuModel, model);
     if (gpuModel.isHangingCloth) {
         // Named, once each, so a banner that does not move can be told from a
         // banner this never saw: cloth built into a building's own mesh is not

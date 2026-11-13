@@ -171,6 +171,20 @@ struct M2ModelGPU {
     bool isForge = false;           // Smithy forge (contained fire, lights its surroundings)
     AmbientEmitterType ambientEmitterType = AmbientEmitterType::None;
 
+    // A fire's own light for the headset (TASK_10): hearths, braziers,
+    // campfires, torches. From the model's M2Light where it has one, else
+    // from assets/fire_lights.cfg, else from its size. Unused unless the
+    // renderer turns fire lights on (see M2Renderer::FireLightParams).
+    struct FireLight {
+        bool valid = false;
+        float radius = 8.0f;
+        glm::vec3 color{1.0f, 0.5f, 0.18f};
+        float intensity = 1.2f;
+        bool atLight = false;       // placed at the M2Light, not the flames
+        int16_t bone = -1;
+        glm::vec3 position{0.0f};
+    } fireLight;
+
     // Collision mesh with spatial grid (from M2 bounding geometry)
     struct CollisionMesh {
         std::vector<glm::vec3> vertices;
@@ -566,6 +580,25 @@ public:
                                glm::vec4* outPosRadius,
                                glm::vec4* outColorIntensity,
                                uint32_t maxLights) const;
+
+    /** Fire lights (TASK_10, the headset's): when on, the nearest fires -
+     *  hearths, braziers, campfires, torches - light the scene from the
+     *  flames with their own colour and reach and a livelier flicker, and
+     *  come first in what gatherLocalLights returns. Off, fires light as
+     *  they always have. `seconds` is the game's clock for the flicker. */
+    struct FireLightParams {
+        bool enabled = false;
+        uint32_t maxLights = 8;
+        float flicker = 0.15f;
+        float seconds = 0.0f;
+    };
+    void setFireLightParams(const FireLightParams& p) { fireParams_ = p; }
+    /** How many of the lights the last gatherLocalLights returned are fires
+     *  (they are the first ones). */
+    [[nodiscard]] uint32_t lastFireLightCount() const { return lastFireLightCount_; }
+    /** Share of a fire light an interior WMO group takes on top of its baked
+     *  light (fire_lights.cfg `interior_mix`). */
+    [[nodiscard]] static float fireInteriorMix();
     /** The point lights this frame's shaders read, in their order. Each
      *  instance drawn is then given the bits of the ones that reach it. */
     void setLocalLights(const glm::vec4* posRadius, uint32_t count);
@@ -1304,8 +1337,10 @@ private:
     }
     [[nodiscard]] static bool givesLight(const M2ModelGPU& model) {
         return model.isLanternLike || model.isTorch || model.isBrazierOrFire || model.isForge ||
-               model.isLavaModel;
+               model.isLavaModel || model.fireLight.valid;
     }
+    FireLightParams fireParams_;
+    mutable uint32_t lastFireLightCount_ = 0;
 
     // Smoke particle system
     std::vector<SmokeParticle> smokeParticles;
