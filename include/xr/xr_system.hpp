@@ -163,6 +163,10 @@ public:
     void setFireLightMax(int n) { fireLightMax_ = std::clamp(n, 1, 8); }
     [[nodiscard]] int fireLightMax() const { return fireLightMax_; }
     void setFireFlicker(float amplitude) { fireFlicker_ = std::clamp(amplitude, 0.0f, 0.4f); }
+    // Soft particles: fire, smoke and sparks fade where they meet walls, logs
+    // and the ground instead of being cut by them, and flame frames blend.
+    void setSoftParticles(bool on) { softParticles_ = on; }
+    [[nodiscard]] bool softParticles() const { return softParticles_; }
     [[nodiscard]] float fireFlicker() const { return fireFlicker_; }
     void setHeadsetShadowStrength(float strength) { headsetShadowStrength_ = strength; }
     [[nodiscard]] float headsetShadowStrength() const { return headsetShadowStrength_; }
@@ -617,6 +621,7 @@ private:
     bool fireLight_ = true;
     int fireLightMax_ = 8;
     float fireFlicker_ = 0.15f;
+    bool softParticles_ = true;
     bool sheathToggle_ = false;
     std::array<glm::vec4, 12> actionButtonRects_{};
     int loadedSlot_ = 0;

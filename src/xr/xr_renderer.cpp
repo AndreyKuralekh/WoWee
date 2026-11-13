@@ -285,6 +285,11 @@ bool Renderer::vrEnsureEyeSecondaries() {
                     return false;
                 }
             }
+            allocInfo.commandPool = workerCmdPools_[3];  // the M2 worker's, as in the renderer
+            if (vkAllocateCommandBuffers(device, &allocInfo, &vrEyes_->secondary[eye][SEC_PARTICLES][f]) !=
+                VK_SUCCESS) {
+                return false;
+            }
         }
     }
     vrEyes_->secondaryPoolSeen = workerCmdPools_[0];
@@ -684,7 +689,9 @@ bool Renderer::vrEyeWaterAfterPass() const {
 }
 
 void Renderer::vrDrawEyeWater(uint32_t eye, VkDescriptorSet perFrameSet) {
+    const bool particles = vrParticlesApart_ && vrParticlesCmd_ != VK_NULL_HANDLE;
     if (!vrEyeWaterAfterPass() || !camera || !waterRenderer->hasSurfaces()) {
+        if (particles) vrDrawEyeParticles(eye, false);
         vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkWater));
         return;
     }
@@ -692,7 +699,9 @@ void Renderer::vrDrawEyeWater(uint32_t eye, VkDescriptorSet perFrameSet) {
 
     // One copy for both eyes, in turn: the copy's barrier waits for the first
     // eye's water to have read it before the second eye's scene goes in.
-    if (waterRenderer->isRefractionEnabled()) {
+    // Soft particles read the same copy after the water.
+    const bool copied = waterRenderer->isRefractionEnabled() || particles;
+    if (copied) {
         waterRenderer->captureSceneHistory(currentCmd, vrEyes_->color[eye].image, vrEyes_->depth[eye].image,
                                            vrEyes_->extent, false, frame, WaterRenderer::SceneTarget::Eyes);
     }
@@ -722,7 +731,27 @@ void Renderer::vrDrawEyeWater(uint32_t eye, VkDescriptorSet perFrameSet) {
     if (swimEffects && swimEffectsDrawWithWater_) swimEffects->render(currentCmd, perFrameSet, static_cast<float>(vrEyes_->extent.height));
 
     vkCmdEndRenderPass(currentCmd);
+    if (particles) vrDrawEyeParticles(eye, copied);
     vkCtx->gpuMark(currentCmd, vrEyeMark(eye, kEyeMarkWater));
+}
+
+// The particles recorded apart (soft particles), over the eye's finished
+// scene and water, in one more continuation of its pass; they read the copy
+// of its depth, taken here unless the water took it already.
+void Renderer::vrDrawEyeParticles(uint32_t eye, bool depthCopied) {
+    const uint32_t frame = vkCtx->getCurrentFrame();
+    if (!depthCopied) {
+        waterRenderer->captureSceneHistory(currentCmd, vrEyes_->color[eye].image, vrEyes_->depth[eye].image,
+                                           vrEyes_->extent, false, frame, WaterRenderer::SceneTarget::Eyes);
+    }
+    VkRenderPassBeginInfo passInfo{};
+    passInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    passInfo.renderPass = vkCtx->getSceneContinueRenderPass();
+    passInfo.framebuffer = vrEyes_->framebuffer[eye];
+    passInfo.renderArea.extent = vrEyes_->extent;
+    vkCmdBeginRenderPass(currentCmd, &passInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+    vkCmdExecuteCommands(currentCmd, 1, &vrParticlesCmd_);
+    vkCmdEndRenderPass(currentCmd);
 }
 
 // GPU marks of an eye's stages, outside its pass so that they read true: this
@@ -846,6 +875,20 @@ void Renderer::vrRenderEyes() {
     }();
     const bool shared = threaded && replayWanted;
     vrWorldShared_ = shared;
+
+    // Soft particles: the particles recorded apart and drawn after each eye's
+    // pass, over the copy of its depth the water takes too. Only with one
+    // recording for both eyes, which is what they are recorded into; the
+    // copy is made ready now, before anything is recorded against it.
+    vrParticlesApart_ = false;
+    vrParticlesCmd_ = VK_NULL_HANDLE;
+    if (shared && xr::system().softParticles() && vrEyeWaterAfterPass() && m2Renderer) {
+        const VkImageView depth = waterRenderer->prepareEyeSceneDepth(vrEyes_->extent, frame);
+        vrParticlesApart_ = depth != VK_NULL_HANDLE;
+        m2Renderer->setSoftParticles(vrParticlesApart_, frame, depth);
+    } else if (m2Renderer) {
+        m2Renderer->setSoftParticles(false);
+    }
     const auto eyesStart = std::chrono::steady_clock::now();
 
     // The hands are the same for both eyes; only the matrix they are seen by
@@ -979,6 +1022,9 @@ void Renderer::vrRenderEyes() {
     }
 
     vrWorldShared_ = false;
+    vrParticlesApart_ = false;
+    vrParticlesCmd_ = VK_NULL_HANDLE;
+    if (m2Renderer) m2Renderer->setSoftParticles(false);
     vrFogWanted_ = false;
     vrPerFrameSet_ = VK_NULL_HANDLE;
     vrEyeView_ = nullptr;

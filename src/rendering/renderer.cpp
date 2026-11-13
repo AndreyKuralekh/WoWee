@@ -3514,10 +3514,20 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
                 const auto tModels = std::chrono::steady_clock::now();
                 m2Renderer->renderSmokeParticles(cmd, perFrameSet);
                 const auto tSmoke = std::chrono::steady_clock::now();
-                m2Renderer->renderM2Particles(cmd, perFrameSet);
+                // In the eyes with soft particles the particles go in a buffer
+                // of their own, drawn after the pass over its depth.
+                VkCommandBuffer particleCmd = cmd;
+#ifdef WOWEE_VR
+                if (vrParticlesApart_) {
+                    particleCmd = beginSecondary(SEC_PARTICLES);
+                    setSecondaryViewportScissor(particleCmd);
+                }
+#endif
+                m2Renderer->renderM2Particles(particleCmd, perFrameSet);
                 const auto tParts = std::chrono::steady_clock::now();
-                m2Renderer->renderM2Ribbons(cmd, perFrameSet);
+                m2Renderer->renderM2Ribbons(particleCmd, perFrameSet);
                 const auto tParticles = std::chrono::steady_clock::now();
+                if (particleCmd != cmd) vkEndCommandBuffer(particleCmd);
                 vkEndCommandBuffer(cmd);
 
                 // This worker is the critical path of renderWorld, and the
@@ -3719,6 +3729,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
 #ifdef WOWEE_VR
         // Kept for the second eye; see Renderer::vrRenderEyes.
         if (vrEyePass_) {
+            if (vrParticlesApart_ && m2Renderer && camera && !skipM2) vrParticlesCmd_ = secondaryCmds_[SEC_PARTICLES][frameIdx];
             vrWorldCmdCount_ = numCmds;
             vrWorldSelectionAt_ = UINT32_MAX;
             for (uint32_t i = 0; i < numCmds; ++i) {
@@ -4784,6 +4795,14 @@ bool Renderer::createSecondaryCommandResources() {
                 LOG_ERROR("Failed to allocate worker secondary buffer w=", w, " f=", f);
                 return false;
             }
+        }
+    }
+    // The particles apart (SEC_PARTICLES) are recorded by the M2 worker.
+    allocInfo.commandPool = workerCmdPools_[3];
+    for (uint32_t f = 0; f < MAX_FRAMES; ++f) {
+        if (vkAllocateCommandBuffers(device, &allocInfo, &secondaryCmds_[SEC_PARTICLES][f]) != VK_SUCCESS) {
+            LOG_ERROR("Failed to allocate the particle secondary buffer f=", f);
+            return false;
         }
     }
 

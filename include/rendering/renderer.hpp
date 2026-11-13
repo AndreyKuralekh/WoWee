@@ -535,6 +535,11 @@ private:
     // ran, so the second eye can run them again instead of recording its own.
     // vrWorldSelectionAt_ is the one that cannot be shared; UINT32_MAX if none.
     bool vrWorldShared_ = false;
+    // Soft particles (TASK_10): the M2 particles recorded apart, in
+    // SEC_PARTICLES, and drawn after the eye's pass over a copy of its depth.
+    bool vrParticlesApart_ = false;
+    void vrDrawEyeParticles(uint32_t eye, bool depthCopied);
+    VkCommandBuffer vrParticlesCmd_ = VK_NULL_HANDLE;
     VkCommandBuffer vrWorldCmds_[8] = {};
     uint32_t vrWorldCmdCount_ = 0;
     uint32_t vrWorldSelectionAt_ = UINT32_MAX;
@@ -609,7 +614,8 @@ private:
     static constexpr uint32_t SEC_M2        = 5;  // M2 + particles + glow (worker 3)
     static constexpr uint32_t SEC_POST      = 6;  // water + weather + effects (worker 4)
     static constexpr uint32_t SEC_IMGUI     = 7;  // ImGui (main thread, non-FSR only)
-    static constexpr uint32_t NUM_SECONDARIES = 8;
+    static constexpr uint32_t SEC_PARTICLES = 8;  // M2 particles + ribbons apart, for the eyes' soft particles (worker 3)
+    static constexpr uint32_t NUM_SECONDARIES = 9;
     static constexpr uint32_t NUM_WORKERS = 5;
 
     // Per-worker command pools (thread-safe: one pool per thread)

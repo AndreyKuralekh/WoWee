@@ -256,6 +256,7 @@ public:
     bool pendingVrFireLight = true;         // fires light their surroundings in the headset
     int pendingVrFireLightMax = 8;          // how many of the nearest at once
     float pendingVrFireFlicker = 0.15f;     // how much that light wavers, 0 steady
+    bool pendingVrSoftParticles = true;     // particles fade into the scene and flame frames blend
     int pendingVrEyeScale = 100;            // eye picture size in percent of the headset's; read at start - see xr::XrSystem
     bool pendingVrDrawByReach = true;       // a reach to the sheath and the grip draws the weapon
     bool pendingVrKeepCasting = false;      // the loaded spell is cast again while its button is held

@@ -1027,6 +1027,10 @@ constexpr SettingDesc kSchema[] = {
      "Fewer costs the graphics card less.", "", 8},
     {"vrfireflicker", "Fire flicker", SettingKind::Float, 0.0f, 0.4f, 0.05f, "VR view", "Picture",
      "How much firelight wavers with the flames. 0 holds it steady.", "", 0.15f},
+    {"vrsoftparticles", "Soft particles", SettingKind::Bool, 0, 0, 0, "VR view", "Picture",
+     "Fire, smoke and sparks fade softly where they meet logs, walls\n"
+     "and the ground instead of ending in a hard line, and flames\n"
+     "flow from frame to frame. Costs a copy of each eye's depth.", "", 1},
     {"vreyescale", "Eye resolution", SettingKind::Int, 70, 150, 5, "VR view", "Picture",
      "How many pixels each eye's picture has, in percent of what the\n"
      "headset asks for along each side. Above 100 the edges are smoother\n"

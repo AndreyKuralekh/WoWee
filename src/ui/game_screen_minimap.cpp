@@ -1844,6 +1844,7 @@ void GameScreen::saveSettings() {
     out << "vr_fire_light=" << (settingsPanel_.pendingVrFireLight ? 1 : 0) << "\n";
     out << "vr_fire_light_max=" << settingsPanel_.pendingVrFireLightMax << "\n";
     out << "vr_fire_flicker=" << settingsPanel_.pendingVrFireFlicker << "\n";
+    out << "vr_soft_particles=" << (settingsPanel_.pendingVrSoftParticles ? 1 : 0) << "\n";
     out << "vr_eye_scale=" << settingsPanel_.pendingVrEyeScale << "\n";
     out << "vr_draw_by_reach=" << (settingsPanel_.pendingVrDrawByReach ? 1 : 0) << "\n";
     out << "vr_keep_casting=" << (settingsPanel_.pendingVrKeepCasting ? 1 : 0) << "\n";
@@ -2155,6 +2156,7 @@ void GameScreen::loadSettings() {
             else if (key == "vr_fire_light") settingsPanel_.pendingVrFireLight = (val == "1");
             else if (key == "vr_fire_light_max") settingsPanel_.pendingVrFireLightMax = std::clamp(std::stoi(val), 1, 8);
             else if (key == "vr_fire_flicker") settingsPanel_.pendingVrFireFlicker = std::clamp(std::stof(val), 0.0f, 0.4f);
+            else if (key == "vr_soft_particles") settingsPanel_.pendingVrSoftParticles = (val == "1");
             else if (key == "vr_eye_scale") settingsPanel_.pendingVrEyeScale = std::clamp(std::stoi(val), 70, 150);
             else if (key == "vr_draw_by_reach") settingsPanel_.pendingVrDrawByReach = (val == "1");
             else if (key == "vr_keep_casting") settingsPanel_.pendingVrKeepCasting = (val == "1");
