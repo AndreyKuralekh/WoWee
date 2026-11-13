@@ -769,6 +769,12 @@ void Renderer::updatePerFrameUBO() {
         if (waterRenderer) waterRenderer->setEyeCaustics(xr::system().waterCaustics());
 #endif
         m2Renderer->setFireVolumeParams(volume);
+        // Where a waterfall meets its pool, for its mist and spray.
+        if (volume.waterfallMist && waterRenderer) {
+            m2Renderer->setWaterLevelQuery([this](const glm::vec3& p, float reach) {
+                return waterRenderer->getNearestWaterHeightAt(p.x, p.y, p.z, reach);
+            });
+        }
     }
     if (m2Renderer && localLightCount < MAX_LOCAL_LIGHTS) {
         localLightCount += m2Renderer->gatherLocalLights(camera->getPosition(),
@@ -2507,6 +2513,14 @@ void Renderer::update(float deltaTime) {
 
     // Update swim effects
     if (swimEffects && camera && cameraController && waterRenderer) {
+        // The spray at the feet of near waterfalls, on their pools' surface.
+        if (m2Renderer) {
+            std::vector<glm::vec4> feet = m2Renderer->waterfallFeet();
+            for (auto& f : feet) {
+                if (const auto h = waterRenderer->getNearestWaterHeightAt(f.x, f.y, f.z - 1.0f, 3.0f)) f.z = *h;
+            }
+            swimEffects->setWaterfallFeet(feet);
+        }
         swimEffects->update(*camera, *cameraController, *waterRenderer, deltaTime);
     }
 
