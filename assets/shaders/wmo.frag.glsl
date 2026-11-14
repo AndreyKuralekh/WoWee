@@ -346,11 +346,21 @@ void main() {
         // the same grey. A small safety floor stays for the few roots that
         // carry no ambient at all.
         if (isInterior == 1) {
-            vec3 wmoAmbient = vec3(wmoAmbientR, wmoAmbientG, wmoAmbientB);
-            wmoAmbient = max(wmoAmbient, vec3(0.15));
-            vec3 mocv = max(VertColor.rgb, wmoAmbient);
-            float clampedShadow = max(shadow, 0.45);
-            result = texColor.rgb * mocv * clampedShadow;
+            // An interior group the sky lights (0x40) - a Stormwind district.
+            // The client lights it as outdoors: the sky's ambient and the sun,
+            // with its vertex colour doubled added to the ambient. It used to
+            // take the larger of its vertex colour and a 0.15 floor, times the
+            // shadow - warm baked light that ignored the hour, so at night the
+            // walls stayed lamplit gold while the people in the street, lit
+            // by the night sky, stood blue and dark against them.
+            vec3 ldir = normalize(-lightDir.xyz);
+            float diff = max(dot(norm, ldir), 0.0);
+            // Without vertex colours of its own (Stormwind's districts carry
+            // none) the loader's white stands in, and must add nothing: it is
+            // what drew the districts at full brightness at every hour.
+            vec3 baked = hasVertexColors != 0 ? VertColor.rgb * 2.0 : vec3(0.0);
+            result = (rtAmbient(rt, ambientColor.rgb) + baked) * texColor.rgb
+                   + shadow * diff * lightColor.rgb * texColor.rgb;
         } else {
         //
         // A room (no exterior-lit flag; a district the sky lights keeps the
