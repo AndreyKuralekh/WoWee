@@ -458,6 +458,11 @@ void WorldLoader::loadMapGeometry(uint32_t mapId, const std::string& mapName,
                             wmoMatrix = glm::rotate(wmoMatrix, wmoRot.x, glm::vec3(1, 0, 0));
 
                             uint32_t loadedDoodads = 0;
+                            uint32_t roomLit = 0;
+                            // Lit from within its room, as on a continent's
+                            // buildings (TerrainManager): a dungeon is all rooms.
+                            const std::vector<pipeline::DoodadRoomLight> roomLights =
+                                pipeline::doodadRoomLights(wmoModel);
                             for (uint32_t di = 0; di < doodadSet.count; di++) {
                                 uint32_t doodadIdx = doodadSet.startIndex + di;
                                 if (doodadIdx >= wmoModel.doodads.size()) break;
@@ -498,9 +503,15 @@ void WorldLoader::loadMapGeometry(uint32_t mapId, const std::string& mapName,
                                 if (!m2Renderer->loadModel(m2Model, doodadModelId)) continue;
                                 uint32_t doodadInstId = m2Renderer->createInstanceWithMatrix(doodadModelId, worldMatrix, worldPos);
                                 if (doodadInstId) m2Renderer->setSkipWallCollision(doodadInstId, true);
+                                if (doodadInstId && doodadIdx < roomLights.size() && roomLights[doodadIdx].inRoom) {
+                                    const auto& rl = roomLights[doodadIdx];
+                                    m2Renderer->setInstanceRoomLight(doodadInstId, rl.ambient, rl.direct,
+                                                                     glm::normalize(glm::mat3(wmoMatrix) * rl.toLight));
+                                    ++roomLit;
+                                }
                                 loadedDoodads++;
                             }
-                            LOG_INFO("Loaded ", loadedDoodads, " instance WMO doodads");
+                            LOG_INFO("Loaded ", loadedDoodads, " instance WMO doodads, ", roomLit, " lit from their rooms");
                         }
                     } else {
                         LOG_WARNING("Failed to create instance WMO instance");
