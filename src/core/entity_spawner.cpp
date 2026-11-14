@@ -532,11 +532,17 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
     bool hadWeaponCandidate = false;
 
     // 56 is where 3.3.5 keeps UNIT_VIRTUAL_ITEM_SLOT_ID: main hand, off hand,
-    // ranged. The others are guesses at other layouts.
-    const uint16_t candidateBases[] = {56, 57, 58, 70, 148, 149, 150, 151, 152};
+    // ranged. The others are guesses at other layouts - made only where the
+    // layout does not name the slots. Under 3.3.5 they hung any field that
+    // happened to match an item's entry in the hand of an NPC the server
+    // gave nothing: a Stormwind townswoman stood holding a turquoise club.
+    const uint16_t virtualSlots = game::fieldIndex(game::UF::UNIT_VIRTUAL_ITEM_SLOT_ID);
+    const bool slotsKnown = virtualSlots != 0xFFFF;
+    const uint16_t slotBase = slotsKnown ? virtualSlots : uint16_t{56};
+    const uint16_t candidateBases[] = {slotBase, 57, 58, 70, 148, 149, 150, 151, 152};
     uint16_t mainBase = 0;
     for (uint16_t base : candidateBases) {
-        if (!humanoidDisplay && base != 56) break;
+        if ((!humanoidDisplay || slotsKnown) && base != slotBase) break;
         uint32_t v0 = entity->getField(static_cast<uint16_t>(base + 0));
         if (v0 != 0) hadWeaponCandidate = true;
         if (!attachedMain && v0 != 0) attachedMain = attachNpcWeaponDisplay(v0, game::EquipSlot::MAIN_HAND);
@@ -551,7 +557,7 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
     uint16_t scanHi = (unitEnd != 0xFFFF) ? static_cast<uint16_t>(unitEnd + 96) : 320;
     std::map<uint16_t, uint32_t> candidateByIndex;
     for (const auto& [idx, val] : entity->getFields()) {
-        if (!humanoidDisplay) break;
+        if (!humanoidDisplay || slotsKnown) break;
         if (idx < scanLo || idx > scanHi) continue;
         if (val == 0) continue;
         if (hasResolvableWeaponModel(val)) {
@@ -569,8 +575,8 @@ bool EntitySpawner::tryAttachCreatureVirtualWeapons(uint64_t guid, uint32_t inst
     // no known neighbour, and guessing one hung shields and hilts on NPCs that
     // hold neither - which is why the off hand was always cleared, and every
     // guard lost its shield. Only what a hand can hold.
-    if (mainBase == 56) {
-        const uint32_t offHand = entity->getField(57);
+    if (mainBase == slotBase) {
+        const uint32_t offHand = entity->getField(static_cast<uint16_t>(slotBase + 1));
         const uint32_t invType = inventoryTypeOf(offHand);
         if (invType == game::InvType::SHIELD || invType == game::InvType::ONE_HAND ||
             invType == game::InvType::OFF_HAND || invType == game::InvType::MAIN_HAND ||

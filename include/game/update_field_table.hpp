@@ -27,6 +27,9 @@ enum class UF : uint16_t {
     UNIT_FIELD_MAXPOWER1,
     UNIT_FIELD_LEVEL,
     UNIT_FIELD_FACTIONTEMPLATE,
+    /// The items an NPC holds - main hand, off hand, ranged - as item entries
+    /// (3.3.5: 56..58). Where a layout names it, nothing else is guessed at.
+    UNIT_VIRTUAL_ITEM_SLOT_ID,
     UNIT_FIELD_FLAGS,
     UNIT_FIELD_FLAGS_2,
     UNIT_FIELD_AURASTATE,      // Reactive combat opportunities (e.g. dodge/block/parry)

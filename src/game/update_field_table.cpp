@@ -31,6 +31,7 @@ static const UFNameEntry kUFNames[] = {
     {.name = "UNIT_FIELD_MAXPOWER1", .field = UF::UNIT_FIELD_MAXPOWER1},
     {.name = "UNIT_FIELD_LEVEL", .field = UF::UNIT_FIELD_LEVEL},
     {.name = "UNIT_FIELD_FACTIONTEMPLATE", .field = UF::UNIT_FIELD_FACTIONTEMPLATE},
+    {.name = "UNIT_VIRTUAL_ITEM_SLOT_ID", .field = UF::UNIT_VIRTUAL_ITEM_SLOT_ID},
     {.name = "UNIT_FIELD_FLAGS", .field = UF::UNIT_FIELD_FLAGS},
     {.name = "UNIT_FIELD_FLAGS_2", .field = UF::UNIT_FIELD_FLAGS_2},
     {.name = "UNIT_FIELD_AURASTATE", .field = UF::UNIT_FIELD_AURASTATE},
