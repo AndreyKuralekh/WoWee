@@ -1764,7 +1764,13 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
                     core::Logger::getInstance().info("WMO portal walk: model ", instance.modelId, " ",
                         portalVisibleGroupSet_.size(), " of ", model.groups.size(), " groups, outside ",
                         outsideVisible ? "visible" : "hidden", ", camera ", static_cast<int>(camPos.x), ",",
-                        static_cast<int>(camPos.y), ",", static_cast<int>(camPos.z));
+                        static_cast<int>(camPos.y), ",", static_cast<int>(camPos.z), ", start group ",
+                        findCameraGroup(model, localRealCam));
+                    std::vector<uint32_t> ids(portalVisibleGroupSet_.begin(), portalVisibleGroupSet_.end());
+                    std::sort(ids.begin(), ids.end());
+                    std::string list;
+                    for (uint32_t id : ids) list += std::to_string(id) + " ";
+                    core::Logger::getInstance().info("WMO portal walk groups: ", list);
                 }
             }
         }
@@ -2574,7 +2580,24 @@ bool WMORenderer::walkPortals(const ModelData& model, const glm::mat4& modelMatr
             }
             if (!boxInPlanes(next, tg.boundingBoxMin, tg.boundingBoxMax)) continue;
             outVisible.insert(target);
-            if (targetExterior) outsideVisible = true;
+            if (targetExterior) {
+                outsideVisible = true;
+                // A portal to the outdoors shows the whole outdoors through
+                // it, not just the one exterior group it opens on: the
+                // exterior groups meet each other without portals.
+                for (size_t gi = 0; gi < model.groups.size(); ++gi) {
+                    const auto& g = model.groups[gi];
+                    if (gi == target || !(g.groupFlags & kExterior) || outVisible.count(static_cast<uint32_t>(gi))) {
+                        continue;
+                    }
+                    if (!boxInPlanes(next, g.boundingBoxMin, g.boundingBoxMax)) continue;
+                    outVisible.insert(static_cast<uint32_t>(gi));
+                    if (depth + 1 < kMaxDepth && visits[gi] < kMaxVisits) {
+                        ++visits[gi];
+                        queue.push_back({static_cast<uint32_t>(gi), next, depth + 1});
+                    }
+                }
+            }
             if (depth + 1 < kMaxDepth && visits[target] < kMaxVisits) {
                 ++visits[target];
                 queue.push_back({target, std::move(next), depth + 1});
