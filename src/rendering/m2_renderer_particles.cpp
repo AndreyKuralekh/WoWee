@@ -152,6 +152,13 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
         // the Goldshire inn hangs five of them in the roof space: the lanterns
         // sat hidden above the new plank ceiling while their flames burned
         // alone under it. Nothing in a lamp is meant to burn that far off it.
+        // Nor behind a lantern's glass: the panes are opaque, so its flame
+        // specks showed only where their cards poked through them - a halo
+        // that flickered differently in each eye of a headset.
+        if (gpu.hasLanternGlass && isFlameEmitter(gpu, em)) {
+            inst.emitterAccumulators[ei] = 0.0f;
+            continue;
+        }
         if (gpu.isLanternLike && !gpu.followsEmitterEnabled) {
             constexpr float kLampFlameReach = 1.5f;
             const glm::vec3 nearest = glm::clamp(em.position, gpu.boundMin, gpu.boundMax);

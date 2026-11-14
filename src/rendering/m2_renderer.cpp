@@ -417,6 +417,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         glm::vec4 posRadius;
         glm::vec4 colorIntensity;
         bool flame = false;  // lamps/torches/braziers gutter; lava burns steady
+        bool slowFlicker = false;  // behind glass: a slow breath, not a gutter
         // Fixture placement, used only to seed the flicker phase. The light's own
         // position animates with the flame, which would re-roll the phase every frame.
         glm::vec3 phaseSeed{0.0f};
@@ -624,7 +625,8 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                     candidates.push_back({.distSq = distSq,
                         .posRadius = glm::vec4(worldPos, radius),
                         .colorIntensity = glm::vec4(color, intensity),
-                        .flame = true, .phaseSeed = instance.position});
+                        .flame = true, .slowFlicker = model->hasLanternGlass,
+                        .phaseSeed = instance.position});
                 }
             }
         }
@@ -695,8 +697,10 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         outPosRadius[i] = candidates[i].posRadius;
         outColorIntensity[i] = candidates[i].colorIntensity;
         if (candidates[i].flame) {
-            outColorIntensity[i].w *= lampFlicker(candidates[i].phaseSeed,
-                                                  flickerSeconds, 0.82f, 0.12f, 0.06f);
+            // A flame behind a lantern's glass breathes, with its glass.
+            outColorIntensity[i].w *= candidates[i].slowFlicker
+                ? lanternBreath(candidates[i].phaseSeed)
+                : lampFlicker(candidates[i].phaseSeed, flickerSeconds, 0.82f, 0.12f, 0.06f);
             // A lamp is lit for the night: by day its pool is lost in the sun.
             outColorIntensity[i].w *= 1.0f + 0.6f * nightGlow_;
         }
@@ -2855,6 +2859,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             bgpu.preserveGlowMesh = tcls.softGlowSurface ||
                                     (bgpu.lanternGlowHint && flameCard);
             bgpu.glowTint = tcls.glowTint;
+            bgpu.lanternGlass = tcls.lanternGlass;
             if (tex != nullptr && tex != whiteTexture_.get()) {
                 auto pit = texturePropsByPtr_.find(tex);
                 if (pit != texturePropsByPtr_.end()) {
@@ -3276,7 +3281,8 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             mat.fadeAlpha = 1.0f;
             mat.interiorDarken = 0.0f;
             mat.specularIntensity = 0.5f;
-            mat.emissiveBoost = bgpu.preserveGlowMesh ? 2.4f : 1.0f;
+            // A lantern's glass shows its own lit pattern, not a blown-out white.
+            mat.emissiveBoost = bgpu.lanternGlass ? 1.2f : bgpu.preserveGlowMesh ? 2.4f : 1.0f;
             mat.combine2 = bgpu.combine2;
             mat.uvSet2 = bgpu.uvSet2;
             mat.foliageNormalBlend = m2FoliageLighting().normalBlend;
@@ -3368,6 +3374,9 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     }
 
     registerRtModel(gpuModel, model);
+    for (const auto& b : gpuModel.batches) {
+        if (b.lanternGlass) { gpuModel.hasLanternGlass = true; break; }
+    }
     models[modelId] = std::move(gpuModel);
     spatialIndexDirty_ = true;  // Map may have rehashed - refresh cachedModel pointers
 

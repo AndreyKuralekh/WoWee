@@ -80,6 +80,7 @@ layout(location = 12) flat in vec3 CrownLight;
 layout(location = 13) flat in vec4 vRoomAmbient;
 layout(location = 14) flat in vec3 vRoomDirect;
 layout(location = 15) flat in vec3 vRoomToLight;
+layout(location = 16) flat in float vGlassBreath;
 
 // How much of a tree's own crown lies between this point and the light, as
 // the chord of the crown's ellipsoid (the unit sphere in crown space) along
@@ -379,6 +380,8 @@ void main() {
     vec3 result;
     if (unlit != 0) {
         result = texColor.rgb * emissiveBoost;
+        // A lantern's glass (its only unlit batch) breathes with its flame.
+        if (vGlassBreath > 0.0) result *= vGlassBreath;
         if (emissiveBoost > 1.0) {
             // Weighted by the texel's own brightness. Added flat it lit the
             // whole quad, and a glow card is black everywhere but its middle,

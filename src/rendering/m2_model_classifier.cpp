@@ -814,8 +814,13 @@ M2BatchTexClassification classifyBatchTexture(const std::string& lowerTexKey)
     // Stormwind street lamps use an opaque unlit glass texture rather than a
     // named glow card or particle emitter. Preserve that glass mesh and layer
     // a soft halo over it in the renderer.
+    // So do the panes of any lantern or lamp: a shop's hanging lantern draws
+    // LightGlass02, unlit, which as a "light" texture in a "lanterns" folder
+    // was taken for a glow card and swapped for a bare sprite - the lantern
+    // had no glass at all, only a ball of light between its cap and its foot.
+    r.lanternGlass     = lowerTexKey.find("glass") != std::string::npos && r.lanternFamily;
     r.softGlowSurface  = lowerTexKey ==
-        "dungeons\\textures\\doodads\\stormwindlampglass.blp";
+        "dungeons\\textures\\doodads\\stormwindlampglass.blp" || r.lanternGlass;
     r.glowTint         = hasAny(lowerTexKey, kCoolTintTokens) ? 1
                        : hasAny(lowerTexKey, kRedTintTokens)  ? 2
                        : 0;

@@ -1657,6 +1657,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 e.roomAmbient = inst.roomAmbient;
                 e.roomDirect = inst.roomDirect;
                 e.roomToLight = inst.roomToLight;
+                e.roomToLight.w = model.hasLanternGlass ? lanternBreath(inst.position) : 0.0f;
                 e.fadeAlpha = p.fadeAlpha;
                 e.useBones = (p.useBones && !kM2NoSkinning) ? 1 : 0;
                 e.boneBase = p.useBones ? static_cast<int32_t>(inst.megaBoneOffset) : 0;
@@ -1782,7 +1783,12 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                     glowCard.modelIsKoboldFlame = model.isKoboldFlame;
                     // Not for cards spread over several flames: their centre is
                     // empty air, and the cards draw their own glow.
-                    const bool shouldUseGlowSprite = m2WantsGlowSprite(glowCard) && !batch.glowSpread;
+                    // Nor for a lantern's glass: its panes carry their own lit
+                    // pattern, and a sprite standing just in front of them -
+                    // placed for the centre camera - fell behind the front pane
+                    // for one eye of a headset and flickered there.
+                    const bool shouldUseGlowSprite =
+                        m2WantsGlowSprite(glowCard) && !batch.glowSpread && !batch.lanternGlass;
                     if (shouldUseGlowSprite) {
                         // Generate glow sprites for each instance in the group
                         for (size_t j = lodIdx; j < lodEnd; j++) {
@@ -1979,6 +1985,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                             e.roomAmbient = inst.roomAmbient;
                             e.roomDirect = inst.roomDirect;
                             e.roomToLight = inst.roomToLight;
+                            e.roomToLight.w = model.hasLanternGlass ? lanternBreath(inst.position) : 0.0f;
                             e.fadeAlpha = p.fadeAlpha;
                             e.useBones = (p.useBones && !kM2NoSkinning) ? 1 : 0;
                             e.boneBase = p.useBones ? static_cast<int32_t>(inst.megaBoneOffset) : 0;
@@ -2284,6 +2291,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             e.roomAmbient = instance.roomAmbient;
             e.roomDirect = instance.roomDirect;
             e.roomToLight = instance.roomToLight;
+            e.roomToLight.w = model.hasLanternGlass ? lanternBreath(instance.position) : 0.0f;
             e.fadeAlpha = instanceFadeAlpha;
             // A sky layer's own alpha, which nothing else applies: the Lordaeron
             // sky's haze is authored at 30% and was drawn solid, a white sheet

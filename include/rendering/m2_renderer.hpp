@@ -90,6 +90,7 @@ struct M2ModelGPU {
         bool lanternGlowHint = false; // Texture/model hints this batch is a glow-card billboard
         bool glowCardLike = false; // Batch likely is a flat emissive card that should be sprite-replaced
         bool preserveGlowMesh = false; // Keep emissive glass/fixture mesh below its glow sprite
+        bool lanternGlass = false;     // A lantern's glass pane: a faint sprite, the pattern shows
         // Forge fire card: the flame/coals/glow batches of a forge, as opposed
         // to the masonry and ironwork the rest of the model is made of.
         bool forgeFireCard = false;
@@ -242,6 +243,7 @@ struct M2ModelGPU {
     bool isElvenLike = false;       // Model name matches elf/elven/quel (precomputed)
     bool isLanternLike = false;     // Model name matches lantern/lamp/light (precomputed)
     bool isCandle = false;          // A candle or candelabrum (by name)
+    bool hasLanternGlass = false;   // Draws a lantern's glass panes (a batch's lanternGlass)
     bool hasLanternGlowCard = false; // a batch the glow sprites start from
     bool isKoboldFlame = false;     // Model name matches kobold+(candle/torch/mine) (precomputed)
     bool isLavaModel = false;       // Model name contains lava/molten/magma (UV scroll fallback)

@@ -87,6 +87,8 @@ layout(location = 12) flat out vec3 CrownLight;
 layout(location = 13) flat out vec4 vRoomAmbient;
 layout(location = 14) flat out vec3 vRoomDirect;
 layout(location = 15) flat out vec3 vRoomToLight;
+// A lantern's glass breathing with its flame (0 for every other model).
+layout(location = 16) flat out float vGlassBreath;
 
 void main() {
     // Fetch per-instance data from SSBO
@@ -95,6 +97,7 @@ void main() {
     vRoomAmbient = instanceData[instIdx].roomAmbient;
     vRoomDirect = instanceData[instIdx].roomDirect.rgb;
     vRoomToLight = instanceData[instIdx].roomToLight.xyz;
+    vGlassBreath = instanceData[instIdx].roomToLight.w;
     mat4 model = instanceData[instIdx].model;
     vec2 uvOff = instanceData[instIdx].uvOffset;
     float fade = instanceData[instIdx].fadeAlpha;

@@ -406,6 +406,13 @@ inline float lampFlickerClockSeconds() {
     return std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count();
 }
 
+// A flame behind a lantern's glass: it breathes, slowly - five times slower
+// than a wick gutters, and deeper, from about 0.6 to 1.0. The glass and the
+// light it throws share it, and both eyes of a headset with them.
+inline float lanternBreath(const glm::vec3& phaseSeed) {
+    return lampFlicker(phaseSeed, lampFlickerClockSeconds() * 0.2f, 0.80f, 0.14f, 0.06f);
+}
+
 } // namespace m2_internal
 
 // Pull all symbols into the rendering namespace so existing code compiles unchanged
