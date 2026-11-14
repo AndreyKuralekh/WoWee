@@ -345,11 +345,28 @@ void main() {
         // regardless, which lifted every dark corner in every building to
         // the same grey. A small safety floor stays for the few roots that
         // carry no ambient at all.
-        vec3 wmoAmbient = vec3(wmoAmbientR, wmoAmbientG, wmoAmbientB);
-        wmoAmbient = max(wmoAmbient, vec3(0.15));
-        vec3 mocv = max(VertColor.rgb, wmoAmbient);
-        float clampedShadow = max(shadow, 0.45);
-        result = texColor.rgb * mocv * clampedShadow;
+        if (isInterior == 1) {
+            vec3 wmoAmbient = vec3(wmoAmbientR, wmoAmbientG, wmoAmbientB);
+            wmoAmbient = max(wmoAmbient, vec3(0.15));
+            vec3 mocv = max(VertColor.rgb, wmoAmbient);
+            float clampedShadow = max(shadow, 0.45);
+            result = texColor.rgb * mocv * clampedShadow;
+        } else {
+        //
+        // A room (no exterior-lit flag; a district the sky lights keeps the
+        // branch above). As the client lights an interior: the MOHD ambient plus the vertex
+        // colour doubled, added (not the larger of the two), scaled from 0.7
+        // to 1.1 by how far the face turns to the interior's fixed light from
+        // above, and no sun shadow - the sun does not reach inside. The
+        // larger-of-the-two with a 0.15 floor and the shadow map's 0.45 drew
+        // every room a flat dark grey: Stormwind's shops carry vertex colours
+        // around 0.1-0.15, warm, which the floor hid entirely.
+        vec3 wmoAmbient = max(vec3(wmoAmbientR, wmoAmbientG, wmoAmbientB), vec3(0.03));
+        const vec3 kInteriorLightDir = vec3(0.30822, 0.30822, 0.9);
+        float nDotL = clamp(dot(norm, normalize(kInteriorLightDir)), 0.0, 1.0);
+        vec3 roomLight = (wmoAmbient + VertColor.rgb * 2.0) * mix(0.7, 1.1, 0.5 + 0.5 * nDotL);
+        result = texColor.rgb * roomLight;
+        }
     } else if (unlit != 0) {
         // Outdoor unlit surface - still receives directional shadows
         result = texColor.rgb * shadow;

@@ -856,7 +856,10 @@ WMORenderer::ModelLoadResult WMORenderer::loadModelIncremental(
             matData.hasTexture = mb.hasTexture ? 1 : 0;
             matData.alphaTest = mb.alphaTest ? 1 : 0;
             matData.unlit = mb.unlit ? 1 : 0;
-            matData.isInterior = isInterior ? 1 : 0;
+            // 2: a room, lit only from within. 1: an interior group the sky
+            // lights as well (0x40) - a Stormwind district is one, and keeps
+            // the light it had.
+            matData.isInterior = !isInterior ? 0 : (groupRes.groupFlags & 0x40) ? 1 : 2;
             matData.hasVertexColors = (groupRes.groupFlags & 0x4) != 0 ? 1 : 0;
             matData.specularIntensity = specularIntensity_;
             matData.isWindow = mb.isWindow ? (wmoOnlyMap_ ? 2 : 1) : 0;
