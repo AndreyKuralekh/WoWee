@@ -1718,6 +1718,29 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
         bool usePortalCulling = doPortalCull && !model.portals.empty() && !model.portalRefs.empty();
         const glm::vec3 localRealCam =
             glm::vec3(instance.invModelMatrix * glm::vec4(camPos, 1.0f));
+        // Which group the camera is in, by geometry and by box, when it
+        // changes (WOWEE_WMO_GROUP_DIAG): what portal culling will start from.
+        static const bool groupDiag = [] {
+            const char* v = std::getenv("WOWEE_WMO_GROUP_DIAG");
+            return v && *v && *v != '0';
+        }();
+        if (groupDiag && camPos.x >= instance.worldBoundsMin.x && camPos.x <= instance.worldBoundsMax.x &&
+            camPos.y >= instance.worldBoundsMin.y && camPos.y <= instance.worldBoundsMax.y &&
+            camPos.z >= instance.worldBoundsMin.z && camPos.z <= instance.worldBoundsMax.z) {
+            static std::mutex diagMutex;
+            static std::unordered_map<uint32_t, std::pair<int, int>> lastSaid;
+            const int byGeometry = findCameraGroup(model, localRealCam);
+            const int byBox = findContainingGroup(model, localRealCam);
+            std::lock_guard<std::mutex> lock(diagMutex);
+            auto& said = lastSaid[instance.id];
+            if (said.first != byGeometry || said.second != byBox) {
+                said = {byGeometry, byBox};
+                core::Logger::getInstance().info(
+                    "WMO camera group: model ", instance.modelId, " group ", byGeometry, " flags 0x", std::hex,
+                    byGeometry >= 0 ? model.groups[static_cast<size_t>(byGeometry)].groupFlags : 0u, std::dec,
+                    " (smallest box: ", byBox, ")");
+            }
+        }
         if (usePortalCulling) {
             // If the camera is outside all groups, skip portal culling entirely.
             // This is what makes it safe for the traversal below to start from
@@ -2369,6 +2392,53 @@ int WMORenderer::findContainingGroup(const ModelData& model, const glm::vec3& lo
         }
     }
     return bestGroup;
+}
+
+int WMORenderer::findCameraGroup(const ModelData& model, const glm::vec3& localPos) const {
+    // A little slack round the boxes: a camera on a floor sits at the box's
+    // bottom face.
+    constexpr float kSlack = 0.5f;
+    thread_local std::vector<uint32_t> tris;
+    int best = -1;
+    float bestGap = std::numeric_limits<float>::max();
+    bool bestInterior = false;
+    for (size_t gi = 0; gi < model.groups.size(); ++gi) {
+        const auto& g = model.groups[gi];
+        if (localPos.x < g.boundingBoxMin.x - kSlack || localPos.x > g.boundingBoxMax.x + kSlack ||
+            localPos.y < g.boundingBoxMin.y - kSlack || localPos.y > g.boundingBoxMax.y + kSlack ||
+            localPos.z < g.boundingBoxMin.z - kSlack || localPos.z > g.boundingBoxMax.z + kSlack) {
+            continue;
+        }
+        // One grid cell, so no deduplication and no shared scratch: this runs
+        // on the cull threads.
+        g.getTrianglesInRange(localPos.x, localPos.y, localPos.x, localPos.y, tris);
+        float floorZ = -std::numeric_limits<float>::max();
+        for (uint32_t t : tris) {
+            if (t + 2 >= g.collisionIndices.size()) continue;
+            const glm::vec3& a = g.collisionVertices[g.collisionIndices[t]];
+            const glm::vec3& b = g.collisionVertices[g.collisionIndices[t + 1]];
+            const glm::vec3& c = g.collisionVertices[g.collisionIndices[t + 2]];
+            // The vertical line through the point, against the triangle in XY.
+            const float d = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+            if (std::abs(d) < 1e-6f) continue;  // edge-on from above: a wall
+            const float u = ((b.y - c.y) * (localPos.x - c.x) + (c.x - b.x) * (localPos.y - c.y)) / d;
+            const float v = ((c.y - a.y) * (localPos.x - c.x) + (a.x - c.x) * (localPos.y - c.y)) / d;
+            if (u < 0.0f || v < 0.0f || u + v > 1.0f) continue;
+            const float z = u * a.z + v * b.z + (1.0f - u - v) * c.z;
+            if (z <= localPos.z + 0.05f && z > floorZ) floorZ = z;
+        }
+        if (floorZ == -std::numeric_limits<float>::max()) continue;
+        const float gap = localPos.z - floorZ;
+        const bool interior = (g.groupFlags & 0x2000) != 0 && (g.groupFlags & 0x8) == 0;
+        // The nearest floor wins; at the same floor (a doorway's threshold,
+        // shared by the room and the street) the interior does.
+        if (gap < bestGap - 0.05f || (std::abs(gap - bestGap) <= 0.05f && interior && !bestInterior)) {
+            best = static_cast<int>(gi);
+            bestGap = gap;
+            bestInterior = interior;
+        }
+    }
+    return best;
 }
 
 bool WMORenderer::isPortalVisible(const ModelData& model, uint16_t portalIndex,

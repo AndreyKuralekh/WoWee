@@ -761,6 +761,16 @@ private:
     int findContainingGroup(const ModelData& model, const glm::vec3& localPos) const;
 
     /**
+     * The group the camera stands in (model space), by its geometry rather
+     * than its box: of the groups whose box holds the point, the one with the
+     * nearest surface straight below it. A city's boxes overlap by hundreds of
+     * yards - Stormwind's Valley of Heroes box covers the Trade District - so
+     * the smallest box is not where the camera is. -1 when no group's surface
+     * lies under the point.
+     */
+    int findCameraGroup(const ModelData& model, const glm::vec3& localPos) const;
+
+    /**
      * Get visible groups via portal traversal
      */
     /// Seeds from both the camera's group and the character's: at a doorway the
