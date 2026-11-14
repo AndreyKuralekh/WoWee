@@ -771,6 +771,52 @@ private:
     int findCameraGroup(const ModelData& model, const glm::vec3& localPos) const;
 
     /**
+     * The groups to draw, by walking the portals from the camera's group as
+     * the original client does (model space throughout). From an interior
+     * group only what a chain of portals in view reaches is drawn, exterior
+     * groups included; each portal narrows the view to its own opening. From
+     * an exterior group every exterior group is drawn, and the interiors seen
+     * through their portals. False when the camera stands in no group - the
+     * caller then draws them all. outsideVisible says whether an exterior
+     * group was reached, i.e. whether the world outside the building shows.
+     */
+    bool walkPortals(const ModelData& model, const glm::mat4& modelMatrix, const glm::vec3& cameraLocal,
+                     const Frustum& frustum, std::unordered_set<uint32_t>& outVisible,
+                     bool& outsideVisible) const;
+
+    uint32_t enclosingInstanceId_ = 0;
+    glm::mat4 enclosingInvMatrix_{1.0f};
+    glm::vec3 enclosingBoundsMin_{0.0f};
+    glm::vec3 enclosingBoundsMax_{0.0f};
+    const ModelData* enclosingModel_ = nullptr;
+    std::unordered_set<uint32_t> enclosingVisibleGroups_;
+public:
+    /**
+     * Whether the camera is shut in a building this frame: standing in one of
+     * its interior groups with no chain of portals in view reaching outside.
+     * The world beyond it - terrain, grass, other buildings, the models
+     * standing on the ground - is then not drawn, as the original client
+     * does not (a Stormwind district shows sky over its walls, not the
+     * mountains). Main thread, once a frame before anything is recorded;
+     * only with portal walking on.
+     */
+    bool updateEnclosure(const Camera& camera);
+    /** The building the camera is shut in (see updateEnclosure), 0 if none. */
+    uint32_t enclosingInstance() const { return enclosingInstanceId_; }
+    /** Whether a model standing at a world point is seen while the camera is
+     *  shut in a building: it stands on the floor of one of the building's
+     *  groups the portals show. -1 from groupAtInEnclosure: on none. */
+    int groupAtInEnclosure(const glm::vec3& worldPos) const;
+    bool enclosureShowsGroup(int group) const {
+        return group >= 0 && enclosingVisibleGroups_.count(static_cast<uint32_t>(group)) != 0;
+    }
+    bool insideEnclosureBounds(const glm::vec3& p) const {
+        return p.x >= enclosingBoundsMin_.x && p.x <= enclosingBoundsMax_.x && p.y >= enclosingBoundsMin_.y &&
+               p.y <= enclosingBoundsMax_.y && p.z >= enclosingBoundsMin_.z && p.z <= enclosingBoundsMax_.z;
+    }
+private:
+
+    /**
      * Get visible groups via portal traversal
      */
     /// Seeds from both the camera's group and the character's: at a doorway the
@@ -922,6 +968,10 @@ private:
     // Rendering state
     bool wireframeMode = false;
     bool frustumCulling = true;  // dead: every instance is included, the group cull does the work
+    // Portals walked the original client's way (walkPortals), with an
+    // exterior group drawn only when a chain of portals in view reaches it.
+    // WOWEE_WMO_PORTALS=1 for now.
+    bool portalWalk_ = false;
     bool portalCulling = true;   // AABB transform bug fixed; conservative frustum test (no plane-side check) is visually safe
     bool distanceCulling = false;  // Disabled - causes ground to disappear
 

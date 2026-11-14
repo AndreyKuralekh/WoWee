@@ -535,6 +535,8 @@ struct M2ParamsUBO {
  *
  * Handles rendering of M2 models (doodads like trees, rocks, bushes)
  */
+class WMORenderer;
+
 class M2Renderer {
 public:
     M2Renderer();
@@ -881,6 +883,10 @@ public:
 
     void setSuppressBakedStars(bool suppress) { suppressBakedStars_ = suppress; }
     void setInsideInterior(bool inside) { insideInterior = inside; }
+    /// The camera shut in a building (WMORenderer::updateEnclosure): a model
+    /// is drawn only if it stands in one of the building's groups the portals
+    /// show, or is a game object; null draws everything.
+    void setEnclosure(const WMORenderer* wmo);
     /// The height of the image the next pass draws into - the window's, or
     /// an eye's - which sizes the particles.
     void setViewHeight(float height) { viewHeight_ = height; }
@@ -950,6 +956,12 @@ public:
 private:
     bool initialized_ = false;
     bool insideInterior = false;
+    const WMORenderer* enclosure_ = nullptr;
+    uint32_t enclosureBuilding_ = 0;
+    size_t enclosureInstanceCount_ = 0;
+    size_t enclosureLogged_ = 0;
+    // The building group each model stands in, found once per building.
+    std::unordered_map<uint32_t, int> enclosureGroupOf_;
     float viewHeight_ = 1080.0f;
     pipeline::AssetManager* assetManager = nullptr;
 

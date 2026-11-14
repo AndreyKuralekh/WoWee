@@ -202,6 +202,10 @@ bool WMORenderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayou
         cullingEnabled_ = true;
         core::Logger::getInstance().info("WMO culling enabled by WOWEE_WMO_CULL");
     }
+    if (const char* v = std::getenv("WOWEE_WMO_PORTALS"); v && *v && *v != '0') {
+        portalWalk_ = true;
+        core::Logger::getInstance().info("WMO groups walked through portals (WOWEE_WMO_PORTALS)");
+    }
 
     VkDevice device = vkCtx_->getDevice();
 
@@ -1708,6 +1712,8 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
         const auto& instance = instances[instIdx];
         // Somewhere else entirely - see setInstanceHidden.
         if (instance.hidden) return;
+        // Shut in another building: this one is the world outside it.
+        if (enclosingInstanceId_ != 0 && instance.id != enclosingInstanceId_) return;
         auto mdlIt = loadedModels.find(instance.modelId);
         if (mdlIt == loadedModels.end()) return;
         const ModelData& model = mdlIt->second;
@@ -1741,7 +1747,27 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
                     " (smallest box: ", byBox, ")");
             }
         }
-        if (usePortalCulling) {
+        // The original client's portal walk, when asked for: it decides the
+        // groups by itself, and the older rules below stand aside.
+        bool walked = false;
+        if (portalWalk_ && !model.portals.empty() && !model.portalRefs.empty()) {
+            bool outsideVisible = false;
+            portalVisibleGroupSet_.clear();
+            walked = walkPortals(model, instance.modelMatrix, localRealCam, frustum, portalVisibleGroupSet_,
+                                 outsideVisible);
+            usePortalCulling = walked;
+            if (groupDiag && walked && model.groups.size() > 50) {
+                static std::unordered_map<uint32_t, std::pair<size_t, bool>> lastWalk;
+                auto& w = lastWalk[instance.id];
+                if (w.first != portalVisibleGroupSet_.size() || w.second != outsideVisible) {
+                    w = {portalVisibleGroupSet_.size(), outsideVisible};
+                    core::Logger::getInstance().info("WMO portal walk: model ", instance.modelId, " ",
+                        portalVisibleGroupSet_.size(), " of ", model.groups.size(), " groups, outside ",
+                        outsideVisible ? "visible" : "hidden");
+                }
+            }
+        }
+        if (usePortalCulling && !walked) {
             // If the camera is outside all groups, skip portal culling entirely.
             // This is what makes it safe for the traversal below to start from
             // the camera: an orbiting third-person camera that has left the
@@ -1780,7 +1806,7 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
                 }
             }
         }
-        if (usePortalCulling) {
+        if (usePortalCulling && !walked) {
             portalVisibleGroupSet_.clear();
             // Both viewpoints seed the walk. The frustum belongs to the camera,
             // so its group is the principled start - but at a doorway or in a
@@ -2392,6 +2418,203 @@ int WMORenderer::findContainingGroup(const ModelData& model, const glm::vec3& lo
         }
     }
     return bestGroup;
+}
+
+namespace {
+
+// A convex region of model space as the planes it lies on the positive side
+// of (xyz normal, w offset): the camera's view, narrowed by portals.
+using PortalPlanes = std::vector<glm::vec4>;
+
+bool boxInPlanes(const PortalPlanes& planes, const glm::vec3& lo, const glm::vec3& hi) {
+    for (const auto& p : planes) {
+        // The corner furthest along the normal: if even it is behind, all are.
+        const glm::vec3 corner(p.x >= 0.0f ? hi.x : lo.x, p.y >= 0.0f ? hi.y : lo.y, p.z >= 0.0f ? hi.z : lo.z);
+        if (p.x * corner.x + p.y * corner.y + p.z * corner.z + p.w < 0.0f) return false;
+    }
+    return true;
+}
+
+bool polygonInPlanes(const PortalPlanes& planes, const std::vector<glm::vec3>& pts) {
+    for (const auto& p : planes) {
+        bool anyIn = false;
+        for (const auto& v : pts) {
+            if (p.x * v.x + p.y * v.y + p.z * v.z + p.w >= 0.0f) { anyIn = true; break; }
+        }
+        if (!anyIn) return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+bool WMORenderer::walkPortals(const ModelData& model, const glm::mat4& modelMatrix, const glm::vec3& cameraLocal,
+                              const Frustum& frustum, std::unordered_set<uint32_t>& outVisible,
+                              bool& outsideVisible) const {
+    constexpr uint32_t kExterior = 0x8;
+    // As near as this to a portal's plane the camera may be in the doorway
+    // itself, and the side and view tests would decide wrong: the portal is
+    // passed with the view it was reached by (2.25 yards, as WebWowViewer).
+    constexpr float kInPortal = 2.25f;
+    constexpr int kMaxDepth = 8;
+    constexpr int kMaxVisits = 4;
+    outsideVisible = false;
+
+    const int start = findCameraGroup(model, cameraLocal);
+    if (start < 0) return false;
+
+    // The camera's view in model space: a world plane n.x + d, with
+    // x = M x_local, is (M3^T n).x_local + (n.t + d).
+    PortalPlanes base;
+    base.reserve(6);
+    const glm::mat3 m3(modelMatrix);
+    const glm::vec3 t(modelMatrix[3]);
+    for (int i = 0; i < 6; ++i) {
+        const Plane& p = frustum.getPlane(static_cast<Frustum::Side>(i));
+        base.emplace_back(glm::transpose(m3) * p.normal, glm::dot(p.normal, t) + p.distance);
+    }
+
+    struct Step { uint32_t group; PortalPlanes planes; int depth; };
+    std::vector<Step> queue;
+    std::vector<uint8_t> visits(model.groups.size(), 0);
+    const bool fromExterior = (model.groups[static_cast<size_t>(start)].groupFlags & kExterior) != 0;
+    if (fromExterior) {
+        // Out in the open every exterior group shows (by its box, as before);
+        // the walk only finds the interiors seen through their portals.
+        outsideVisible = true;
+        for (size_t gi = 0; gi < model.groups.size(); ++gi) {
+            const auto& g = model.groups[gi];
+            if (!(g.groupFlags & kExterior)) continue;
+            outVisible.insert(static_cast<uint32_t>(gi));
+            if (boxInPlanes(base, g.boundingBoxMin, g.boundingBoxMax)) {
+                queue.push_back({static_cast<uint32_t>(gi), base, 0});
+                visits[gi] = 1;
+            }
+        }
+    } else {
+        outVisible.insert(static_cast<uint32_t>(start));
+        queue.push_back({static_cast<uint32_t>(start), base, 0});
+        visits[static_cast<size_t>(start)] = 1;
+    }
+
+    std::vector<glm::vec3> pts;
+    for (size_t qi = 0; qi < queue.size(); ++qi) {
+        // Copied out: the queue grows below.
+        const uint32_t group = queue[qi].group;
+        const int depth = queue[qi].depth;
+        const PortalPlanes planes = queue[qi].planes;
+        if (group >= model.groupPortalRefs.size()) continue;
+        const auto [refStart, refCount] = model.groupPortalRefs[group];
+        for (uint16_t r = 0; r < refCount; ++r) {
+            const size_t refIdx = static_cast<size_t>(refStart) + r;
+            if (refIdx >= model.portalRefs.size()) continue;
+            const auto& ref = model.portalRefs[refIdx];
+            const uint32_t target = ref.groupIndex;
+            if (target >= model.groups.size() || ref.portalIndex >= model.portals.size()) continue;
+            const auto& tg = model.groups[target];
+            const bool targetExterior = (tg.groupFlags & kExterior) != 0;
+            // From outdoors the exterior groups are all drawn already.
+            if (fromExterior && targetExterior) continue;
+            const auto& portal = model.portals[ref.portalIndex];
+            if (portal.vertexCount < 3 ||
+                static_cast<size_t>(portal.startVertex) + portal.vertexCount > model.portalVertices.size()) {
+                continue;
+            }
+            pts.assign(model.portalVertices.begin() + portal.startVertex,
+                       model.portalVertices.begin() + portal.startVertex + portal.vertexCount);
+            glm::vec3 centre(0.0f);
+            for (const auto& v : pts) centre += v;
+            centre /= static_cast<float>(pts.size());
+            // Round the centre in order, so the edges below are the outline.
+            const glm::vec3 n = glm::length(portal.normal) > 0.0f ? glm::normalize(portal.normal) : glm::vec3(0, 0, 1);
+            const glm::vec3 u = glm::normalize(glm::abs(n.z) < 0.9f ? glm::cross(n, glm::vec3(0, 0, 1))
+                                                                     : glm::cross(n, glm::vec3(1, 0, 0)));
+            const glm::vec3 v = glm::cross(n, u);
+            std::sort(pts.begin(), pts.end(), [&](const glm::vec3& a, const glm::vec3& b) {
+                return std::atan2(glm::dot(a - centre, v), glm::dot(a - centre, u)) <
+                       std::atan2(glm::dot(b - centre, v), glm::dot(b - centre, u));
+            });
+
+            const float side = glm::dot(n, cameraLocal - centre);
+            PortalPlanes next;
+            if (std::abs(side) < kInPortal) {
+                next = planes;
+            } else {
+                // Only seen from its own side: the side the group it belongs
+                // to lies on.
+                const bool facing = ref.side < 0 ? side <= 0.0f : side >= 0.0f;
+                if (!facing) continue;
+                if (!polygonInPlanes(planes, pts)) continue;
+                next = planes;
+                for (size_t k = 0; k < pts.size(); ++k) {
+                    const glm::vec3& a = pts[k];
+                    const glm::vec3& b = pts[(k + 1) % pts.size()];
+                    glm::vec3 en = glm::cross(a - cameraLocal, b - cameraLocal);
+                    const float len = glm::length(en);
+                    if (len < 1e-6f) continue;
+                    en /= len;
+                    float ed = -glm::dot(en, cameraLocal);
+                    if (glm::dot(en, centre) + ed < 0.0f) { en = -en; ed = -ed; }
+                    next.emplace_back(en, ed);
+                }
+            }
+            if (!boxInPlanes(next, tg.boundingBoxMin, tg.boundingBoxMax)) continue;
+            outVisible.insert(target);
+            if (targetExterior) outsideVisible = true;
+            if (depth + 1 < kMaxDepth && visits[target] < kMaxVisits) {
+                ++visits[target];
+                queue.push_back({target, std::move(next), depth + 1});
+            }
+        }
+    }
+    return true;
+}
+
+bool WMORenderer::updateEnclosure(const Camera& camera) {
+    const uint32_t before = enclosingInstanceId_;
+    enclosingInstanceId_ = 0;
+    if (!portalWalk_) return false;
+    const glm::vec3 camPos = camera.getPosition();
+    Frustum frustum;
+    frustum.extractFromMatrix(camera.getProjectionMatrix() * camera.getViewMatrix());
+    std::unordered_set<uint32_t> visible;
+    for (const auto& instance : instances) {
+        if (instance.hidden) continue;
+        if (camPos.x < instance.worldBoundsMin.x || camPos.x > instance.worldBoundsMax.x ||
+            camPos.y < instance.worldBoundsMin.y || camPos.y > instance.worldBoundsMax.y ||
+            camPos.z < instance.worldBoundsMin.z || camPos.z > instance.worldBoundsMax.z) {
+            continue;
+        }
+        const auto it = loadedModels.find(instance.modelId);
+        if (it == loadedModels.end() || it->second.portals.empty()) continue;
+        const ModelData& model = it->second;
+        const glm::vec3 local = glm::vec3(instance.invModelMatrix * glm::vec4(camPos, 1.0f));
+        const int group = findCameraGroup(model, local);
+        if (group < 0 || (model.groups[static_cast<size_t>(group)].groupFlags & 0x8)) continue;
+        bool outside = false;
+        visible.clear();
+        if (!walkPortals(model, instance.modelMatrix, local, frustum, visible, outside) || outside) continue;
+        enclosingInstanceId_ = instance.id;
+        enclosingInvMatrix_ = instance.invModelMatrix;
+        enclosingBoundsMin_ = instance.worldBoundsMin;
+        enclosingBoundsMax_ = instance.worldBoundsMax;
+        enclosingModel_ = &model;
+        enclosingVisibleGroups_ = visible;
+        break;
+    }
+    if (before != enclosingInstanceId_) {
+        core::Logger::getInstance().info("WMO enclosure: ", enclosingInstanceId_ != 0 ? "shut in building instance " : "open",
+                                         enclosingInstanceId_ != 0 ? std::to_string(enclosingInstanceId_) : std::string(),
+                                         enclosingInstanceId_ != 0 ? ", the world outside is not drawn" : "");
+    }
+    return enclosingInstanceId_ != 0;
+}
+
+int WMORenderer::groupAtInEnclosure(const glm::vec3& worldPos) const {
+    if (enclosingInstanceId_ == 0 || !enclosingModel_) return -1;
+    // A little above the model's origin: it stands on the floor, not in it.
+    const glm::vec3 local = glm::vec3(enclosingInvMatrix_ * glm::vec4(worldPos + glm::vec3(0.0f, 0.0f, 0.3f), 1.0f));
+    return findCameraGroup(*enclosingModel_, local);
 }
 
 int WMORenderer::findCameraGroup(const ModelData& model, const glm::vec3& localPos) const {

@@ -1,5 +1,6 @@
 #include "rendering/shadow_params.hpp"
 #include "rendering/m2_renderer.hpp"
+#include "rendering/wmo_renderer.hpp"
 #include "rendering/m2_renderer_internal.h"
 #include "rendering/m2_sway.hpp"
 #include "rendering/m2_blend_mode.hpp"
@@ -1041,6 +1042,29 @@ void M2Renderer::dispatchCullCompute(VkCommandBuffer cmd, uint32_t frameIndex, c
     cmdPipelineBarrier2(cmd, dep);
 }
 
+void M2Renderer::setEnclosure(const WMORenderer* wmo) {
+    const uint32_t building = wmo ? wmo->enclosingInstance() : 0u;
+    enclosure_ = building != 0 ? wmo : nullptr;
+    if (building != enclosureBuilding_ || (enclosure_ && instances.size() != enclosureInstanceCount_)) {
+        if (building != enclosureBuilding_) enclosureGroupOf_.clear();
+        enclosureBuilding_ = building;
+        enclosureInstanceCount_ = instances.size();
+        if (enclosure_) {
+            // The group each model of the building stands in, once: models
+            // do not move, and the walk only changes which groups show.
+            for (const auto& inst : instances) {
+                if (inst.isGameObject || !enclosure_->insideEnclosureBounds(inst.position)) continue;
+                if (enclosureGroupOf_.count(inst.id)) continue;  // models streaming in: only the new ones
+                enclosureGroupOf_.emplace(inst.id, enclosure_->groupAtInEnclosure(inst.position));
+            }
+            if (enclosureGroupOf_.size() / 500 != enclosureLogged_ / 500) {
+                enclosureLogged_ = enclosureGroupOf_.size();
+                LOG_INFO("M2 enclosure: ", enclosureGroupOf_.size(), " models in building instance ", building);
+            }
+        }
+    }
+}
+
 void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const Camera& camera) {
     if (instances.empty() || !opaquePipeline_) {
         return;
@@ -1231,6 +1255,13 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
 
             // Hidden outright: a spare model particle, or a sky faded out.
             if (instance.fade <= 0.0f) continue;
+            // Shut in a building: only what stands in the groups its portals
+            // show is seen - not the world outside it, nor the far districts.
+            if (enclosure_ && !instance.isGameObject) {
+                // Found on the main thread in setEnclosure; read-only here.
+                const auto found = enclosureGroupOf_.find(instance.id);
+                if (found == enclosureGroupOf_.end() || !enclosure_->enclosureShowsGroup(found->second)) continue;
+            }
             if (forceNoCull_) {
                 if (!instance.cachedIsValid) continue;
                 glm::vec3 toCam = instance.position - camPos;

@@ -3487,9 +3487,13 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
     const bool skipWMO = envSkipWMO || ablated(AblationPass::WMO);
     const bool skipChars = envSkipChars || ablated(AblationPass::Characters);
     const bool skipM2 = envSkipM2 || ablated(AblationPass::M2);
-    const bool skipTerrain = envSkipTerrain || ablated(AblationPass::Terrain);
+    // Shut in a building with no portal in view reaching outside: the world
+    // beyond its walls is not drawn (WMORenderer::updateEnclosure).
+    const bool enclosed = wmoRenderer && camera && wmoRenderer->updateEnclosure(*camera);
+    if (m2Renderer) m2Renderer->setEnclosure(enclosed ? wmoRenderer.get() : nullptr);
+    const bool skipTerrain = envSkipTerrain || enclosed || ablated(AblationPass::Terrain);
     const bool skipSky = envSkipSky || ablated(AblationPass::Sky);
-    const bool skipGrass = ablated(AblationPass::Grass);
+    const bool skipGrass = enclosed || ablated(AblationPass::Grass);
     if (m2Renderer) {
         m2Renderer->setSkipGroundDetail(ablated(AblationPass::Clutter));
         // 250 yards: past the shadow distance and well past where a tree with
