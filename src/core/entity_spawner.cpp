@@ -1481,6 +1481,7 @@ if (const auto* md = charRenderer->getModelData(modelId)) {
         uint16_t selectedFacial300 = 300;
         uint32_t equipChestGG = 0, equipLegsGG = 0, equipFeetGG = 0, equipGlovesGG = 0, equipCapeGG = 0;
         uint32_t equipBeltGG = 0;
+        uint32_t equipRobeGG = 0;  // the chest's kilt (GeosetGroup3): a dress over the legs
         if (itDisplayData != displayDataMap_.end() &&
             itDisplayData->second.extraDisplayId != 0) {
             auto itExtra = humanoidExtraMap_.find(itDisplayData->second.extraDisplayId);
@@ -1569,6 +1570,19 @@ if (const auto* md = charRenderer->getModelData(modelId)) {
                     equipGlovesGG = readGG(itExtra->second.equipDisplayId[8]);
                     equipCapeGG = readGG(itExtra->second.equipDisplayId[10]);
                     equipBeltGG = readGG(itExtra->second.equipDisplayId[4]);
+                    // A robe or dress names the skirt over the legs in its
+                    // third geoset column; the player path reads it, this one
+                    // did not, and a Stormwind townswoman in a dress walked in
+                    // trousers.
+                    const uint32_t fGG3 = idiL ? (*idiL)["GeosetGroup3"] : 9;
+                    // So does a skirt worn as legs, in the same column of the
+                    // legs item - which is the townswoman's case: the first
+                    // column, read below for group 13, is zero on it.
+                    for (const uint32_t did : {itExtra->second.equipDisplayId[3], itExtra->second.equipDisplayId[5]}) {
+                        if (did == 0 || equipRobeGG != 0) continue;
+                        const int32_t idx = itemDisplayDbc->findRecordById(did);
+                        if (idx >= 0) equipRobeGG = itemDisplayDbc->getUInt32(static_cast<uint32_t>(idx), fGG3);
+                    }
                 }
             }
         }
@@ -1720,6 +1734,8 @@ if (const auto* md = charRenderer->getModelData(modelId)) {
             uint16_t wantPants = (equipLegsGG > 0)
                 ? equippedGeoset(equipment::kLegsBare, equipLegsGG)
                 : kGeosetBarePants;
+            // The dress hangs over whatever is on the legs.
+            if (equipRobeGG > 0) wantPants = equippedGeoset(equipment::kRobeKiltBare, equipRobeGG);
             uint16_t pantsSid = resolveGeoset(wantPants, allGeosets);
             if (pantsSid != 0) normalizedGeosets.insert(pantsSid);
         }

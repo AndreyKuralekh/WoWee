@@ -493,6 +493,9 @@ void EntitySpawner::setOnlinePlayerEquipment(uint64_t guid,
         uint32_t did = findDisplayIdByInvType({7});
         uint32_t gg1 = getGeosetGroup(did, geosetGroup1Field);
         if (gg1 > 0) geosetPants = pickGeoset(equippedGeoset(equipment::kLegsBare, gg1), kGeosetBarePants);
+        // A skirt worn as legs names it in the third column, as a robe does.
+        uint32_t gg3 = getGeosetGroup(did, geosetGroup3Field);
+        if (gg3 > 0) geosetPants = pickGeoset(equippedGeoset(equipment::kRobeKiltBare, gg3), kGeosetBarePants);
     }
 
     // Feet/Boots (invType 8) → shin group 5
