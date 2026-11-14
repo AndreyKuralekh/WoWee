@@ -168,6 +168,8 @@ struct WMOGroup {
 
     // The doodads (MODD indices) standing in this group (MODR).
     std::vector<uint16_t> doodadRefs;
+    // The lights (MOLT indices) of this group (MOLR).
+    std::vector<uint16_t> lightRefs;
 
     // Liquid data (MLIQ chunk)
     WMOLiquid liquid;

@@ -32,6 +32,7 @@ constexpr uint32_t MONR = 0x4D4F4E52;  // Normals
 constexpr uint32_t MOTV = 0x4D4F5456;  // Texture coords
 constexpr uint32_t MLIQ = 0x4D4C4951;  // Liquid
 constexpr uint32_t MODR = 0x4D4F4452;  // Doodad references
+constexpr uint32_t MOLR = 0x4D4F4C52;  // Light references
 
 // Read utilities
 template<typename T>
@@ -625,6 +626,11 @@ bool WMOLoader::loadGroup(const std::vector<uint8_t>& groupData,
                         }
                     }
                 }
+                else if (subChunkId == MOLR) { // The lights of this group
+                    const uint32_t count = subChunkSize / 2;
+                    group.lightRefs.reserve(count);
+                    for (uint32_t i = 0; i < count; i++) group.lightRefs.push_back(read<uint16_t>(groupData, mogpOffset));
+                }
                 else if (subChunkId == MODR) { // The doodads standing in this group
                     const uint32_t count = subChunkSize / 2;
                     group.doodadRefs.reserve(count);
@@ -731,9 +737,13 @@ std::vector<DoodadRoomLight> doodadRoomLights(const WMOModel& model) {
             light.ambient = model.ambientColor;
             light.direct = glm::vec3(doodad.color);
             light.toLight = kFromAbove;
+            // The nearest light of its own room: the building's nearest may
+            // hang in the next room, behind the wall the doodad is on - a
+            // shop's painting was lit from behind and drew in the ambient alone.
             float best = kNearLight * kNearLight;
-            for (const auto& l : model.lights) {
-                const glm::vec3 d = l.position - doodad.position;
+            for (uint16_t li : group.lightRefs) {
+                if (li >= model.lights.size()) continue;
+                const glm::vec3 d = model.lights[li].position - doodad.position;
                 const float d2 = glm::dot(d, d);
                 if (d2 < best && d2 > 1e-4f) {
                     best = d2;

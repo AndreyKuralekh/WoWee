@@ -459,7 +459,13 @@ void main() {
         // that light (MODD), warm in a Stormwind shop. Not the night sky's
         // blue, which turned the cheese green.
         if (vRoomAmbient.w > 0.5) {
-            float roomDotL = clamp(dot(norm, normalize(vRoomToLight)), 0.0, 1.0);
+            // Either side of a face takes the light: a doodad whose triangles
+            // wind the other way (a shop's painting) reads as its back to
+            // gl_FrontFacing, so the turned normal faced the wall, and a thin
+            // two-sided one (a cargo net hung as a chandelier) has no back at
+            // all. Within a room the light is soft enough that this shows no
+            // wrong side.
+            float roomDotL = abs(dot(normalize(Normal), normalize(vRoomToLight)));
             vec3 roomLight = vRoomAmbient.rgb * mix(0.7, 1.1, 0.5 + 0.5 * roomDotL) + vRoomDirect * roomDotL;
             result = texColor.rgb * roomLight;
         }
