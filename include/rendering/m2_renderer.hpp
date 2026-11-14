@@ -241,6 +241,7 @@ struct M2ModelGPU {
     bool isFoliageLike = false;     // Model name matches foliage/tree/bush/grass etc (precomputed)
     bool isElvenLike = false;       // Model name matches elf/elven/quel (precomputed)
     bool isLanternLike = false;     // Model name matches lantern/lamp/light (precomputed)
+    bool isCandle = false;          // A candle or candelabrum (by name)
     bool hasLanternGlowCard = false; // a batch the glow sprites start from
     bool isKoboldFlame = false;     // Model name matches kobold+(candle/torch/mine) (precomputed)
     bool isLavaModel = false;       // Model name contains lava/molten/magma (UV scroll fallback)

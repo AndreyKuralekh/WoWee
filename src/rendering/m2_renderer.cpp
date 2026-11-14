@@ -433,6 +433,14 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
     };
     std::vector<FireGroup> fireGroups;
     const bool fireListWanted = fireParams_.enabled || fireVolumeParams_.enabled;
+    // Candles throw a stronger pool than their size says: a shop's
+    // candelabrum lights the wall and counter round it in a warm halo, as the
+    // Reforged client shows, where at a lamp's strength the pool was lost on
+    // the room's own baked light. WOWEE_CANDLE_LIGHT overrides it to compare.
+    static const float candleBoost = [] {
+        const char* v = std::getenv("WOWEE_CANDLE_LIGHT");
+        return v && *v ? std::clamp(static_cast<float>(std::atof(v)), 0.0f, 5.0f) : 2.0f;
+    }();
 
     for (const size_t lightIndex : lightInstanceIndices_) {
         if (lightIndex >= instances.size()) continue;
@@ -550,6 +558,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                 radius = 6.0f * std::max(instance.scale, 0.5f);
                 intensity = 1.1f;
             }
+            if (model->isCandle) intensity *= candleBoost;
             glm::vec3 color(1.0f, 0.58f, 0.22f);
             if (batch.glowTint == 1) color = glm::vec3(0.42f, 0.68f, 1.0f);
             else if (batch.glowTint == 2) color = glm::vec3(1.0f, 0.24f, 0.14f);
@@ -611,6 +620,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                         intensity = model->isTorch ? 0.95f : 1.05f;
                         color     = glm::vec3(1.0f, 0.50f, 0.18f);
                     }
+                    if (model->isCandle) intensity *= candleBoost;
                     candidates.push_back({.distSq = distSq,
                         .posRadius = glm::vec4(worldPos, radius),
                         .colorIntensity = glm::vec4(color, intensity),
@@ -2216,6 +2226,13 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     gpuModel.isWaterVegetation           = cls.isWaterVegetation;
     gpuModel.isElvenLike                 = cls.isElvenLike;
     gpuModel.isLanternLike               = cls.isLanternLike;
+    {
+        std::string lower = model.name;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        gpuModel.isCandle = cls.isLanternLike &&
+                            (lower.find("candle") != std::string::npos || lower.find("candelabra") != std::string::npos);
+    }
     gpuModel.isKoboldFlame               = cls.isKoboldFlame;
     gpuModel.isWaterfall                 = cls.isWaterfall;
     gpuModel.isFountain                  = cls.isFountain && !cls.isWaterfall;
