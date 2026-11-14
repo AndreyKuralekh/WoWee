@@ -743,6 +743,7 @@ std::shared_ptr<PendingTile> TerrainManager::prepareTile(int x, int y) {
                     }
                     std::unordered_set<uint32_t> loadedDoodadIndices;
                     std::unordered_set<uint32_t> wmoPreparedModelIds;  // within-WMO model dedup
+                    const std::vector<pipeline::DoodadRoomLight> roomLights = pipeline::doodadRoomLights(wmoModel);
                     for (uint32_t setIdx : setsToLoad) {
                         const auto& doodadSet = wmoModel.doodadSets[setIdx];
                     for (uint32_t di = 0; di < doodadSet.count; di++) {
@@ -852,6 +853,13 @@ std::shared_ptr<PendingTile> TerrainManager::prepareTile(int x, int y) {
                         doodadReady.model = std::move(m2Model);
                         doodadReady.worldPosition = worldPos;
                         doodadReady.modelMatrix = worldMatrix;
+                        if (doodadIdx < roomLights.size() && roomLights[doodadIdx].inRoom) {
+                            const auto& rl = roomLights[doodadIdx];
+                            doodadReady.inRoom = true;
+                            doodadReady.roomAmbient = rl.ambient;
+                            doodadReady.roomDirect = rl.direct;
+                            doodadReady.roomToLight = glm::normalize(glm::mat3(wmoMatrix) * rl.toLight);
+                        }
                         pending->wmoDoodads.push_back(std::move(doodadReady));
                     }
                     }
@@ -1248,6 +1256,10 @@ bool TerrainManager::advanceFinalization(FinalizingTile& ft) {
                     // blocking, but structural doodads such as Exodarplatform01
                     // carry the only authored floor for their walkable ramps.
                     m2Renderer->setSkipWallCollision(wmoDoodadInstId, true);
+                    if (doodad.inRoom) {
+                        m2Renderer->setInstanceRoomLight(wmoDoodadInstId, doodad.roomAmbient, doodad.roomDirect,
+                                                         doodad.roomToLight);
+                    }
                     ft.m2InstanceIds.push_back(wmoDoodadInstId);
                 }
                 ft.wmoDoodadIndex++;

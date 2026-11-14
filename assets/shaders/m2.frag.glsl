@@ -75,6 +75,11 @@ layout(location = 9) in vec4 TexCoordAlt;
 layout(location = 10) in vec3 CrownNormal;
 layout(location = 11) in vec3 CrownPos;
 layout(location = 12) flat in vec3 CrownLight;
+// A doodad in a building's room (M2Renderer::setInstanceRoomLight): ambient
+// rgb with w 1 in a room, its own light colour, the way to that light.
+layout(location = 13) flat in vec4 vRoomAmbient;
+layout(location = 14) flat in vec3 vRoomDirect;
+layout(location = 15) flat in vec3 vRoomToLight;
 
 // How much of a tree's own crown lies between this point and the light, as
 // the chord of the crown's ellipsoid (the unit sphere in crown space) along
@@ -443,6 +448,17 @@ void main() {
 
         if (interiorDarken > 0.0) {
             result *= mix(1.0, 0.5, interiorDarken);
+        }
+
+        // In a room the sky does not reach: lit as the client lights a
+        // doodad there - the building's ambient, raised or lowered (0.7-1.1)
+        // as the face turns to the doodad's light, plus its own colour from
+        // that light (MODD), warm in a Stormwind shop. Not the night sky's
+        // blue, which turned the cheese green.
+        if (vRoomAmbient.w > 0.5) {
+            float roomDotL = clamp(dot(norm, normalize(vRoomToLight)), 0.0, 1.0);
+            vec3 roomLight = vRoomAmbient.rgb * mix(0.7, 1.1, 0.5 + 0.5 * roomDotL) + vRoomDirect * roomDotL;
+            result = texColor.rgb * roomLight;
         }
     }
 

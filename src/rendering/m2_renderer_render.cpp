@@ -1654,6 +1654,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 e.model = inst.modelMatrix;
                 e.uvOffset = glm::vec2(0.0f);
                 e.uvOffset2 = glm::vec2(0.0f);
+                e.roomAmbient = inst.roomAmbient;
+                e.roomDirect = inst.roomDirect;
+                e.roomToLight = inst.roomToLight;
                 e.fadeAlpha = p.fadeAlpha;
                 e.useBones = (p.useBones && !kM2NoSkinning) ? 1 : 0;
                 e.boneBase = p.useBones ? static_cast<int32_t>(inst.megaBoneOffset) : 0;
@@ -1973,6 +1976,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                             e.model = inst.modelMatrix;
                             e.uvOffset = uvOffset;
                             e.uvOffset2 = uvOffset2;
+                            e.roomAmbient = inst.roomAmbient;
+                            e.roomDirect = inst.roomDirect;
+                            e.roomToLight = inst.roomToLight;
                             e.fadeAlpha = p.fadeAlpha;
                             e.useBones = (p.useBones && !kM2NoSkinning) ? 1 : 0;
                             e.boneBase = p.useBones ? static_cast<int32_t>(inst.megaBoneOffset) : 0;
@@ -2275,6 +2281,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             e.model = instance.modelMatrix;
             e.uvOffset = uvOffset;
             e.uvOffset2 = uvOffset2;
+            e.roomAmbient = instance.roomAmbient;
+            e.roomDirect = instance.roomDirect;
+            e.roomToLight = instance.roomToLight;
             e.fadeAlpha = instanceFadeAlpha;
             // A sky layer's own alpha, which nothing else applies: the Lordaeron
             // sky's haze is authored at 30% and was drawn solid, a white sheet

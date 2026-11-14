@@ -166,6 +166,9 @@ struct WMOGroup {
     // BSP tree (for collision - optional)
     std::vector<uint8_t> bspNodes;
 
+    // The doodads (MODD indices) standing in this group (MODR).
+    std::vector<uint16_t> doodadRefs;
+
     // Liquid data (MLIQ chunk)
     WMOLiquid liquid;
 
@@ -228,6 +231,21 @@ struct WMOModel {
         return nGroups > 0 && !groups.empty();
     }
 };
+
+// How the client lights a doodad standing in a room (an interior group the
+// sky does not light): the building's MOHD ambient, and the doodad's own
+// MODD colour as a light from the building's light nearest it - or from
+// above when it has none. Model space.
+struct DoodadRoomLight {
+    bool inRoom = false;
+    glm::vec3 ambient{0.0f};
+    glm::vec3 direct{0.0f};
+    glm::vec3 toLight{0.0f, 0.0f, 1.0f};  // unit, from the doodad
+};
+
+// One per MODD entry; inRoom false for doodads outdoors or in exterior-lit
+// groups, which keep the sun. Needs the groups loaded (their MODR lists).
+std::vector<DoodadRoomLight> doodadRoomLights(const WMOModel& model);
 
 class WMOLoader {
 public:

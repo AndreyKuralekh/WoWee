@@ -396,6 +396,10 @@ struct M2Instance {
     bool cachedIsValid = false;
     bool skipCollision = false;    // Fully non-collidable visual/effect instance
     bool skipWallCollision = false; // Keep authored floors, suppress only wall blocking
+    // A doodad standing in a building's room: lit from within, not by the sky.
+    glm::vec4 roomAmbient{0.0f};
+    glm::vec4 roomDirect{0.0f};
+    glm::vec4 roomToLight{0.0f};
     float cachedBoundRadius = 0.0f;
     glm::vec3 cachedCullCenter{0.0f};              // transformed visual-bounds center
     float cachedVisualRadius = 0.0f;               // transformed visual-bounds half diagonal
@@ -796,6 +800,11 @@ public:
     void setInstanceIsGameObject(uint32_t instanceId, bool isGameObject);
     void setSkipCollision(uint32_t instanceId, bool skip);
     void setSkipWallCollision(uint32_t instanceId, bool skip);
+    /// A WMO doodad standing in a room (pipeline::doodadRoomLights): drawn
+    /// with the room's ambient and its own colour as a light from toLight,
+    /// as the client lights it, instead of by the sun.
+    void setInstanceRoomLight(uint32_t instanceId, const glm::vec3& ambient, const glm::vec3& direct,
+                              const glm::vec3& toLight);
     void clear();
     /** Drop all instances but keep models in GPU memory. Cheap path for the
      *  editor's rebuild loop where the same model is re-instanced repeatedly. */
@@ -1073,6 +1082,12 @@ private:
         int32_t flags = {};        //  4 bytes @ offset 92 - bit 0: afloat (bobs on the water)
         uint32_t lightMask[2] = {};//  8 bytes @ offset 96 - local lights that reach it
         glm::vec2 uvOffset2{0.0f}; //  8 bytes @ offset 104 - the second texture's scroll
+        // Lit from within a building's room (setInstanceRoomLight): ambient
+        // rgb, w 1 in a room and 0 under the sky; its own light colour; the
+        // way to that light (world, unit).
+        glm::vec4 roomAmbient{0.0f};  // 16 bytes @ offset 112
+        glm::vec4 roomDirect{0.0f};   // 16 bytes @ offset 128
+        glm::vec4 roomToLight{0.0f};  // 16 bytes @ offset 144
     };
     // How many instances one frame may hand the GPU, not how many exist. Ground
     // clutter is what fills it: it is drawn by the thousand and every tuft

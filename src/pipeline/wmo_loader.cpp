@@ -31,6 +31,7 @@ constexpr uint32_t MOCV = 0x4D4F4356;  // Vertex colors
 constexpr uint32_t MONR = 0x4D4F4E52;  // Normals
 constexpr uint32_t MOTV = 0x4D4F5456;  // Texture coords
 constexpr uint32_t MLIQ = 0x4D4C4951;  // Liquid
+constexpr uint32_t MODR = 0x4D4F4452;  // Doodad references
 
 // Read utilities
 template<typename T>
@@ -624,6 +625,11 @@ bool WMOLoader::loadGroup(const std::vector<uint8_t>& groupData,
                         }
                     }
                 }
+                else if (subChunkId == MODR) { // The doodads standing in this group
+                    const uint32_t count = subChunkSize / 2;
+                    group.doodadRefs.reserve(count);
+                    for (uint32_t i = 0; i < count; i++) group.doodadRefs.push_back(read<uint16_t>(groupData, mogpOffset));
+                }
                 else if (subChunkId == MLIQ) { // MLIQ - WMO liquid data
                     // Basic WotLK layout:
                     // uint32 xVerts, yVerts, xTiles, yTiles
@@ -706,6 +712,37 @@ bool WMOLoader::loadGroup(const std::vector<uint8_t>& groupData,
                                       group.indices.size(), " indices, ",
                                       group.batches.size(), " batches");
     return !group.vertices.empty() && !group.indices.empty();
+}
+
+std::vector<DoodadRoomLight> doodadRoomLights(const WMOModel& model) {
+    std::vector<DoodadRoomLight> out(model.doodads.size());
+    constexpr uint32_t kExterior = 0x8, kExteriorLit = 0x40, kInterior = 0x2000;
+    // The interior's fixed light when no light of the building is near:
+    // from above and a little aside, as the client's default interior sun.
+    const glm::vec3 kFromAbove = glm::normalize(glm::vec3(0.30822f, 0.30822f, 0.9f));
+    constexpr float kNearLight = 30.0f;
+    for (const auto& group : model.groups) {
+        if ((group.flags & kExterior) || !(group.flags & kInterior) || (group.flags & kExteriorLit)) continue;
+        for (uint16_t ref : group.doodadRefs) {
+            if (ref >= model.doodads.size()) continue;
+            const auto& doodad = model.doodads[ref];
+            DoodadRoomLight& light = out[ref];
+            light.inRoom = true;
+            light.ambient = model.ambientColor;
+            light.direct = glm::vec3(doodad.color);
+            light.toLight = kFromAbove;
+            float best = kNearLight * kNearLight;
+            for (const auto& l : model.lights) {
+                const glm::vec3 d = l.position - doodad.position;
+                const float d2 = glm::dot(d, d);
+                if (d2 < best && d2 > 1e-4f) {
+                    best = d2;
+                    light.toLight = d / std::sqrt(d2);
+                }
+            }
+        }
+    }
+    return out;
 }
 
 } // namespace pipeline

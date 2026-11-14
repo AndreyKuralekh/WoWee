@@ -49,6 +49,11 @@ struct InstanceData {
     uvec2 lightMask;
     // The batch's second texture's own animation (texture combiners).
     vec2 uvOffset2;
+    // A doodad in a building's room: ambient (w 1 in a room), its own light
+    // colour, the way to that light (world).
+    vec4 roomAmbient;
+    vec4 roomDirect;
+    vec4 roomToLight;
 };
 layout(set = 3, binding = 0) readonly buffer InstanceSSBO {
     InstanceData instanceData[];
@@ -79,11 +84,17 @@ layout(location = 10) out vec3 CrownNormal;
 // and the way to the light in the same space; zero for a model without leaves.
 layout(location = 11) out vec3 CrownPos;
 layout(location = 12) flat out vec3 CrownLight;
+layout(location = 13) flat out vec4 vRoomAmbient;
+layout(location = 14) flat out vec3 vRoomDirect;
+layout(location = 15) flat out vec3 vRoomToLight;
 
 void main() {
     // Fetch per-instance data from SSBO
     int instIdx = push.instanceDataOffset + gl_InstanceIndex;
     vLightMask = instanceData[instIdx].lightMask;
+    vRoomAmbient = instanceData[instIdx].roomAmbient;
+    vRoomDirect = instanceData[instIdx].roomDirect.rgb;
+    vRoomToLight = instanceData[instIdx].roomToLight.xyz;
     mat4 model = instanceData[instIdx].model;
     vec2 uvOff = instanceData[instIdx].uvOffset;
     float fade = instanceData[instIdx].fadeAlpha;

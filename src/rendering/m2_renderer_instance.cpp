@@ -410,6 +410,18 @@ void M2Renderer::setSkipWallCollision(uint32_t instanceId, bool skip) {
     }
 }
 
+void M2Renderer::setInstanceRoomLight(uint32_t instanceId, const glm::vec3& ambient, const glm::vec3& direct,
+                                      const glm::vec3& toLight) {
+    for (auto& inst : instances) {
+        if (inst.id == instanceId) {
+            inst.roomAmbient = glm::vec4(ambient, 1.0f);
+            inst.roomDirect = glm::vec4(direct, 0.0f);
+            inst.roomToLight = glm::vec4(toLight, 0.0f);
+            return;
+        }
+    }
+}
+
 void M2Renderer::removeInstances(const std::vector<uint32_t>& instanceIds) {
     if (instanceIds.empty() || instances.empty()) {
         return;
