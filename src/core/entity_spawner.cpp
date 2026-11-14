@@ -610,6 +610,16 @@ uint8_t EntitySpawner::creatureWeaponState(uint64_t guid) const {
         const uint32_t weaponFlags = anim != 0 ? animationWeaponFlags(anim) : 0;
         if (weaponFlags & 32) state |= 16;
         else if (weaponFlags & 16) state |= 32;
+        // A rider out of a fight carries its weapons put away, as the original
+        // client shows it: General Marcus Jonathan at Stormwind's gate is sent
+        // with them drawn (sheath state 1) and a mount, and sits with his
+        // shield on his back and his hammer at his belt. In a fight they come
+        // out again.
+        constexpr uint32_t kUnitFlagInCombat = 0x00080000;
+        const auto unit = std::static_pointer_cast<game::Unit>(entity);
+        if (!(state & 16) && unit->getMountDisplayId() != 0 && !(unit->getUnitFlags() & kUnitFlagInCombat)) {
+            state |= 32;
+        }
     }
     return state;
 }
