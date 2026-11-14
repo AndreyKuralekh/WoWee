@@ -1763,7 +1763,8 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
                     w = {portalVisibleGroupSet_.size(), outsideVisible};
                     core::Logger::getInstance().info("WMO portal walk: model ", instance.modelId, " ",
                         portalVisibleGroupSet_.size(), " of ", model.groups.size(), " groups, outside ",
-                        outsideVisible ? "visible" : "hidden");
+                        outsideVisible ? "visible" : "hidden", ", camera ", static_cast<int>(camPos.x), ",",
+                        static_cast<int>(camPos.y), ",", static_cast<int>(camPos.z));
                 }
             }
         }
@@ -2452,9 +2453,10 @@ bool WMORenderer::walkPortals(const ModelData& model, const glm::mat4& modelMatr
                               const Frustum& frustum, std::unordered_set<uint32_t>& outVisible,
                               bool& outsideVisible) const {
     constexpr uint32_t kExterior = 0x8;
-    // As near as this to a portal's plane the camera may be in the doorway
-    // itself, and the side and view tests would decide wrong: the portal is
-    // passed with the view it was reached by (2.25 yards, as WebWowViewer).
+    // As near as this to a portal (its plane and its outline) the camera may
+    // be in the doorway itself, and the side and view tests would decide
+    // wrong: the portal is passed with the view it was reached by (2.25
+    // yards, as WebWowViewer - which tests the plane alone).
     constexpr float kInPortal = 2.25f;
     constexpr int kMaxDepth = 8;
     constexpr int kMaxVisits = 4;
@@ -2536,9 +2538,21 @@ bool WMORenderer::walkPortals(const ModelData& model, const glm::mat4& modelMatr
             });
 
             const float side = glm::dot(n, cameraLocal - centre);
+            // In the doorway: near the portal's plane and near the portal
+            // itself - the plane alone runs on through the whole city, and a
+            // far portal on it is no doorway (it would show its group whole).
+            glm::vec3 lo = pts[0], hi = pts[0];
+            for (const auto& p : pts) { lo = glm::min(lo, p); hi = glm::max(hi, p); }
+            const glm::vec3 margin(kInPortal);
+            const bool inDoorway = std::abs(side) < kInPortal &&
+                                   glm::all(glm::greaterThanEqual(cameraLocal, lo - margin)) &&
+                                   glm::all(glm::lessThanEqual(cameraLocal, hi + margin));
             PortalPlanes next;
-            if (std::abs(side) < kInPortal) {
+            if (inDoorway) {
                 next = planes;
+            } else if (std::abs(side) < 1e-3f) {
+                // Seen exactly edge on: nothing shows through it.
+                continue;
             } else {
                 // Only seen from its own side: the side the group it belongs
                 // to lies on.
