@@ -1818,6 +1818,10 @@ void GameScreen::saveSettings() {
     out << "fog_sky_blend=" << settingsPanel_.pendingFogSkyBlend << "\n";
     out << "fog_strength=" << settingsPanel_.pendingFogStrength << "\n";
     out << "daylight=" << settingsPanel_.pendingLightCeiling << "\n";
+    out << "evening_warmth=" << settingsPanel_.pendingEveningWarmth << "\n";
+    out << "night_brightness=" << settingsPanel_.pendingNightBrightness << "\n";
+    out << "long_evenings=" << (settingsPanel_.pendingLongEvenings ? 1 : 0) << "\n";
+    out << "day_brightness=" << settingsPanel_.pendingDayBrightness << "\n";
     out << "water_clarity=" << settingsPanel_.pendingWaterClarity << "\n";
     out << "water_reflections=" << settingsPanel_.pendingWaterReflections << "\n";
     out << "light_shafts=" << settingsPanel_.pendingVolumetricFog << "\n";
@@ -2139,6 +2143,10 @@ void GameScreen::loadSettings() {
             else if (key == "fog_sky_blend") settingsPanel_.pendingFogSkyBlend = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "fog_strength") settingsPanel_.pendingFogStrength = std::clamp(std::stof(val), 0.0f, 2.0f);
             else if (key == "daylight") settingsPanel_.pendingLightCeiling = std::clamp(std::stof(val), 1.0f, 1.5f);
+            else if (key == "evening_warmth") settingsPanel_.pendingEveningWarmth = std::clamp(std::stof(val), 0.0f, 1.0f);
+            else if (key == "night_brightness") settingsPanel_.pendingNightBrightness = std::clamp(std::stof(val), 0.0f, 1.0f);
+            else if (key == "long_evenings") settingsPanel_.pendingLongEvenings = (val == "1");
+            else if (key == "day_brightness") settingsPanel_.pendingDayBrightness = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "water_clarity") settingsPanel_.pendingWaterClarity = std::clamp(std::stof(val), 0.5f, 2.0f);
             else if (key == "water_reflections") settingsPanel_.pendingWaterReflections = std::clamp(std::stoi(val), 0, 2);
             else if (key == "light_shafts") settingsPanel_.pendingVolumetricFog = std::clamp(std::stoi(val), 0, 3);

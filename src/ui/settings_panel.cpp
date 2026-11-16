@@ -883,7 +883,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "grassdistance", "waterrefraction", "upscaling", "fsrquality",
     "fsrsharpness", "framegen", "brightness", "uiopacity", "minimapsquare",
     "minimapnpcdots", "minimapclock", "minimapcoords", "minimaprotate", "latencymeter",
-    "fogskyblend", "fogstrength", "daylight", "waterclarity", "waterreflections", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
+    "fogskyblend", "fogstrength", "eveningwarmth", "nightbrightness", "longevenings", "daybrightness", "daylight", "waterclarity", "waterreflections", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
     "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrfirelight", "vrfirelightmax", "vrfireflicker", "vrsoftparticles", "vrfirevolume", "vrfirevolumedist", "vrfirevolumesteps", "vrfireheathaze", "vrwaterrefraction", "vrunderwater", "vrunderwatersway", "vrwatercaustics", "vrwaterfallmist", "vrdrawbyreach", "vrkeepcasting", "vrhapticstrength", "vrswingstrike", "vrswingspeed", "vrbars", "vrbarsize", "vrbaropacity", "vrbarscombatonly", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
@@ -1030,6 +1030,8 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "fogskyblend",    .asFloat = &SettingsPanel::pendingFogSkyBlend},
     {.key = "fogstrength",    .asFloat = &SettingsPanel::pendingFogStrength},
     {.key = "daylight",       .asFloat = &SettingsPanel::pendingLightCeiling},
+    {.key = "eveningwarmth",  .asFloat = &SettingsPanel::pendingEveningWarmth},
+    {.key = "nightbrightness", .asFloat = &SettingsPanel::pendingNightBrightness},
     {.key = "waterclarity",   .asFloat = &SettingsPanel::pendingWaterClarity},
     {.key = "waterreflections", .asInt = &SettingsPanel::pendingWaterReflections},
     {.key = "lightshafts",    .asInt   = &SettingsPanel::pendingVolumetricFog},
@@ -1079,6 +1081,8 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "framecap",          .asInt   = &SettingsPanel::pendingFrameCap},
     {.key = "parallax",          .asBool  = &SettingsPanel::pendingPOM},
     {.key = "sharpstars",        .asBool  = &SettingsPanel::pendingSharpStars},
+    {.key = "longevenings",      .asBool  = &SettingsPanel::pendingLongEvenings},
+    {.key = "daybrightness",     .asFloat = &SettingsPanel::pendingDayBrightness},
     {.key = "sunshafts",         .asBool  = &SettingsPanel::pendingSunShafts},
 #ifdef WOWEE_VR
     {.key = "vrpanelfollow",     .asInt   = &SettingsPanel::pendingVrPanelFollow},
@@ -1665,6 +1669,16 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
         if (renderer) renderer->setWaterReflections(pendingWaterReflections);
     } else if (key == "waterclarity") {
         if (renderer && renderer->getWaterRenderer()) renderer->getWaterRenderer()->setClarity(pendingWaterClarity);
+    } else if (key == "eveningwarmth" || key == "nightbrightness" || key == "longevenings" ||
+               key == "daybrightness") {
+        if (renderer) {
+            if (auto* lighting = renderer->getLightingManager()) {
+                lighting->setEveningWarmth(pendingEveningWarmth);
+                lighting->setNightBrightness(pendingNightBrightness);
+                lighting->setLongEvenings(pendingLongEvenings);
+                lighting->setDayBrightness(pendingDayBrightness);
+            }
+        }
     } else if (key == "daylight") {
         if (renderer) {
             if (auto* lighting = renderer->getLightingManager()) {

@@ -2083,7 +2083,11 @@ bool Renderer::updateSkyboxLayers() {
         }
         skyboxModelRenderer_->setInstanceFade(it->instanceId, layer.weight);
         skyboxModelRenderer_->setInstancePosition(it->instanceId, skyCentre);
-        if (layer.fullDay) skyboxModelRenderer_->setInstanceDayClock(it->instanceId, lightingManager->getTimeOfDay());
+        // The sky's own clock, as the light's (a long evening included).
+        if (layer.fullDay) {
+            skyboxModelRenderer_->setInstanceDayClock(it->instanceId,
+                                                      lightingManager->getVisualTimeOfDayHours() / 24.0f);
+        }
     }
     return !skyLayers_.empty();
 }

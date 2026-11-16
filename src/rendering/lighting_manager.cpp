@@ -339,6 +339,49 @@ bool LightingManager::loadLightBandDbcs(pipeline::AssetManager* assetManager) {
     return true;
 }
 
+// The hours' own mood on top of the zone's light. The 3.3.5 tables turn from
+// day to night with little between: at half past eight Stormwind is already
+// lit by a blue moon, where the Reforged client (its LuxVelum grading) still
+// shows an amber evening, and its nights are lighter. Both are a grade over
+// the same light, not other data, so they are done here, once, on the colours
+// every shader reads - nothing per pixel, and the same in both eyes.
+void LightingManager::applyAtmosphereGrade(LightingParams& p, float hours) const {
+    const auto bump = [](float h, float centre, float halfWidth) {
+        float d = std::abs(h - centre);
+        d = std::min(d, 24.0f - d);
+        return 1.0f - glm::smoothstep(0.0f, halfWidth, d);
+    };
+    const float warm = std::clamp(eveningWarmth_, 0.0f, 1.0f) *
+                       std::max(bump(hours, 20.0f, 1.75f), 0.6f * bump(hours, 6.0f, 1.25f));
+    if (warm > 0.0f) {
+        p.diffuseColor *= glm::mix(glm::vec3(1.0f), glm::vec3(1.15f, 0.85f, 0.6f), warm);
+        p.ambientColor *= glm::mix(glm::vec3(1.0f), glm::vec3(1.1f, 0.95f, 0.8f), warm);
+        p.fogColor = glm::mix(p.fogColor, p.fogColor * glm::vec3(1.2f, 0.85f, 0.6f) + glm::vec3(0.06f, 0.02f, 0.0f),
+                              warm);
+        // The horizon glows amber at its own brightness, a little more.
+        const auto amber = [](const glm::vec3& c) {
+            const float lum = std::max(glm::dot(c, glm::vec3(0.2126f, 0.7152f, 0.0722f)), 0.12f);
+            return glm::vec3(1.0f, 0.55f, 0.3f) * lum * 1.6f;
+        };
+        p.skyMiddleColor = glm::mix(p.skyMiddleColor, amber(p.skyMiddleColor), 0.7f * warm);
+        p.skyBand1Color = glm::mix(p.skyBand1Color, amber(p.skyBand1Color), 0.7f * warm);
+        p.skyBand2Color = glm::mix(p.skyBand2Color, amber(p.skyBand2Color), 0.5f * warm);
+        p.skyTopColor = glm::mix(p.skyTopColor, p.skyTopColor * glm::vec3(1.1f, 0.9f, 1.05f), 0.5f * warm);
+    }
+    const float night = hours >= 12.0f ? glm::smoothstep(21.0f, 22.5f, hours)
+                                       : 1.0f - glm::smoothstep(4.0f, 5.5f, hours);
+    const float lift = std::clamp(nightBrightness_, 0.0f, 1.0f) * night;
+    if (lift > 0.0f) {
+        p.ambientColor = p.ambientColor * (1.0f + 0.4f * lift) + glm::vec3(0.07f, 0.09f, 0.13f) * lift;
+        p.diffuseColor *= 1.0f + 0.6f * lift;
+        p.fogColor += glm::vec3(0.03f, 0.04f, 0.06f) * lift;
+        const glm::vec3 skyLift = glm::vec3(0.03f, 0.045f, 0.07f) * lift;
+        p.skyMiddleColor += skyLift;
+        p.skyBand1Color += skyLift;
+        p.skyBand2Color += skyLift;
+    }
+}
+
 void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_t zoneId,
                               float gameTime,
                               bool isRaining, bool isUnderwater) {
@@ -369,6 +412,13 @@ void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_
     // world clock continues normally for gameplay and every other zone.
     visualTimeOfDayHours_ = resolveZoneVisualTimeHours(
         zoneId, isIndoors_, timeOfDay_ * 24.0f);
+    // A summer evening (setLongEvenings): 19:00-21:30 shows the tables'
+    // 19:00-20:30, slowly; 21:30-22:30 their 20:30-22:30, quickly.
+    if (longEvenings_) {
+        float& h = visualTimeOfDayHours_;
+        if (h >= 19.0f && h < 21.5f) h = 19.0f + (h - 19.0f) * 0.6f;
+        else if (h >= 21.5f && h < 22.5f) h = 20.5f + (h - 21.5f) * 2.0f;
+    }
 
     // Convert visual time to half-minutes (WoW DBC format: 0-2879).
     const float visualDayFraction = visualTimeOfDayHours_ / 24.0f;
@@ -540,6 +590,7 @@ void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_
 
     if (!isIndoors_) {
         applyZoneAmbienceOverride(zoneId, newParams);
+        applyAtmosphereGrade(newParams, visualTimeOfDayHours_);
     }
 
     // Fog toward the colour of the sky it is seen against.
@@ -590,6 +641,17 @@ void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_
     // at all burnt the grass yellow and showed every facet of a tree's
     // crown in the headset. The player picks between the two (Daylight).
     applyLightHeadroom(newParams.ambientColor, newParams.diffuseColor, lightCeiling_);
+    // A sunnier day (setDayBrightness), after the headroom on purpose: the
+    // ceiling is what dims Stormwind's noon - its sun is a deep orange and
+    // its shade blue - and the city's walls, lit by them since they stopped
+    // drawing at full texture brightness, read overcast. Outdoors only.
+    if (!isIndoors_ && dayBrightness_ > 0.0f) {
+        const float h = visualTimeOfDayHours_;
+        const float day = glm::smoothstep(6.5f, 8.5f, h) * (1.0f - glm::smoothstep(17.5f, 19.5f, h));
+        const float boost = std::clamp(dayBrightness_, 0.0f, 1.0f) * day;
+        newParams.diffuseColor *= 1.0f + boost;
+        newParams.ambientColor *= 1.0f + 0.5f * boost;
+    }
 
     // What the sky is being told, whenever it changes.
     //

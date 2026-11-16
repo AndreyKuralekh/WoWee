@@ -216,6 +216,20 @@ public:
     /// How far ambient + diffuse may pass 1.0 before both are scaled down:
     /// 1 never clips and is dim, 1.5 is about the original's full clip.
     void setLightCeiling(float ceiling) { lightCeiling_ = ceiling; }
+    /// The evening's and dawn's warmth: how far, around eight at night and
+    /// six in the morning, the sun, the ambient, the fog and the horizon lean
+    /// toward amber. 0 is the zone's light unchanged. See applyAtmosphereGrade.
+    void setEveningWarmth(float warmth) { eveningWarmth_ = warmth; }
+    /// How much the night's ambient and moonlight are lifted, a little toward
+    /// blue: 0 is the zone's night unchanged, 1 a bright moonlit night.
+    void setNightBrightness(float brightness) { nightBrightness_ = brightness; }
+    /// A summer evening: the light of 19:00-20:30 drawn out to 21:30, and
+    /// night by 22:30 - the 3.3.5 tables are dark by half past eight. Only the
+    /// light, sky and sun follow it; the game's clock is untouched.
+    void setLongEvenings(bool on) { longEvenings_ = on; }
+    /// A sunnier day: 7:00-19:00 the sun up to 1 + b and the ambient up to
+    /// 1 + b/2, past the Daylight ceiling. 0 is the zone's day unchanged.
+    void setDayBrightness(float b) { dayBrightness_ = b; }
 
     /**
      * Get current time of day (0.0-1.0)
@@ -330,6 +344,11 @@ private:
     float fogSkyBlend_ = 0.7f;
     float fogStrength_ = 0.4f;
     float lightCeiling_ = 1.2f;
+    float eveningWarmth_ = 0.6f;
+    float nightBrightness_ = 0.5f;
+    bool longEvenings_ = true;
+    float dayBrightness_ = 0.5f;
+    void applyAtmosphereGrade(LightingParams& params, float hours) const;
 
     // Last values the sky diagnostic reported, so it prints on a change
     // rather than every frame. See LightingManager::update.

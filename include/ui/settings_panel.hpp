@@ -62,6 +62,11 @@ public:
     float pendingFogSkyBlend = 0.7f;
     /// How much distance fog. See LightingManager::setFogStrength.
     float pendingFogStrength = 0.4f;
+    /// See LightingManager::setEveningWarmth / setNightBrightness.
+    float pendingEveningWarmth = 0.6f;
+    float pendingNightBrightness = 0.5f;
+    bool pendingLongEvenings = true;  ///< See LightingManager::setLongEvenings.
+    float pendingDayBrightness = 0.5f;  ///< See LightingManager::setDayBrightness.
     /// How bright daylight may get. See LightingManager::setLightCeiling.
     float pendingLightCeiling = 1.2f;
     float pendingWaterClarity = 1.3f;   // WaterRenderer::setClarity

@@ -82,6 +82,21 @@ constexpr SettingDesc kSchema[] = {
      "How heavy the distance fog is, against the zone's own design.\n"
      "1 is as designed. Below 1 thins it and 0 removes it; above 1\n"
      "brings it closer.", "", 0.4f},
+    {"eveningwarmth", "Evening warmth", SettingKind::Float, 0, 1, 0.05f, "Graphics", "",
+     "How amber the light turns around eight in the evening, and\n"
+     "softly at dawn: sun, shade, fog and horizon. 0 keeps the zone's\n"
+     "light, whose evening is already night.", "", 0.6f},
+    {"nightbrightness", "Night brightness", SettingKind::Float, 0, 1, 0.05f, "Graphics", "",
+     "How light the night is: the shade and the moonlight lifted a\n"
+     "little toward blue. 0 keeps the zone's dark night.", "", 0.5f},
+    {"daybrightness", "Day brightness", SettingKind::Float, 0, 1, 0.05f, "Graphics", "",
+     "How sunny the day is: from seven to seven the sun is raised by up\n"
+     "to this much and the shade by half of it. 0 keeps the zone's day,\n"
+     "whose city streets read overcast.", "", 0.5f},
+    {"longevenings", "Long summer evenings", SettingKind::Bool, 0, 0, 0, "Graphics", "",
+     "The evening lasts until half past nine, as in summer: the light\n"
+     "of seven to half past eight is drawn out to then, and night falls\n"
+     "by half past ten. Off, the zone's own clock, dark by half past eight.", "", 1},
     {"daylight", "Daylight brightness", SettingKind::Float, 1.0f, 1.5f, 0.05f, "Graphics", "",
      "How bright sunlit ground and walls may get. Most zones' noon is\n"
      "brighter than a colour can hold; 1 dims the whole light to fit\n"
