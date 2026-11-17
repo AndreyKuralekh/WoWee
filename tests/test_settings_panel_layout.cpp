@@ -94,7 +94,7 @@ Layout panelLayout(const std::string& lua) {
 
 }  // namespace
 
-TEST_CASE("every settings panel fits in its two columns", "[settings]") {
+TEST_CASE("every settings panel fills its columns before it scrolls", "[settings]") {
     const std::string lua = addons::kWoweeOptionsPanelLua;
     const int columnTop = luaConstant(lua, "COLUMN_TOP");
     const Layout layout = panelLayout(lua);
@@ -146,7 +146,9 @@ TEST_CASE("every settings panel fits in its two columns", "[settings]") {
         INFO("setting " << schema[i].key << " on panel " << schema[i].category
                         << " lands at " << (y - controlHeight) << " in column " << column
                         << ", past the bottom at " << columnBottom);
-        CHECK(y - controlHeight >= columnBottom);
+        // Past the bottom only in the last column: the page scrolls there.
+        // Anywhere else it would have been moved on to the next column.
+        CHECK((y - controlHeight >= columnBottom || column == columnCount));
         // The heading over it is in the same column, not left at the foot of
         // the one before - which is how "Effects" came to sit alone at the
         // bottom of the Detail page.

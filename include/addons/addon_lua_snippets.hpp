@@ -230,6 +230,7 @@ local function reserve(layout, height, keepWith)
     end
     local x, y = layout.columns[layout.column], layout.y
     layout.y = layout.y - height
+    layout.lowest = math.min(layout.lowest or 0, layout.y)
     return x, y
 end
 
@@ -479,11 +480,37 @@ local function buildPanel(category, settings)
     panel.name = category
     panel.parent = ROOT
 
-    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 16, -16)
+    -- Everything on the page goes in a scroll frame, the title too. The
+    -- columns fill the visible height and the second keeps going below it, so
+    -- a page with more settings than the panel has room for - Graphics has
+    -- nineteen, Detail eleven under five headings - scrolls with the wheel or
+    -- the bar instead of running off the bottom where nothing can reach it.
+    -- A page that fits gets no bar: the template hides it at zero range.
+    -- Without the template (an interface that loads no UIPanelTemplates) the
+    -- page is laid out on the panel itself, as before.
+    local page = panel
+    local scroll
+    if container then
+        local ok, made = pcall(CreateFrame, "ScrollFrame", panel:GetName() .. "Scroll", panel,
+                               "UIPanelScrollFrameTemplate")
+        if ok and made and made.SetScrollChild then
+            scroll = made
+            scroll:SetPoint("TOPLEFT", 0, -4)
+            scroll:SetPoint("BOTTOMRIGHT", -26, 4)
+            page = CreateFrame("Frame", panel:GetName() .. "Page", scroll)
+            local width = (panel:GetWidth() or 0) > 0 and panel:GetWidth() or 413
+            local height = (panel:GetHeight() or 0) > 0 and panel:GetHeight() or 428
+            page:SetWidth(width - 26)
+            page:SetHeight(height - 8)
+            scroll:SetScrollChild(page)
+        end
+    end
+
+    local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, scroll and -12 or -16)
     title:SetText(ROOT .. ": " .. category)
 
-    local layout = newLayout(panel)
+    local layout = newLayout(page)
     local controls = {}
     local heading = nil
     -- Declared before the controls because a dropdown's handler calls it, and
@@ -500,14 +527,19 @@ local function buildPanel(category, settings)
         end
         local control
         if setting.kind == "bool" then
-            control = addCheckButton(layout, panel, setting, rereadOthers)
+            control = addCheckButton(layout, page, setting, rereadOthers)
         elseif setting.kind == "enum" then
-            control = addDropdown(layout, panel, setting, rereadOthers)
+            control = addDropdown(layout, page, setting, rereadOthers)
         else
-            control = addSlider(layout, panel, setting)
+            control = addSlider(layout, page, setting)
         end
         control.key = setting.key
         table.insert(controls, control)
+    end
+    -- The page as tall as what is on it, so the scroll range reaches the last
+    -- control and a little past it.
+    if scroll then
+        page:SetHeight(math.max(page:GetHeight() or 0, -(layout.lowest or 0) + 16))
     end
 
     -- Everything applies as it is changed, so Okay has nothing left to do.
