@@ -372,8 +372,12 @@ void LightingManager::applyAtmosphereGrade(LightingParams& p, float hours) const
                                        : 1.0f - glm::smoothstep(4.0f, 5.5f, hours);
     const float lift = std::clamp(nightBrightness_, 0.0f, 1.0f) * night;
     if (lift > 0.0f) {
-        p.ambientColor = p.ambientColor * (1.0f + 0.4f * lift) + glm::vec3(0.07f, 0.09f, 0.13f) * lift;
-        p.diffuseColor *= 1.0f + 0.6f * lift;
+        // The shade carries the night's light, the moon less of it: in a
+        // headset there is next to no shadow map, and a moon at full strength
+        // reached under every tree - a planter's bushes under one glowed
+        // green. The night stays as light, and evener.
+        p.ambientColor = p.ambientColor * (1.0f + 0.7f * lift) + glm::vec3(0.09f, 0.11f, 0.15f) * lift;
+        p.diffuseColor *= 1.0f - 0.7f * lift;
         p.fogColor += glm::vec3(0.03f, 0.04f, 0.06f) * lift;
         const glm::vec3 skyLift = glm::vec3(0.03f, 0.045f, 0.07f) * lift;
         p.skyMiddleColor += skyLift;

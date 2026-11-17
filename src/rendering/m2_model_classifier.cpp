@@ -620,7 +620,11 @@ M2ClassificationResult classifyM2Model(
         }
         return false;
     };
-    r.isFoliageLike    = (foliageOrTree || coniferNamed()) && !ambientCreature;
+    // A planter is drawn as foliage too - its collision, above, stays a solid
+    // curb. Its bushes are low pyramids of leaf texture, and lit face by face
+    // they showed dark triangles across the bush at night in a headset, where
+    // no shadow map hides them; the crown's light is one soft shape.
+    r.isFoliageLike    = (foliageOrTree || coniferNamed() || isPlanter) && !ambientCreature;
     // Deliberately not ground detail, which was tried and reverted. Every
     // detail doodad ships exactly one bone and one sequence, and that sequence
     // is not always a sway - a number of them carry a small insect or butterfly
