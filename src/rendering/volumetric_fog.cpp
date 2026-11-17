@@ -27,7 +27,9 @@ struct VolumeParamsGPU {
     glm::vec4 drift;          // xyz = how far the mist has blown, w = noise amount
     glm::vec4 jitter;         // xyz = where in its cell this frame samples, w = history weight
     glm::ivec4 dims;          // xyz = volume size
-    glm::vec4 haze;           // x = low-sun haze: the broad warm glow toward a low sun
+    glm::vec4 haze;           // x = low-sun haze: the broad warm glow toward a low sun, y = pane count
+    glm::vec4 windowColor;    // rgb = glow of a lit pane, w = its strength
+    glm::vec4 windowPanes[VolumetricFog::kMaxWindowPanes];  // xyz = world position, w = radius
 };
 
 constexpr uint32_t kInjectGroup = 4;     // 4x4x4, volumetric_fog_inject.comp.glsl
@@ -444,7 +446,12 @@ void VolumetricFog::record(VkCommandBuffer cmd, uint32_t frame, VkDescriptorSet 
     p.jitter = glm::vec4(halton(seq, 2), halton(seq, 3), halton(seq, 5),
                          history ? glm::clamp(in.historyWeight, 0.0f, 0.98f) : 0.0f);
     p.dims = glm::ivec4(size_, 0);
-    p.haze = glm::vec4(std::max(in.lowSunHaze, 0.0f), 0.0f, 0.0f, 0.0f);
+    const uint32_t panes = in.windowPanes ? std::min(in.windowPaneCount, kMaxWindowPanes) : 0u;
+    p.haze = glm::vec4(std::max(in.lowSunHaze, 0.0f), static_cast<float>(panes), 0.0f, 0.0f);
+    p.windowColor = in.windowColor;
+    for (uint32_t i = 0; i < kMaxWindowPanes; ++i) {
+        p.windowPanes[i] = i < panes ? in.windowPanes[i] : glm::vec4(0.0f);
+    }
 
     // Into the buffer in the command stream rather than through its mapping:
     // a second build in the frame would otherwise rewrite the first one's

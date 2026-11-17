@@ -69,6 +69,7 @@ public:
     float pendingDayBrightness = 0.5f;  ///< See LightingManager::setDayBrightness.
     float pendingNightMist = 1.0f;      ///< See Renderer::setNightMist.
     float pendingSunsetHaze = 1.0f;     ///< See Renderer::setSunsetHaze.
+    float pendingWindowGlow = 1.0f;     ///< See Renderer::setWindowGlow.
     /// How bright daylight may get. See LightingManager::setLightCeiling.
     float pendingLightCeiling = 1.2f;
     float pendingWaterClarity = 1.3f;   // WaterRenderer::setClarity

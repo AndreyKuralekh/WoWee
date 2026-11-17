@@ -97,6 +97,10 @@ constexpr SettingDesc kSchema[] = {
      "How much the air thickens at night, low over the ground, for the\n"
      "lamps, doors and windows to glow in it. 0 keeps the day's clear\n"
      "air; needs Light shafts on.", "", 1.0f},
+    {"windowglow", "Window glow", SettingKind::Float, 0, 3, 0.1f, "Graphics", "",
+     "Halos round the lit windows of a town at night, in the night\n"
+     "mist. 0 leaves only the glass itself glowing; needs Light\n"
+     "shafts on.", "", 1.0f},
     {"sunsethaze", "Sunset haze", SettingKind::Float, 0, 3, 0.1f, "Graphics", "",
      "A warm haze over the land while the sun is low, at dawn and\n"
      "dusk, glowing toward the sun. 0 keeps the air clear; needs\n"

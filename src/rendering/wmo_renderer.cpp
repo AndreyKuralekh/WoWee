@@ -960,6 +960,44 @@ WMORenderer::ModelLoadResult WMORenderer::loadModelIncremental(
                 }
             }
 
+            // The panes of a window that glows at night, for the fog. One
+            // batch is every window of its material in the group - a whole
+            // house front - so its triangles are gathered into cells a couple
+            // of yards across, and each cell is one pane of light. The same
+            // materials the shader lights at night: glass outside a dungeon,
+            // and what the artist marked SIDN.
+            if ((mb.isWindow && !wmoOnlyMap_) || mb.emissiveLevel == 3) {
+                struct Cell { glm::vec3 sum{0.0f}; float area = 0.0f; };
+                std::unordered_map<int64_t, Cell> cells;
+                constexpr float kCell = 2.5f;
+                for (const auto& draw : mb.draws) {
+                    const uint32_t indexEnd = std::min<uint32_t>(
+                        draw.firstIndex + draw.indexCount,
+                        static_cast<uint32_t>(groupRes.collisionIndices.size()));
+                    for (uint32_t ii = draw.firstIndex; ii + 2 < indexEnd; ii += 3) {
+                        const uint16_t i0 = groupRes.collisionIndices[ii];
+                        const uint16_t i1 = groupRes.collisionIndices[ii + 1];
+                        const uint16_t i2 = groupRes.collisionIndices[ii + 2];
+                        const auto& verts = groupRes.collisionVertices;
+                        if (i0 >= verts.size() || i1 >= verts.size() || i2 >= verts.size()) continue;
+                        const glm::vec3 c3 = (verts[i0] + verts[i1] + verts[i2]) / 3.0f;
+                        const float area = 0.5f * glm::length(glm::cross(verts[i1] - verts[i0], verts[i2] - verts[i0]));
+                        if (area < 1e-4f) continue;
+                        const glm::ivec3 k = glm::ivec3(glm::floor(c3 / kCell));
+                        const int64_t key = (static_cast<int64_t>(k.x & 0x1FFFFF) << 42) |
+                                            (static_cast<int64_t>(k.y & 0x1FFFFF) << 21) |
+                                            static_cast<int64_t>(k.z & 0x1FFFFF);
+                        Cell& cell = cells[key];
+                        cell.sum += c3 * area;
+                        cell.area += area;
+                    }
+                }
+                for (const auto& [key, cell] : cells) {
+                    if (cell.area < 0.05f) continue;  // a sliver, not a pane
+                    groupRes.windowPanes.emplace_back(cell.sum / cell.area, std::sqrt(cell.area));
+                }
+            }
+
             groupRes.mergedBatches.push_back(std::move(mb));
         }
         groupRes.allUntextured = !anyTextured && !groupRes.mergedBatches.empty();
@@ -4371,6 +4409,44 @@ bool WMORenderer::withinWorldBounds(const WMOInstance& instance,
            glY >= instance.worldBoundsMin.y && glY <= instance.worldBoundsMax.y &&
            glZ >= instance.worldBoundsMin.z - zMarginDown &&
            glZ <= instance.worldBoundsMax.z + zMarginUp;
+}
+
+uint32_t WMORenderer::gatherWindowPanes(const glm::vec3& cameraPos, const glm::vec3& forward,
+                                        glm::vec4* outPosRadius, uint32_t maxPanes, float maxDistance) const {
+    if (!outPosRadius || maxPanes == 0) return 0;
+    struct Candidate { float distSq; glm::vec4 posRadius; };
+    static thread_local std::vector<Candidate> candidates;
+    candidates.clear();
+    const float maxSq = maxDistance * maxDistance;
+    for (const auto& instance : instances) {
+        // The whole building first: most of a city is far from the camera.
+        const glm::vec3 nearest = glm::clamp(cameraPos, instance.worldBoundsMin, instance.worldBoundsMax);
+        if (glm::dot(nearest - cameraPos, nearest - cameraPos) > maxSq) continue;
+        auto modelIt = loadedModels.find(instance.modelId);
+        if (modelIt == loadedModels.end()) continue;
+        for (const auto& group : modelIt->second.groups) {
+            for (const glm::vec4& pane : group.windowPanes) {
+                const glm::vec3 worldPos = glm::vec3(instance.modelMatrix * glm::vec4(glm::vec3(pane), 1.0f));
+                const glm::vec3 delta = worldPos - cameraPos;
+                const float distSq = glm::dot(delta, delta);
+                if (distSq > maxSq) continue;
+                // A pane lights the air a few yards round it; a big one more.
+                const float radius = std::clamp(4.0f + pane.w * instance.scale, 4.5f, 9.0f);
+                // Not behind the eye: a halo there is never seen, and the
+                // nearest panes are as often over the shoulder as ahead. A
+                // wide cone, for a head that turns before the list does.
+                const float dist = std::sqrt(distSq);
+                if (dist > radius && glm::dot(delta, forward) < -0.35f * dist) continue;
+                candidates.push_back({distSq, glm::vec4(worldPos, radius)});
+            }
+        }
+    }
+    const uint32_t count = std::min<uint32_t>(maxPanes, static_cast<uint32_t>(candidates.size()));
+    if (count == 0) return 0;
+    std::partial_sort(candidates.begin(), candidates.begin() + count, candidates.end(),
+        [](const Candidate& a, const Candidate& b) { return a.distSq < b.distSq; });
+    for (uint32_t i = 0; i < count; ++i) outPosRadius[i] = candidates[i].posRadius;
+    return count;
 }
 
 uint32_t WMORenderer::gatherLavaLights(const glm::vec3& cameraPos,

@@ -436,6 +436,8 @@ public:
     /// The golden hour's warm haze toward a low sun, in the fog volume.
     /// 1 is as tuned, 0 none.
     void setSunsetHaze(float haze) { sunsetHaze_ = glm::clamp(haze, 0.0f, 3.0f); }
+    /// Halos round lit windows at night, in the fog volume. 1 as tuned, 0 none.
+    void setWindowGlow(float glow) { windowGlow_ = glm::clamp(glow, 0.0f, 3.0f); }
     /// Rays streaming from the sun across the finished picture. See SunShafts.
     void setSunShaftsEnabled(bool enabled) { sunShaftsEnabled_ = enabled; }
     int getTerrainLoadRadius() const;
@@ -691,6 +693,15 @@ private:
     float volumetricFogDensity_ = 1.0f;
     float nightMist_ = 1.0f;
     float sunsetHaze_ = 1.0f;
+    float windowGlow_ = 1.0f;
+    /// A lit pane's strength in the fog, against a lamp's of about 1.5. It
+    /// is twice that, not less, because half its ball of light is inside the
+    /// wall and the rest is a few yards across where a lamp's is twelve: at
+    /// 0.6, and at three times that, the halo did not show on a night street.
+    static constexpr float kWindowGlowStrength = 3.0f;
+    /// This frame's lit panes nearest the camera, for both eyes' fog.
+    glm::vec4 windowPanes_[32]{};
+    uint32_t windowPaneCount_ = 0;
     /// 0 to 1: how low the sun stands - 1 just over the horizon, 0 from
     /// about twenty degrees up, and 0 again once it has set.
     float lowSun() const;

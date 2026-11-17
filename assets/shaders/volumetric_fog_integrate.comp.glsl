@@ -39,6 +39,8 @@ layout(set = 1, binding = 0) uniform VolumeParams {
     vec4 jitter;
     ivec4 dims;
     vec4 haze;           // x = low-sun haze (0..), the broad warm glow toward the sun
+    vec4 windowColor;    // rgb = glow of a lit pane, w = its strength; y of haze = how many panes
+    vec4 windowPanes[32]; // xyz = world position, w = radius
 } vol;
 
 layout(set = 1, binding = 4) uniform sampler3D uCells;

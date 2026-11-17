@@ -41,6 +41,8 @@ layout(set = 1, binding = 0) uniform VolumeParams {
     vec4 jitter;         // xyz = sample point inside the cell, w = history weight
     ivec4 dims;
     vec4 haze;           // x = low-sun haze (0..), the broad warm glow toward the sun
+    vec4 windowColor;    // rgb = glow of a lit pane, w = its strength; y of haze = how many panes
+    vec4 windowPanes[32]; // xyz = world position, w = radius
 } vol;
 
 layout(set = 1, binding = 1) uniform sampler2D uShadowDepth;
@@ -187,6 +189,23 @@ void main() {
         float lampPhase = mix(1.0, phaseHG(dot(fromLight, toCamera), 0.5), 0.5);
         local += localLightColorIntensity[i].rgb *
                  (localLightColorIntensity[i].w * attenuation * attenuation * lampPhase);
+    }
+    // Windows lit from inside at night: the same halo, softer, and in the
+    // fog alone. lightDir.w is the night the window glass glows by.
+    if (vol.haze.y > 0.5 && lightDir.w > 0.0) {
+        vec3 panes = vec3(0.0);
+        for (int i = 0; i < min(int(vol.haze.y), 32); ++i) {
+            vec3 toPane = vol.windowPanes[i].xyz - p;
+            float radius = vol.windowPanes[i].w;
+            float distSq = dot(toPane, toPane);
+            if (radius <= 0.0 || distSq >= radius * radius) continue;
+            float dist = sqrt(distSq);
+            float attenuation = 1.0 - dist / radius;
+            vec3 fromPane = -toPane / max(dist, 1e-3);
+            float panePhase = mix(1.0, phaseHG(dot(fromPane, toCamera), 0.5), 0.5);
+            panes += vec3(attenuation * attenuation * panePhase);
+        }
+        local += panes * vol.windowColor.rgb * (vol.windowColor.w * lightDir.w);
     }
     light += local * vol.lighting.y;
 

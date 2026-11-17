@@ -883,7 +883,7 @@ constexpr const char* kGraphicsApplyKeys[] = {
     "grassdistance", "waterrefraction", "upscaling", "fsrquality",
     "fsrsharpness", "framegen", "brightness", "uiopacity", "minimapsquare",
     "minimapnpcdots", "minimapclock", "minimapcoords", "minimaprotate", "latencymeter",
-    "fogskyblend", "fogstrength", "eveningwarmth", "nightbrightness", "longevenings", "daybrightness", "nightmist", "sunsethaze", "daylight","waterclarity", "waterreflections", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
+    "fogskyblend", "fogstrength", "eveningwarmth", "nightbrightness", "longevenings", "daybrightness", "nightmist", "windowglow", "sunsethaze", "daylight","waterclarity", "waterreflections", "sharpstars", "lightshafts", "mistdensity", "sunshafts",
     "raytracedlighting",
 #ifdef WOWEE_VR
     "vrpanelfollow", "vrpaneldistance", "vrpanelwidth", "vrinterfaceres", "vrshowfps", "vrfirstperson", "vrshine", "vrsnapturn", "vrbodyfollowshead", "vrvignette", "vrmovedirection", "vrlefthanded", "vrworldscale", "vreyeheight", "vrglow", "vrshadows", "vrshadowstrength", "vrfirelight", "vrfirelightmax", "vrfireflicker", "vrsoftparticles", "vrfirevolume", "vrfirevolumedist", "vrfirevolumesteps", "vrfireheathaze", "vrwaterrefraction", "vrunderwater", "vrunderwatersway", "vrwatercaustics", "vrwaterfallmist", "vrdrawbyreach", "vrkeepcasting", "vrhapticstrength", "vrswingstrike", "vrswingspeed", "vrbars", "vrbarsize", "vrbaropacity", "vrbarscombatonly", "vrbody", "vrcrouch","vrhands", "vrhandtone", "vrhandpanels", "vrhidebars", "vrhandpanelsize", "vrwindows", "vrwindowsize",
@@ -1085,6 +1085,7 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "daybrightness",     .asFloat = &SettingsPanel::pendingDayBrightness},
     {.key = "nightmist",         .asFloat = &SettingsPanel::pendingNightMist},
     {.key = "sunsethaze",        .asFloat = &SettingsPanel::pendingSunsetHaze},
+    {.key = "windowglow",        .asFloat = &SettingsPanel::pendingWindowGlow},
     {.key = "sunshafts",         .asBool  = &SettingsPanel::pendingSunShafts},
 #ifdef WOWEE_VR
     {.key = "vrpanelfollow",     .asInt   = &SettingsPanel::pendingVrPanelFollow},
@@ -1695,6 +1696,8 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
         if (renderer) renderer->setNightMist(pendingNightMist);
     } else if (key == "sunsethaze") {
         if (renderer) renderer->setSunsetHaze(pendingSunsetHaze);
+    } else if (key == "windowglow") {
+        if (renderer) renderer->setWindowGlow(pendingWindowGlow);
     } else if (key == "mistdensity") {
         if (renderer) renderer->setVolumetricFogDensity(pendingVolumetricDensity);
     } else if (key == "fogskyblend") {

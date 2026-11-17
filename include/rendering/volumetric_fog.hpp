@@ -55,6 +55,9 @@ public:
     /// whites the horizon long before a shaft reads; air that thins with
     /// distance can be thick where the trees and doorways are.
     static constexpr float kNear = 0.5f;
+    /// Lit panes of glass the fog halos at night; matches windowPanes[] in
+    /// both fog shaders.
+    static constexpr uint32_t kMaxWindowPanes = 32;
     static constexpr float kFar = 400.0f;
 
     /// What one frame's volume is built from.
@@ -91,6 +94,13 @@ public:
         /// The golden hour: how much broad, warm glow the air throws toward a
         /// sun low over the horizon. 0 while the sun is high or down.
         float lowSunHaze = 0.0f;
+        /// Panes of glass lit from inside at night, haloed like the lamps but
+        /// in the fog alone - not in the surfaces' light list, where the
+        /// lamps already fill every place at night. World position, radius.
+        const glm::vec4* windowPanes = nullptr;
+        uint32_t windowPaneCount = 0;
+        /// rgb the panes' glow, w its strength; the shader scales it by night.
+        glm::vec4 windowColor{0.0f};
     };
 
     VolumetricFog() = default;

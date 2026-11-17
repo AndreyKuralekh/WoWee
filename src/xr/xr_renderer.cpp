@@ -844,6 +844,9 @@ void Renderer::vrBuildFogForEye(uint32_t eye) {
     // The golden hour's haze is a wide lobe and stays: it lights the sky round
     // a low sun, not a blot on it.
     in.lowSunHaze = 0.5f * sunsetHaze_ * lowSun();
+    in.windowPanes = windowPanes_;
+    in.windowPaneCount = windowPaneCount_;
+    in.windowColor = glm::vec4(1.0f, 0.74f, 0.42f, kWindowGlowStrength * windowGlow_);
     const uint32_t frame = vkCtx->getCurrentFrame();
     volumetricFog_->record(currentCmd, frame, perFrameDescSets[frame], in);
 }

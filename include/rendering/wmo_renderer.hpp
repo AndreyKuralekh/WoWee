@@ -416,6 +416,11 @@ public:
      *  not a city district, which is interior too but open air. */
     bool isInsideRoomWMO(float glX, float glY, float glZ) const;
 
+    /** The panes of glass nearest the camera that glow at night, for the fog
+     *  volume to halo: world position and radius. Nearest first. */
+    uint32_t gatherWindowPanes(const glm::vec3& cameraPos, const glm::vec3& forward,
+                               glm::vec4* outPosRadius, uint32_t maxPanes, float maxDistance) const;
+
     /** Gather local orange point lights derived from visible lava materials. */
     uint32_t gatherLavaLights(const glm::vec3& cameraPos,
                               glm::vec4* outPosRadius,
@@ -560,6 +565,9 @@ private:
         std::vector<MergedBatch> mergedBatches;
         // Local-space center/radius for each authored lava draw range.
         std::vector<glm::vec4> lavaLights;
+        // Local-space centre of each pane of glass that glows at night, and
+        // its size (w): the window materials' triangles gathered by position.
+        std::vector<glm::vec4> windowPanes;
 
         // Collision geometry (positions only, for floor raycasting)
         std::vector<glm::vec3> collisionVertices;

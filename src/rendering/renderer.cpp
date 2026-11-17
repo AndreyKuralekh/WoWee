@@ -5576,6 +5576,24 @@ void Renderer::renderVolumetricFog() {
     const float target = volumetricFogExtinction();
     if (fogExtinction_ < 0.0f) fogExtinction_ = target;
     fogExtinction_ += (target - fogExtinction_) * (1.0f - std::exp(-dt / 1.0f));
+
+    // The lit panes near the camera, once a frame for both eyes. Only when
+    // there is a night for them to glow in: by day the list stays empty.
+    windowPaneCount_ = 0;
+    if (wmoRenderer && windowGlow_ > 0.0f && currentFrameData.lightDir.w > 0.0f) {
+        windowPaneCount_ = wmoRenderer->gatherWindowPanes(camera->getPosition(), camera->getForward(), windowPanes_,
+                                                          VolumetricFog::kMaxWindowPanes, 90.0f);
+    }
+    static double lastPaneLog = 0.0;
+    if (globalTime - lastPaneLog > 5.0) {
+        lastPaneLog = globalTime;
+        LOG_INFO("volumetricFog: window panes ", windowPaneCount_, " near (night ",
+                 currentFrameData.lightDir.w, ", glow ", windowGlow_, ")",
+                 windowPaneCount_ ? " first at " : "",
+                 windowPaneCount_ ? std::to_string(windowPanes_[0].x) + "," + std::to_string(windowPanes_[0].y) + "," +
+                                    std::to_string(windowPanes_[0].z) + " r " + std::to_string(windowPanes_[0].w)
+                                  : std::string());
+    }
 #ifdef WOWEE_VR
     // A headset's eyes build it each for themselves; the window has no world.
     if (vrFogForEyes(fogExtinction_, fogLayerBase_)) return;
@@ -5589,6 +5607,9 @@ void Renderer::renderVolumetricFog() {
     in.density = fogExtinction_;
     in.layerBase = fogLayerBase_;
     in.lowSunHaze = 0.5f * sunsetHaze_ * lowSun();
+    in.windowPanes = windowPanes_;
+    in.windowPaneCount = windowPaneCount_;
+    in.windowColor = glm::vec4(1.0f, 0.74f, 0.42f, kWindowGlowStrength * windowGlow_);
     volumetricFog_->record(currentCmd, frame, perFrameDescSets[frame], in);
     if (vkCtx) vkCtx->gpuMark(currentCmd, "volumetric fog");
 
@@ -5598,7 +5619,7 @@ void Renderer::renderVolumetricFog() {
     if (globalTime - lastFogLog > 5.0) {
         lastFogLog = globalTime;
         LOG_INFO("volumetricFog: extinction=", fogExtinction_, "/yd (target ", target,
-                 ") layerBase=", fogLayerBase_, " lowSun=", lowSun(), " lights=", currentFrameData.localLightMeta.x);
+                 ") layerBase=", fogLayerBase_, " lowSun=", lowSun(), " panes=", windowPaneCount_, " lights=", currentFrameData.localLightMeta.x);
     }
 }
 
