@@ -818,6 +818,11 @@ public:
      *  shut in a building: it stands on the floor of one of the building's
      *  groups the portals show. -1 from groupAtInEnclosure: on none. */
     int groupAtInEnclosure(const glm::vec3& worldPos) const;
+    /** Every group a model at a world point may be seen in: the one whose
+     *  floor it stands on, and every group whose box holds it. A model hung
+     *  on a wall - the throne room's drapes over its doors - has its floor
+     *  in the corridor beyond, and was hidden with the corridor. */
+    void groupsAtInEnclosure(const glm::vec3& worldPos, std::vector<int16_t>& out) const;
     bool enclosureShowsGroup(int group) const {
         return group >= 0 && enclosingVisibleGroups_.count(static_cast<uint32_t>(group)) != 0;
     }

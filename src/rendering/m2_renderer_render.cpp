@@ -1055,7 +1055,9 @@ void M2Renderer::setEnclosure(const WMORenderer* wmo) {
             for (const auto& inst : instances) {
                 if (inst.isGameObject || !enclosure_->insideEnclosureBounds(inst.position)) continue;
                 if (enclosureGroupOf_.count(inst.id)) continue;  // models streaming in: only the new ones
-                enclosureGroupOf_.emplace(inst.id, enclosure_->groupAtInEnclosure(inst.position));
+                std::vector<int16_t> groups;
+                enclosure_->groupsAtInEnclosure(inst.position, groups);
+                enclosureGroupOf_.emplace(inst.id, std::move(groups));
             }
             if (enclosureGroupOf_.size() / 500 != enclosureLogged_ / 500) {
                 enclosureLogged_ = enclosureGroupOf_.size();
@@ -1260,7 +1262,12 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             if (enclosure_ && !instance.isGameObject) {
                 // Found on the main thread in setEnclosure; read-only here.
                 const auto found = enclosureGroupOf_.find(instance.id);
-                if (found == enclosureGroupOf_.end() || !enclosure_->enclosureShowsGroup(found->second)) continue;
+                if (found == enclosureGroupOf_.end()) continue;
+                bool shown = false;
+                for (int16_t g : found->second) {
+                    if (enclosure_->enclosureShowsGroup(g)) { shown = true; break; }
+                }
+                if (!shown) continue;
             }
             if (forceNoCull_) {
                 if (!instance.cachedIsValid) continue;

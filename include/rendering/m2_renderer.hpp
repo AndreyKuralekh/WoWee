@@ -972,8 +972,9 @@ private:
     uint32_t enclosureBuilding_ = 0;
     size_t enclosureInstanceCount_ = 0;
     size_t enclosureLogged_ = 0;
-    // The building group each model stands in, found once per building.
-    std::unordered_map<uint32_t, int> enclosureGroupOf_;
+    // The building groups each model may be seen in (floor and boxes),
+    // found once per building.
+    std::unordered_map<uint32_t, std::vector<int16_t>> enclosureGroupOf_;
     float viewHeight_ = 1080.0f;
     pipeline::AssetManager* assetManager = nullptr;
 

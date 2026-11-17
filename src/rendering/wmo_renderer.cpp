@@ -2695,6 +2695,26 @@ int WMORenderer::groupAtInEnclosure(const glm::vec3& worldPos) const {
     return findCameraGroup(*enclosingModel_, local);
 }
 
+void WMORenderer::groupsAtInEnclosure(const glm::vec3& worldPos, std::vector<int16_t>& out) const {
+    out.clear();
+    if (enclosingInstanceId_ == 0 || !enclosingModel_) return;
+    const int floorGroup = groupAtInEnclosure(worldPos);
+    if (floorGroup >= 0) out.push_back(static_cast<int16_t>(floorGroup));
+    const glm::vec3 local = glm::vec3(enclosingInvMatrix_ * glm::vec4(worldPos, 1.0f));
+    constexpr float kSlack = 0.5f;
+    const auto& groups = enclosingModel_->groups;
+    for (size_t gi = 0; gi < groups.size() && gi < 0x7FFF; ++gi) {
+        if (static_cast<int>(gi) == floorGroup) continue;
+        const auto& g = groups[gi];
+        if (local.x < g.boundingBoxMin.x - kSlack || local.x > g.boundingBoxMax.x + kSlack ||
+            local.y < g.boundingBoxMin.y - kSlack || local.y > g.boundingBoxMax.y + kSlack ||
+            local.z < g.boundingBoxMin.z - kSlack || local.z > g.boundingBoxMax.z + kSlack) {
+            continue;
+        }
+        out.push_back(static_cast<int16_t>(gi));
+    }
+}
+
 int WMORenderer::findCameraGroup(const ModelData& model, const glm::vec3& localPos) const {
     // A little slack round the boxes: a camera on a floor sits at the box's
     // bottom face.
