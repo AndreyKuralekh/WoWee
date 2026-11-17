@@ -93,6 +93,10 @@ constexpr SettingDesc kSchema[] = {
      "How sunny the day is: from seven to seven the sun is raised by up\n"
      "to this much and the shade by half of it. 0 keeps the zone's day,\n"
      "whose city streets read overcast.", "", 0.5f},
+    {"nightmist", "Night mist", SettingKind::Float, 0, 4, 0.1f, "Graphics", "",
+     "How much the air thickens at night, low over the ground, for the\n"
+     "lamps, doors and windows to glow in it. 0 keeps the day's clear\n"
+     "air; needs Light shafts on.", "", 1.0f},
     {"longevenings", "Long summer evenings", SettingKind::Bool, 0, 0, 0, "Graphics", "",
      "The evening lasts until half past nine, as in summer: the light\n"
      "of seven to half past eight is drawn out to then, and night falls\n"

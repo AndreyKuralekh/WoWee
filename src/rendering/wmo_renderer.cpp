@@ -4426,7 +4426,7 @@ uint32_t WMORenderer::gatherLavaLights(const glm::vec3& cameraPos,
 /// model matrix and multiplying is the expensive part, and a building whose
 /// own bounds contain the point usually has no *group* that does.
 bool WMORenderer::isInsideWMOGroups(float glX, float glY, float glZ,
-                                    bool interiorOnly, uint32_t* outModelId) const {
+                                    bool interiorOnly, uint32_t* outModelId, bool roomsOnly) const {
     const glm::vec3 queryMin(glX - 0.5f, glY - 0.5f, glZ - 0.5f);
     const glm::vec3 queryMax(glX + 0.5f, glY + 0.5f, glZ + 0.5f);
     gatherCandidates(queryMin, queryMax, tl_candidateScratch);
@@ -4456,6 +4456,7 @@ bool WMORenderer::isInsideWMOGroups(float glX, float glY, float glZ,
             glm::vec3(instance.invModelMatrix * glm::vec4(glX, glY, glZ, 1.0f));
         for (const auto& group : model.groups) {
             if (interiorOnly && !(group.groupFlags & kWMOGroupIndoor)) continue;
+            if (roomsOnly && (group.groupFlags & 0x40)) continue;  // sky-lit: open air
             if (localPos.x >= group.boundingBoxMin.x && localPos.x <= group.boundingBoxMax.x &&
                 localPos.y >= group.boundingBoxMin.y && localPos.y <= group.boundingBoxMax.y &&
                 localPos.z >= group.boundingBoxMin.z && localPos.z <= group.boundingBoxMax.z) {
@@ -4474,6 +4475,10 @@ bool WMORenderer::isInsideWMO(float glX, float glY, float glZ, uint32_t* outMode
 
 bool WMORenderer::isInsideInteriorWMO(float glX, float glY, float glZ) const {
     return isInsideWMOGroups(glX, glY, glZ, /*interiorOnly=*/true, nullptr);
+}
+
+bool WMORenderer::isInsideRoomWMO(float glX, float glY, float glZ) const {
+    return isInsideWMOGroups(glX, glY, glZ, /*interiorOnly=*/true, nullptr, /*roomsOnly=*/true);
 }
 
 float WMORenderer::raycastBoundingBoxes(const glm::vec3& origin, const glm::vec3& direction, float maxDistance) const {

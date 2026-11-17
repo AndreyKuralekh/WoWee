@@ -412,6 +412,9 @@ public:
      * Used to dim M2 lighting for doodads placed indoors.
      */
     bool isInsideInteriorWMO(float glX, float glY, float glZ) const;
+    /** Inside a room: an interior group the sky does not light (no 0x40) -
+     *  not a city district, which is interior too but open air. */
+    bool isInsideRoomWMO(float glX, float glY, float glZ) const;
 
     /** Gather local orange point lights derived from visible lava materials. */
     uint32_t gatherLavaLights(const glm::vec3& cameraPos,
@@ -735,7 +738,7 @@ private:
     /// Whether a point is inside any of a WMO's groups, or only its
     /// interior ones. The two public queries above differ by that flag.
     bool isInsideWMOGroups(float glX, float glY, float glZ,
-                           bool interiorOnly, uint32_t* outModelId) const;
+                           bool interiorOnly, uint32_t* outModelId, bool roomsOnly = false) const;
 
     /// Whether a point is inside an instance's world bounds, with the Z
     /// window widened by the caller's margins.

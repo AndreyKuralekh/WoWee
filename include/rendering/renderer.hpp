@@ -430,6 +430,9 @@ public:
     void setRtLightingMode(int mode);
     /// A multiplier on how thick that air is; 1 is the default mist.
     void setVolumetricFogDensity(float density) { volumetricFogDensity_ = glm::clamp(density, 0.0f, 3.0f); }
+    /// How much the air thickens at night, for lamps to stand in a halo:
+    /// the night's extinction is 1 + this times the day's. 0 is none.
+    void setNightMist(float mist) { nightMist_ = glm::clamp(mist, 0.0f, 4.0f); }
     /// Rays streaming from the sun across the finished picture. See SunShafts.
     void setSunShaftsEnabled(bool enabled) { sunShaftsEnabled_ = enabled; }
     int getTerrainLoadRadius() const;
@@ -683,6 +686,7 @@ private:
     void recordRtLighting(VkImage sceneDepth, VkExtent2D sceneExtent, bool depthIsMsaa);
     bool rtRecordedThisFrame_ = false;
     float volumetricFogDensity_ = 1.0f;
+    float nightMist_ = 1.0f;
     /// Whether this frame builds the volume, decided where the per-frame block
     /// is written so the block's switch and the dispatch cannot disagree.
     bool volumetricThisFrame_ = false;

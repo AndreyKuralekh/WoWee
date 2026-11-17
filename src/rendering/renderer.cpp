@@ -5508,7 +5508,22 @@ float Renderer::volumetricFogExtinction() const {
 
     // Indoors the outdoor air mostly stays outside. Not all of it: a hall
     // with torches in it should still show their glow.
-    if (cameraController && cameraController->isInsideInteriorWMO()) extinction *= 0.35f;
+    // In a room, that is: a city district is an interior group as well, but
+    // open air the sky lights (0x40), and Stormwind's streets had a third of
+    // the air of the fields outside its walls.
+    if (camera && wmoRenderer) {
+        const glm::vec3 eye = camera->getPosition();
+        if (wmoRenderer->isInsideRoomWMO(eye.x, eye.y, eye.z)) extinction *= 0.35f;
+    }
+
+    // A night mist low over the ground, for the lamps to stand in a halo -
+    // the Reforged client's (LuxVelum) streets at night. The day's air is
+    // left alone.
+    if (lightingManager && nightMist_ > 0.0f) {
+        const float h = lightingManager->getVisualTimeOfDayHours();
+        const float night = h >= 12.0f ? glm::smoothstep(21.0f, 22.5f, h) : 1.0f - glm::smoothstep(4.0f, 5.5f, h);
+        extinction *= 1.0f + nightMist_ * night;
+    }
     return extinction;
 }
 

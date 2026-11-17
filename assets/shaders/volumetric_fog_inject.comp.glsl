@@ -163,9 +163,18 @@ void main() {
         float radius = localLightPosRadius[i].w;
         float distSq = dot(toLight, toLight);
         if (radius <= 0.0 || distSq >= radius * radius) continue;
-        float attenuation = 1.0 - sqrt(distSq) / radius;
+        float dist = sqrt(distSq);
+        float attenuation = 1.0 - dist / radius;
+        // Mostly forward, as off mist: the air between the eye and a lamp
+        // takes its light toward the eye, so the lamp stands in a halo when
+        // looked at rather than in an even ball of lit air (g 0.5, half of
+        // it: a lamp looked at is about three and a half times the even glow,
+        // side on about two thirds - at g 0.6 and three quarters, eight times,
+        // a street's lamps were blinding at night in a headset).
+        vec3 fromLight = -toLight / max(dist, 1e-3);
+        float lampPhase = mix(1.0, phaseHG(dot(fromLight, toCamera), 0.5), 0.5);
         local += localLightColorIntensity[i].rgb *
-                 (localLightColorIntensity[i].w * attenuation * attenuation);
+                 (localLightColorIntensity[i].w * attenuation * attenuation * lampPhase);
     }
     light += local * vol.lighting.y;
 
