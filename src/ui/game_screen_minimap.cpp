@@ -1823,6 +1823,7 @@ void GameScreen::saveSettings() {
     out << "long_evenings=" << (settingsPanel_.pendingLongEvenings ? 1 : 0) << "\n";
     out << "day_brightness=" << settingsPanel_.pendingDayBrightness << "\n";
     out << "night_mist=" << settingsPanel_.pendingNightMist << "\n";
+    out << "sunset_haze=" << settingsPanel_.pendingSunsetHaze << "\n";
     out << "water_clarity=" << settingsPanel_.pendingWaterClarity << "\n";
     out << "water_reflections=" << settingsPanel_.pendingWaterReflections << "\n";
     out << "light_shafts=" << settingsPanel_.pendingVolumetricFog << "\n";
@@ -2149,6 +2150,7 @@ void GameScreen::loadSettings() {
             else if (key == "long_evenings") settingsPanel_.pendingLongEvenings = (val == "1");
             else if (key == "day_brightness") settingsPanel_.pendingDayBrightness = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "night_mist") settingsPanel_.pendingNightMist = std::clamp(std::stof(val), 0.0f, 4.0f);
+            else if (key == "sunset_haze") settingsPanel_.pendingSunsetHaze = std::clamp(std::stof(val), 0.0f, 3.0f);
             else if (key == "water_clarity") settingsPanel_.pendingWaterClarity = std::clamp(std::stof(val), 0.5f, 2.0f);
             else if (key == "water_reflections") settingsPanel_.pendingWaterReflections = std::clamp(std::stoi(val), 0, 2);
             else if (key == "light_shafts") settingsPanel_.pendingVolumetricFog = std::clamp(std::stoi(val), 0, 3);

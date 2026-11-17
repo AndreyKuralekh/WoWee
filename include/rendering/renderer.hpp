@@ -433,6 +433,9 @@ public:
     /// How much the air thickens at night, for lamps to stand in a halo:
     /// the night's extinction is 1 + this times the day's. 0 is none.
     void setNightMist(float mist) { nightMist_ = glm::clamp(mist, 0.0f, 4.0f); }
+    /// The golden hour's warm haze toward a low sun, in the fog volume.
+    /// 1 is as tuned, 0 none.
+    void setSunsetHaze(float haze) { sunsetHaze_ = glm::clamp(haze, 0.0f, 3.0f); }
     /// Rays streaming from the sun across the finished picture. See SunShafts.
     void setSunShaftsEnabled(bool enabled) { sunShaftsEnabled_ = enabled; }
     int getTerrainLoadRadius() const;
@@ -687,6 +690,10 @@ private:
     bool rtRecordedThisFrame_ = false;
     float volumetricFogDensity_ = 1.0f;
     float nightMist_ = 1.0f;
+    float sunsetHaze_ = 1.0f;
+    /// 0 to 1: how low the sun stands - 1 just over the horizon, 0 from
+    /// about twenty degrees up, and 0 again once it has set.
+    float lowSun() const;
     /// Whether this frame builds the volume, decided where the per-frame block
     /// is written so the block's switch and the dispatch cannot disagree.
     bool volumetricThisFrame_ = false;

@@ -40,6 +40,7 @@ layout(set = 1, binding = 0) uniform VolumeParams {
     vec4 drift;          // xyz = how far the mist has blown, w = noise amount
     vec4 jitter;         // xyz = sample point inside the cell, w = history weight
     ivec4 dims;
+    vec4 haze;           // x = low-sun haze (0..), the broad warm glow toward the sun
 } vol;
 
 layout(set = 1, binding = 1) uniform sampler2D uShadowDepth;
@@ -152,7 +153,18 @@ void main() {
     float phase = mix(1.0, phaseHG(dot(travel, toCamera), 0.75), vol.lighting.w);
     vec3 light = fogColor.rgb * vol.lighting.z;
     if (sunUp > 0.0) {
-        light += lightColor.rgb * (sunVisibility(p) * phase * sunUp * vol.lighting.x);
+        float sunVis = sunVisibility(p);
+        light += lightColor.rgb * (sunVis * phase * sunUp * vol.lighting.x);
+        // The golden hour: a sun low over the horizon lights the whole half
+        // of the sky round it through a warm haze, not only a blot at the
+        // sun. A wide lobe (g 0.4: four times the even glow toward the sun,
+        // one and a half at forty five degrees, two thirds side on), tinted
+        // toward amber, so it reads as glowing air rather than a halo - and
+        // stays soft in a headset, where the sharp lobe has been cut back.
+        if (vol.haze.x > 0.0) {
+            vec3 warm = lightColor.rgb * vec3(1.0, 0.78, 0.52);
+            light += warm * (sunVis * phaseHG(dot(travel, toCamera), 0.4) * vol.haze.x * vol.lighting.x);
+        }
     }
 
     // Torches, braziers and lava: the same set, falloff and intensity the

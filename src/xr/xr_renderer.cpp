@@ -841,6 +841,9 @@ void Renderer::vrBuildFogForEye(uint32_t eye) {
     // eighteen times the brightness beside it, and the headset's glow spread
     // it wider still; the shafts are seen from the side and keep most of it.
     in.forwardScatter = 0.15f;
+    // The golden hour's haze is a wide lobe and stays: it lights the sky round
+    // a low sun, not a blot on it.
+    in.lowSunHaze = 0.5f * sunsetHaze_ * lowSun();
     const uint32_t frame = vkCtx->getCurrentFrame();
     volumetricFog_->record(currentCmd, frame, perFrameDescSets[frame], in);
 }

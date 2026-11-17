@@ -88,6 +88,9 @@ public:
         float localLightScatter = 8.0f;
         float historyWeight = 0.9f;  ///< of last frame's cells in this frame's
         float forwardScatter = 0.65f;  ///< of the sun's light, the share scattered on toward the sun
+        /// The golden hour: how much broad, warm glow the air throws toward a
+        /// sun low over the horizon. 0 while the sun is high or down.
+        float lowSunHaze = 0.0f;
     };
 
     VolumetricFog() = default;

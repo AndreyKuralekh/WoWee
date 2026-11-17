@@ -27,6 +27,7 @@ struct VolumeParamsGPU {
     glm::vec4 drift;          // xyz = how far the mist has blown, w = noise amount
     glm::vec4 jitter;         // xyz = where in its cell this frame samples, w = history weight
     glm::ivec4 dims;          // xyz = volume size
+    glm::vec4 haze;           // x = low-sun haze: the broad warm glow toward a low sun
 };
 
 constexpr uint32_t kInjectGroup = 4;     // 4x4x4, volumetric_fog_inject.comp.glsl
@@ -443,6 +444,7 @@ void VolumetricFog::record(VkCommandBuffer cmd, uint32_t frame, VkDescriptorSet 
     p.jitter = glm::vec4(halton(seq, 2), halton(seq, 3), halton(seq, 5),
                          history ? glm::clamp(in.historyWeight, 0.0f, 0.98f) : 0.0f);
     p.dims = glm::ivec4(size_, 0);
+    p.haze = glm::vec4(std::max(in.lowSunHaze, 0.0f), 0.0f, 0.0f, 0.0f);
 
     // Into the buffer in the command stream rather than through its mapping:
     // a second build in the frame would otherwise rewrite the first one's

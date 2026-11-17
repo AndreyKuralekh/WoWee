@@ -38,6 +38,7 @@ layout(set = 1, binding = 0) uniform VolumeParams {
     vec4 drift;
     vec4 jitter;
     ivec4 dims;
+    vec4 haze;           // x = low-sun haze (0..), the broad warm glow toward the sun
 } vol;
 
 layout(set = 1, binding = 4) uniform sampler3D uCells;

@@ -5469,6 +5469,17 @@ void Renderer::writeFogVolumeBindings() {
     }
 }
 
+float Renderer::lowSun() const {
+    // lightDir is the way the light travels: down while the sun is up.
+    const glm::vec3 travel = glm::vec3(currentFrameData.lightDir);
+    const float len = glm::length(travel);
+    if (len < 1e-4f) return 0.0f;
+    const float sinElevation = -travel.z / len;
+    // Up from the horizon over the first few degrees, and gone by about
+    // twenty: sin 3 degrees is 0.05, sin 20 degrees 0.34.
+    return glm::smoothstep(0.0f, 0.05f, sinElevation) * (1.0f - glm::smoothstep(0.12f, 0.34f, sinElevation));
+}
+
 float Renderer::volumetricFogExtinction() const {
     // Per yard, at and below the layer, near the camera. At this a sixth of
     // the light is gone over the first hundred yards and two fifths across
@@ -5490,10 +5501,13 @@ float Renderer::volumetricFogExtinction() const {
             const float authoredEnd = lp.fogEnd * strength;
             extinction *= glm::clamp(900.0f / authoredEnd, 0.6f, 2.0f);
         }
-        // Morning mist: thickest around half past six, gone by nine.
+        // Morning mist: thickest around half past six, gone by nine. And at
+        // either end of the day the air low over the land holds a haze for
+        // the sun to light - whichever is more, so a morning has its mist
+        // rather than the mist and the haze on top of it.
         const float hours = lightingManager->getVisualTimeOfDayHours();
         const float dawn = 1.0f - glm::smoothstep(0.0f, 2.5f, std::abs(hours - 6.5f));
-        extinction *= 1.0f + 0.8f * dawn;
+        extinction *= 1.0f + std::max(0.8f * dawn, 0.6f * sunsetHaze_ * lowSun());
     }
 
     if (weather) {
@@ -5574,6 +5588,7 @@ void Renderer::renderVolumetricFog() {
     in.time = globalTime;
     in.density = fogExtinction_;
     in.layerBase = fogLayerBase_;
+    in.lowSunHaze = 0.5f * sunsetHaze_ * lowSun();
     volumetricFog_->record(currentCmd, frame, perFrameDescSets[frame], in);
     if (vkCtx) vkCtx->gpuMark(currentCmd, "volumetric fog");
 
@@ -5583,7 +5598,7 @@ void Renderer::renderVolumetricFog() {
     if (globalTime - lastFogLog > 5.0) {
         lastFogLog = globalTime;
         LOG_INFO("volumetricFog: extinction=", fogExtinction_, "/yd (target ", target,
-                 ") layerBase=", fogLayerBase_, " lights=", currentFrameData.localLightMeta.x);
+                 ") layerBase=", fogLayerBase_, " lowSun=", lowSun(), " lights=", currentFrameData.localLightMeta.x);
     }
 }
 
