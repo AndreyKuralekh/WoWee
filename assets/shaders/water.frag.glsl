@@ -683,6 +683,7 @@ void main() {
             const int kSteps = 28;
             float t = 0.35;
             float prevT = 0.0;
+            float prevGap = -1.0;
             vec2 hitUV = vec2(-1.0);
             float hitStep = 0.0;
             vec3 forward = -vec3(view[0][2], view[1][2], view[2][2]);
@@ -710,7 +711,14 @@ void main() {
                 vec3 toP = normalize(P - viewPos.xyz);
                 vec3 scenePoint = viewPos.xyz + toP * (sceneLin / max(dot(toP, forward), 0.05));
                 bool aboveWater = scenePoint.z > FragPos.z + 0.1;
-                if (gap > 0.0 && gap < max(0.6, t * 0.08) && aboveWater) {
+                // Or the ray went behind it between two steps: in front of the
+                // frame's surface at the last step, behind it at this one. The
+                // steps grow with distance, and one landing deeper behind a
+                // wall than the thickness allows dropped the hit - and the next
+                // row of pixels, whose steps fell the other way, kept it, so the
+                // quay's reflection came out in bands.
+                bool crossed = prevGap < 0.0 && gap < (t - prevT) * 1.5 + 0.6;
+                if (gap > 0.0 && (gap < max(0.6, t * 0.08) || crossed) && aboveWater) {
                     float a = prevT, b = t;
                     for (int k = 0; k < 5; ++k) {
                         float m = 0.5 * (a + b);
@@ -727,6 +735,7 @@ void main() {
                     break;
                 }
                 prevT = t;
+                prevGap = gap;
                 t = t * 1.28 + 0.15;
             }
             if (hitUV.x >= 0.0) {
