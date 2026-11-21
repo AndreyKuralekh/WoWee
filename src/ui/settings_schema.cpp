@@ -59,6 +59,11 @@ constexpr SettingDesc kSchema[] = {
      "How far into the distance the world is drawn, in yards. The single\n"
      "largest cost in the picture: terrain, buildings and creatures are all\n"
      "drawn to this range.", "", 1900},
+    {"portalculling", "Portal culling", SettingKind::Bool, 0, 0, 0, "Graphics", "",
+     "Inside a building, draw only the rooms and the outdoors its doors and\n"
+     "windows show, as the original client does: in a room the world outside\n"
+     "is not drawn at all. Saves the graphics card a fifth to two fifths in\n"
+     "Stormwind. Off draws every part of a building all the time.", "", 1},
     // It used to be left out, deferred to the Effects panel of the game's own
     // Video options - as were ground clutter, its radius, brightness,
     // particle and weather detail, environment detail and texture filtering.

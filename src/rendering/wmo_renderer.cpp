@@ -202,9 +202,11 @@ bool WMORenderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayou
         cullingEnabled_ = true;
         core::Logger::getInstance().info("WMO culling enabled by WOWEE_WMO_CULL");
     }
-    if (const char* v = std::getenv("WOWEE_WMO_PORTALS"); v && *v && *v != '0') {
-        portalWalk_ = true;
-        core::Logger::getInstance().info("WMO groups walked through portals (WOWEE_WMO_PORTALS)");
+    if (const char* v = std::getenv("WOWEE_WMO_PORTALS"); v && *v) {
+        portalWalkForced_ = true;
+        portalWalk_ = *v != '0';
+        core::Logger::getInstance().info("WMO portal walk ", portalWalk_ ? "on" : "off",
+                                         " by WOWEE_WMO_PORTALS, over the Portal culling setting");
     }
 
     VkDevice device = vkCtx_->getDevice();

@@ -814,6 +814,10 @@ public:
     bool updateEnclosure(const Camera& camera);
     /** The building the camera is shut in (see updateEnclosure), 0 if none. */
     uint32_t enclosingInstance() const { return enclosingInstanceId_; }
+    /** The Portal culling setting. Ignored while WOWEE_WMO_PORTALS is set. */
+    void setPortalWalk(bool on) {
+        if (!portalWalkForced_) portalWalk_.store(on, std::memory_order_relaxed);
+    }
     /** Whether a model standing at a world point is seen while the camera is
      *  shut in a building: it stands on the floor of one of the building's
      *  groups the portals show. -1 from groupAtInEnclosure: on none. */
@@ -986,8 +990,11 @@ private:
     bool frustumCulling = true;  // dead: every instance is included, the group cull does the work
     // Portals walked the original client's way (walkPortals), with an
     // exterior group drawn only when a chain of portals in view reaches it.
-    // WOWEE_WMO_PORTALS=1 for now.
-    bool portalWalk_ = false;
+    // The Portal culling setting (setPortalWalk); WOWEE_WMO_PORTALS=0 or 1
+    // overrides it, for measuring one against the other. Atomic: the cull
+    // threads read it while the settings panel may write it.
+    std::atomic<bool> portalWalk_{false};
+    bool portalWalkForced_ = false;
     bool portalCulling = true;   // AABB transform bug fixed; conservative frustum test (no plane-side check) is visually safe
     bool distanceCulling = false;  // Disabled - causes ground to disappear
 

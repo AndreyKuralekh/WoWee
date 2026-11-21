@@ -66,6 +66,7 @@ public:
     float pendingEveningWarmth = 0.6f;
     float pendingNightBrightness = 0.5f;
     bool pendingLongEvenings = true;  ///< See LightingManager::setLongEvenings.
+    bool pendingPortalCulling = true; ///< See WMORenderer::setPortalWalk.
     float pendingDayBrightness = 0.5f;  ///< See LightingManager::setDayBrightness.
     float pendingNightMist = 1.0f;      ///< See Renderer::setNightMist.
     float pendingSunsetHaze = 1.0f;     ///< See Renderer::setSunsetHaze.

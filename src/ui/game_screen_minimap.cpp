@@ -1821,6 +1821,7 @@ void GameScreen::saveSettings() {
     out << "evening_warmth=" << settingsPanel_.pendingEveningWarmth << "\n";
     out << "night_brightness=" << settingsPanel_.pendingNightBrightness << "\n";
     out << "long_evenings=" << (settingsPanel_.pendingLongEvenings ? 1 : 0) << "\n";
+    out << "portal_culling=" << (settingsPanel_.pendingPortalCulling ? 1 : 0) << "\n";
     out << "day_brightness=" << settingsPanel_.pendingDayBrightness << "\n";
     out << "night_mist=" << settingsPanel_.pendingNightMist << "\n";
     out << "sunset_haze=" << settingsPanel_.pendingSunsetHaze << "\n";
@@ -2149,6 +2150,7 @@ void GameScreen::loadSettings() {
             else if (key == "evening_warmth") settingsPanel_.pendingEveningWarmth = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "night_brightness") settingsPanel_.pendingNightBrightness = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "long_evenings") settingsPanel_.pendingLongEvenings = (val == "1");
+            else if (key == "portal_culling") settingsPanel_.pendingPortalCulling = (val == "1");
             else if (key == "day_brightness") settingsPanel_.pendingDayBrightness = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "night_mist") settingsPanel_.pendingNightMist = std::clamp(std::stof(val), 0.0f, 4.0f);
             else if (key == "sunset_haze") settingsPanel_.pendingSunsetHaze = std::clamp(std::stof(val), 0.0f, 3.0f);
