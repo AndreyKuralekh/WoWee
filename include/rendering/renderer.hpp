@@ -702,6 +702,7 @@ private:
     /// This frame's lit panes nearest the camera, for both eyes' fog.
     glm::vec4 windowPanes_[32]{};
     uint32_t windowPaneCount_ = 0;
+    bool fogCameraInRoom_ = false;
     /// 0 to 1: how low the sun stands - 1 just over the horizon, 0 from
     /// about twenty degrees up, and 0 again once it has set.
     float lowSun() const;

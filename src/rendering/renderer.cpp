@@ -5579,8 +5579,10 @@ void Renderer::renderVolumetricFog() {
 
     // The lit panes near the camera, once a frame for both eyes. Only when
     // there is a night for them to glow in: by day the list stays empty.
+    const glm::vec3 fogEye = camera->getPosition();
+    fogCameraInRoom_ = wmoRenderer && wmoRenderer->isInsideRoomWMO(fogEye.x, fogEye.y, fogEye.z);
     windowPaneCount_ = 0;
-    if (wmoRenderer && windowGlow_ > 0.0f && currentFrameData.lightDir.w > 0.0f) {
+    if (wmoRenderer && !fogCameraInRoom_ && windowGlow_ > 0.0f && currentFrameData.lightDir.w > 0.0f) {
         windowPaneCount_ = wmoRenderer->gatherWindowPanes(camera->getPosition(), camera->getForward(), windowPanes_,
                                                           VolumetricFog::kMaxWindowPanes, 90.0f);
     }
@@ -5609,6 +5611,7 @@ void Renderer::renderVolumetricFog() {
     in.lowSunHaze = 0.5f * sunsetHaze_ * lowSun();
     in.windowPanes = windowPanes_;
     in.windowPaneCount = windowPaneCount_;
+    in.cameraInRoom = fogCameraInRoom_;
     in.windowColor = glm::vec4(1.0f, 0.74f, 0.42f, kWindowGlowStrength * windowGlow_);
     volumetricFog_->record(currentCmd, frame, perFrameDescSets[frame], in);
     if (vkCtx) vkCtx->gpuMark(currentCmd, "volumetric fog");

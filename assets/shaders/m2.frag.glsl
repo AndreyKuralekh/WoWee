@@ -138,7 +138,7 @@ vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo) {
         }
         if (i >= count) break;
         vec3 toLight = localLightPosRadius[i].xyz - pos;
-        float radius = localLightPosRadius[i].w;
+        float radius = abs(localLightPosRadius[i].w);  // negative: a room's light
         // Rejected on the squared distance, before the square root and the
         // divide: a light that reaches the instance still misses most of its
         // pixels.

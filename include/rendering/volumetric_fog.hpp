@@ -101,6 +101,8 @@ public:
         uint32_t windowPaneCount = 0;
         /// rgb the panes' glow, w its strength; the shader scales it by night.
         glm::vec4 windowColor{0.0f};
+        /// The camera is in a room: the lights standing in rooms glow in the air.
+        bool cameraInRoom = false;
     };
 
     VolumetricFog() = default;

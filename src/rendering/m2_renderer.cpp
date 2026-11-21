@@ -154,9 +154,11 @@ std::array<uint32_t, 2> M2Renderer::localLightMask(const M2Instance& instance) c
         : instance.position;
     for (uint32_t i = 0; i < localLightCount_; ++i) {
         const glm::vec4& light = localLights_[i];
-        if (light.w <= 0.0f) continue;
+        // Negative for a room's light (gatherLocalLights): the reach is its size.
+        const float lightRadius = std::abs(light.w);
+        if (lightRadius <= 0.0f) continue;
         const glm::vec3 d = glm::vec3(light) - center;
-        const float reach = light.w + radius;
+        const float reach = lightRadius + radius;
         if (glm::dot(d, d) < reach * reach) mask[i >> 5] |= 1u << (i & 31u);
     }
     return mask;
@@ -421,6 +423,10 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         // Fixture placement, used only to seed the flicker phase. The light's own
         // position animates with the flame, which would re-roll the phase every frame.
         glm::vec3 phaseSeed{0.0f};
+        // A light of a model standing in a building's room: handed on with
+        // its radius negative, and the building shader keeps it to rooms. A
+        // candle in a window niche lit the outside of the abbey round it.
+        bool roomOnly = false;
     };
     std::vector<Candidate> candidates;
     std::vector<Candidate> fires;
@@ -496,7 +502,8 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             const float radius = fl.radius * std::clamp(instance.scale, 0.5f, 2.0f);
             fires.push_back({.distSq = distSq, .posRadius = glm::vec4(worldPos, radius),
                              .colorIntensity = glm::vec4(fl.color, fl.intensity),
-                             .flame = true, .phaseSeed = instance.position});
+                             .flame = true, .phaseSeed = instance.position,
+                             .roomOnly = instance.roomAmbient.w > 0.5f});
             FireGroup group;
             group.volume = hearthLike;
             group.boxMin = instance.worldBoundsMin;
@@ -515,7 +522,8 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                                                 10.0f, 35.0f);
                 candidates.push_back({.distSq = distSq, .posRadius = glm::vec4(worldPos, radius),
                                       .colorIntensity = glm::vec4(1.0f, 0.28f, 0.035f, 1.75f),
-                                      .flame = false, .phaseSeed = instance.position});
+                                      .flame = false, .phaseSeed = instance.position,
+                                      .roomOnly = instance.roomAmbient.w > 0.5f});
             }
         }
 
@@ -565,7 +573,8 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             else if (batch.glowTint == 2) color = glm::vec3(1.0f, 0.24f, 0.14f);
             candidates.push_back({.distSq = distSq, .posRadius = glm::vec4(worldPos, radius),
                                   .colorIntensity = glm::vec4(color, intensity), .flame = true,
-                                  .phaseSeed = instance.position});
+                                  .phaseSeed = instance.position,
+                                  .roomOnly = instance.roomAmbient.w > 0.5f});
             hasBatchLight = true;
         }
 
@@ -626,7 +635,8 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                         .posRadius = glm::vec4(worldPos, radius),
                         .colorIntensity = glm::vec4(color, intensity),
                         .flame = true, .slowFlicker = model->hasLanternGlass,
-                        .phaseSeed = instance.position});
+                        .phaseSeed = instance.position,
+                        .roomOnly = instance.roomAmbient.w > 0.5f});
                 }
             }
         }
@@ -677,6 +687,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         for (uint32_t i = 0; i < fireCount; ++i) {
             const Candidate& c = fires[fireOrder[i]];
             outPosRadius[i] = c.posRadius;
+            if (c.roomOnly) outPosRadius[i].w = -outPosRadius[i].w;
             outColorIntensity[i] = c.colorIntensity;
             outColorIntensity[i].w *= fireFlicker(c.phaseSeed, fireParams_.seconds, fireParams_.flicker);
         }
@@ -695,6 +706,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
     const float flickerSeconds = lampFlickerClockSeconds();
     for (uint32_t i = 0; i < count; ++i) {
         outPosRadius[i] = candidates[i].posRadius;
+        if (candidates[i].roomOnly) outPosRadius[i].w = -outPosRadius[i].w;
         outColorIntensity[i] = candidates[i].colorIntensity;
         if (candidates[i].flame) {
             // A flame behind a lantern's glass breathes, with its glass.

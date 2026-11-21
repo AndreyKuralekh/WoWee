@@ -82,7 +82,7 @@ float sampleShadowPCF(sampler2DShadow smap, vec3 coords) {
     return shadow / 9.0;
 }
 
-vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo, bool interior) {
+vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo, bool interior, bool room) {
     vec3 sum = vec3(0.0);
     // Fire lights (the headset's, TASK_10) are meta.y..z of the list. An
     // interior already has its fire's light baked into its vertex colour, so
@@ -92,6 +92,12 @@ vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo, bool interior) {
     for (int i = 0; i < min(localLightMeta.x, 64); ++i) {
         vec3 toLight = localLightPosRadius[i].xyz - pos;
         float radius = localLightPosRadius[i].w;
+        // Negative: a light of a model standing in a room. It lights rooms
+        // only - a candle in the abbey's window niche lit the stone outside.
+        if (radius < 0.0) {
+            if (!room) continue;
+            radius = -radius;
+        }
         // Rejected on the squared distance, before the square root and the
         // divide: most of the sixty-four are out of range of any one pixel,
         // and this is what each of them costs.
@@ -406,7 +412,8 @@ void main() {
     }
 
     if (isWindow == 0 && isLava == 0)
-        result += localLightContribution(FragPos, norm, texColor.rgb, isInterior != 0 && isLava == 0);
+        result += localLightContribution(FragPos, norm, texColor.rgb, isInterior != 0 && isLava == 0,
+                                         isInterior == 2);
 
     float dist = length(viewPos.xyz - FragPos);
     result = applyFog(result, FragPos, dist);

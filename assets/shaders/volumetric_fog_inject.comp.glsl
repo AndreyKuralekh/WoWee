@@ -174,7 +174,10 @@ void main() {
     vec3 local = vec3(0.0);
     for (int i = 0; i < min(localLightMeta.x, 64); ++i) {
         vec3 toLight = localLightPosRadius[i].xyz - p;
-        float radius = localLightPosRadius[i].w;
+        // Negative: a light standing in a room. Its glow stays in the room: the
+        // volume knows no walls, and from the street it shone through the stone.
+        if (localLightPosRadius[i].w < 0.0 && vol.haze.z < 0.5) continue;
+        float radius = abs(localLightPosRadius[i].w);
         float distSq = dot(toLight, toLight);
         if (radius <= 0.0 || distSq >= radius * radius) continue;
         float dist = sqrt(distSq);
@@ -201,9 +204,10 @@ void main() {
             if (radius <= 0.0 || distSq >= radius * radius) continue;
             float dist = sqrt(distSq);
             float attenuation = 1.0 - dist / radius;
-            vec3 fromPane = -toPane / max(dist, 1e-3);
-            float panePhase = mix(1.0, phaseHG(dot(fromPane, toCamera), 0.5), 0.5);
-            panes += vec3(attenuation * attenuation * panePhase);
+            // The nearest pane sets the glow, evenly in every direction: summed
+            // and thrown forward, a row of windows seen along the wall added up
+            // to a white blaze.
+            panes = max(panes, vec3(attenuation * attenuation));
         }
         local += panes * vol.windowColor.rgb * (vol.windowColor.w * lightDir.w);
     }

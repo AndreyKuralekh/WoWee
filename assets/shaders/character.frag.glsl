@@ -85,7 +85,7 @@ vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo) {
     vec3 sum = vec3(0.0);
     for (int i = 0; i < min(localLightMeta.x, 64); ++i) {
         vec3 toLight = localLightPosRadius[i].xyz - pos;
-        float radius = localLightPosRadius[i].w;
+        float radius = abs(localLightPosRadius[i].w);  // negative: a room's light
         // Rejected on the squared distance, before the square root and the
         // divide: most of the sixty-four are out of range of any one pixel,
         // and this is what each of them costs.
