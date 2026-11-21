@@ -183,6 +183,7 @@ struct M2ModelGPU {
         glm::vec3 color{1.0f, 0.5f, 0.18f};
         float intensity = 1.2f;
         bool atLight = false;       // placed at the M2Light, not the flames
+        bool lamp = false;          // behind glass: breathes slowly, makes no fire sound
         int16_t bone = -1;
         glm::vec3 position{0.0f};
     } fireLight;

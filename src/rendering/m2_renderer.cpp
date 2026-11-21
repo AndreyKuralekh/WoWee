@@ -172,6 +172,7 @@ struct FireLightTable {
     struct Entry {
         std::string pattern;
         bool none = false;
+        bool lamp = false;  // a flame behind glass, lit by the model's own M2Light
         float radius = 8.0f;
         glm::vec3 color{1.0f, 0.5f, 0.18f};
         float intensity = 1.2f;
@@ -207,6 +208,8 @@ const FireLightTable& fireLightTable() {
             if (!(ls >> first)) continue;
             if (first == "none") {
                 e.none = true;
+            } else if (first == "lamp") {
+                e.lamp = true;
             } else {
                 e.radius = std::clamp(static_cast<float>(std::atof(first.c_str())), 1.0f, 30.0f);
                 if (!(ls >> e.color.r >> e.color.g >> e.color.b >> e.intensity)) continue;
@@ -238,6 +241,7 @@ M2ModelGPU::FireLight resolveFireLight(const M2ModelGPU& gpu, const pipeline::M2
     if (entry && entry->none) return f;
     if (entry) {
         f.valid = true;
+        f.lamp = entry->lamp;
         f.radius = entry->radius;
         f.color = entry->color;
         f.intensity = entry->intensity;
@@ -262,6 +266,8 @@ M2ModelGPU::FireLight resolveFireLight(const M2ModelGPU& gpu, const pipeline::M2
         f.position = light.position;
         break;
     }
+    // A lamp has no light but the model's own to give.
+    if (f.lamp && !f.atLight) f.valid = false;
     return f;
 }
 
@@ -276,7 +282,7 @@ void M2Renderer::gatherFireSounds(const glm::vec3& center, float radius, std::ve
         if (index >= instances.size()) continue;
         const auto& instance = instances[index];
         const M2ModelGPU* model = instance.cachedModel;
-        if (!model || !model->fireLight.valid) continue;
+        if (!model || !model->fireLight.valid || model->fireLight.lamp) continue;
         glm::vec3 pos = instance.cachedCullCenter;
         if (model->fireLight.atLight) {
             // Where the model's own light is - a torch's head - as the light does.
@@ -505,7 +511,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             const float radius = fl.radius * std::clamp(instance.scale, 0.5f, 2.0f);
             fires.push_back({.distSq = distSq, .posRadius = glm::vec4(worldPos, radius),
                              .colorIntensity = glm::vec4(fl.color, fl.intensity),
-                             .flame = true, .phaseSeed = instance.position,
+                             .flame = true, .slowFlicker = fl.lamp, .phaseSeed = instance.position,
                              .roomOnly = instance.roomAmbient.w > 0.5f});
             FireGroup group;
             group.volume = hearthLike;
@@ -692,7 +698,9 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             outPosRadius[i] = c.posRadius;
             if (c.roomOnly) outPosRadius[i].w = -outPosRadius[i].w;
             outColorIntensity[i] = c.colorIntensity;
-            outColorIntensity[i].w *= fireFlicker(c.phaseSeed, fireParams_.seconds, fireParams_.flicker);
+            outColorIntensity[i].w *= c.slowFlicker
+                ? lanternBreath(c.phaseSeed)
+                : fireFlicker(c.phaseSeed, fireParams_.seconds, fireParams_.flicker);
         }
         outPosRadius += fireCount;
         outColorIntensity += fireCount;
