@@ -1475,16 +1475,27 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
     // stronger at night. The flame sits inside the lamp's glass, which writes
     // depth, and the sprite is one point at one depth, so it stands just in
     // front of the glass towards the camera.
+    std::vector<glm::vec3> lanternHaloFlames;
     auto appendLanternHalo = [&](const M2ModelGPU& mdl, const M2Instance& instance, float distSq) {
         constexpr float kFar = 90.0f;
         if (distSq >= kFar * kFar) return;
         glm::vec3 flame(0.0f);
+        std::vector<glm::vec3>& flames = lanternHaloFlames;
+        flames.clear();
         for (const auto& emitter : mdl.particleEmitters) {
             glm::mat4 boneXform(1.0f);
             if (emitter.bone < instance.boneMatrices.size()) boneXform = instance.boneMatrices[emitter.bone];
-            flame += glm::vec3(instance.modelMatrix * boneXform * glm::vec4(emitter.position, 1.0f));
+            flames.push_back(glm::vec3(instance.modelMatrix * boneXform * glm::vec4(emitter.position, 1.0f)));
+            flame += flames.back();
         }
-        flame /= static_cast<float>(mdl.particleEmitters.size());
+        flame /= static_cast<float>(flames.size());
+        // One flame only. The middle of a candelabrum's five candles is no
+        // flame at all: the ball stood on the central candle, under its wick.
+        constexpr float kOneFlameReach = 0.3f;
+        const float reach = kOneFlameReach * instance.scale;
+        for (const glm::vec3& p : flames) {
+            if (glm::dot(p - flame, p - flame) > reach * reach) return;
+        }
         const glm::vec3 towardCamera = camPos - flame;
         const float lenSq = glm::dot(towardCamera, towardCamera);
         if (lenSq > 0.0001f) flame += towardCamera * glm::inversesqrt(lenSq) * (0.55f * instance.scale);
@@ -2436,7 +2447,8 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
     }
 
     // Render glow sprites as billboarded additive point lights
-    if (!glowSprites_.empty() && particleAdditivePipeline_ && glowVB_ && glowTexDescSet_) {
+    const uint32_t glowFrame = vkCtx_->getCurrentFrame() % kFlameBufferFrames;
+    if (!glowSprites_.empty() && particleAdditivePipeline_ && glowVB_[glowFrame] && glowTexDescSet_) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAdditivePipeline_);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 particlePipelineLayout_, 0, 1, &perFrameSet, 0, nullptr);
@@ -2454,7 +2466,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
 
         // Write glow vertex data directly to mapped buffer (no temp vector)
         size_t uploadCount = std::min(glowSprites_.size(), MAX_GLOW_SPRITES);
-        float* dst = static_cast<float*>(glowVBMapped_);
+        float* dst = static_cast<float*>(glowVBMapped_[glowFrame]);
         for (size_t gi = 0; gi < uploadCount; gi++) {
             const auto& gs = glowSprites_[gi];
             *dst++ = gs.worldPos.x;
@@ -2471,7 +2483,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         }
 
         VkDeviceSize offset = 0;
-        vkCmdBindVertexBuffers(cmd, 0, 1, &glowVB_, &offset);
+        vkCmdBindVertexBuffers(cmd, 0, 1, &glowVB_[glowFrame], &offset);
         vkCmdDraw(cmd, static_cast<uint32_t>(uploadCount), 1, 0, 0);
     }
 

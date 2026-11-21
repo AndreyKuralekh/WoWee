@@ -1199,14 +1199,19 @@ private:
     ::VkBuffer smokeVB_ = VK_NULL_HANDLE;
     VmaAllocation smokeVBAlloc_ = VK_NULL_HANDLE;
     void* smokeVBMapped_ = nullptr;
-    ::VkBuffer m2ParticleVB_ = VK_NULL_HANDLE;
-    VmaAllocation m2ParticleVBAlloc_ = VK_NULL_HANDLE;
-    void* m2ParticleVBMapped_ = nullptr;
+    // One per frame in flight (MAX_FRAMES_IN_FLIGHT): these are rewritten while
+    // recording, and with a single buffer the next frame overwrote what the
+    // GPU was still drawing. A headset's second eye, drawn last, showed it as
+    // flames flickering in that eye alone.
+    static constexpr uint32_t kFlameBufferFrames = 2;
+    ::VkBuffer m2ParticleVB_[kFlameBufferFrames] = {};
+    VmaAllocation m2ParticleVBAlloc_[kFlameBufferFrames] = {};
+    void* m2ParticleVBMapped_[kFlameBufferFrames] = {};
     // Dedicated glow sprite vertex buffer (separate from particle VB to avoid data race)
     static constexpr size_t MAX_GLOW_SPRITES = 8000;
-    ::VkBuffer glowVB_ = VK_NULL_HANDLE;
-    VmaAllocation glowVBAlloc_ = VK_NULL_HANDLE;
-    void* glowVBMapped_ = nullptr;
+    ::VkBuffer glowVB_[kFlameBufferFrames] = {};
+    VmaAllocation glowVBAlloc_[kFlameBufferFrames] = {};
+    void* glowVBMapped_[kFlameBufferFrames] = {};
 
     std::unordered_map<uint32_t, M2ModelGPU> models;
     // Grace period for model cleanup: track when a model first became instanceless.

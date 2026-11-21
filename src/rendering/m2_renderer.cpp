@@ -1574,14 +1574,17 @@ bool M2Renderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayout
         smokeVBMapped_ = allocInfo.pMappedData;
 
         // M2 particle buffer
-        bci.size = MAX_M2_PARTICLE_VERTS * 9 * sizeof(float);
-        vmaCreateBuffer(vkCtx_->getAllocator(), &bci, &aci, &m2ParticleVB_, &m2ParticleVBAlloc_, &allocInfo);
-        m2ParticleVBMapped_ = allocInfo.pMappedData;
+        static_assert(kFlameBufferFrames == MAX_FRAMES_IN_FLIGHT);
+        for (uint32_t f = 0; f < kFlameBufferFrames; ++f) {
+            bci.size = MAX_M2_PARTICLE_VERTS * 9 * sizeof(float);
+            vmaCreateBuffer(vkCtx_->getAllocator(), &bci, &aci, &m2ParticleVB_[f], &m2ParticleVBAlloc_[f], &allocInfo);
+            m2ParticleVBMapped_[f] = allocInfo.pMappedData;
 
-        // Dedicated glow sprite buffer (separate from particle VB to avoid data race)
-        bci.size = MAX_GLOW_SPRITES * 9 * sizeof(float);
-        vmaCreateBuffer(vkCtx_->getAllocator(), &bci, &aci, &glowVB_, &glowVBAlloc_, &allocInfo);
-        glowVBMapped_ = allocInfo.pMappedData;
+            // Dedicated glow sprite buffer (separate from particle VB to avoid data race)
+            bci.size = MAX_GLOW_SPRITES * 9 * sizeof(float);
+            vmaCreateBuffer(vkCtx_->getAllocator(), &bci, &aci, &glowVB_[f], &glowVBAlloc_[f], &allocInfo);
+            glowVBMapped_[f] = allocInfo.pMappedData;
+        }
 
         // Ribbon vertex buffer - triangle strip: pos(3)+color(3)+alpha(1)+uv(2)=9 floats/vert
         bci.size = MAX_RIBBON_VERTS * 9 * sizeof(float);
@@ -1716,8 +1719,12 @@ void M2Renderer::shutdown() {
 
     // Clean up particle/ribbon buffers
     destroy(alloc, smokeVB_, smokeVBAlloc_);
-    destroy(alloc, m2ParticleVB_, m2ParticleVBAlloc_);
-    destroy(alloc, glowVB_, glowVBAlloc_);
+    for (uint32_t f = 0; f < kFlameBufferFrames; ++f) {
+        destroy(alloc, m2ParticleVB_[f], m2ParticleVBAlloc_[f]);
+        destroy(alloc, glowVB_[f], glowVBAlloc_[f]);
+        m2ParticleVBMapped_[f] = nullptr;
+        glowVBMapped_[f] = nullptr;
+    }
     destroy(alloc, ribbonVB_, ribbonVBAlloc_);
     smokeParticles.clear();
 

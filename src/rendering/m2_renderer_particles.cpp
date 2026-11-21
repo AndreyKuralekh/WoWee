@@ -764,7 +764,8 @@ void M2Renderer::renderM2Ribbons(VkCommandBuffer cmd, VkDescriptorSet perFrameSe
 }
 
 void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrameSet) {
-    if (!particlePipeline_ || !m2ParticleVB_) return;
+    const uint32_t vbFrame = vkCtx_->getCurrentFrame() % kFlameBufferFrames;
+    if (!particlePipeline_ || !m2ParticleVB_[vbFrame]) return;
     // Diagnostic: WOWEE_M2_NO_PARTICLES=1 drops every M2 particle draw, which
     // tells a particle artifact apart from a skinned-geometry one.
     static const bool kNoParticles = envFlagEnabled("WOWEE_M2_NO_PARTICLES");
@@ -779,8 +780,8 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
 
     // Written straight into the mapped buffer rather than accumulated into a
     // vector per group and copied in afterwards; see ParticleRun.
-    if (!m2ParticleVBMapped_) return;
-    float* const vbBase = static_cast<float*>(m2ParticleVBMapped_);
+    if (!m2ParticleVBMapped_[vbFrame]) return;
+    float* const vbBase = static_cast<float*>(m2ParticleVBMapped_[vbFrame]);
     uint32_t vbWritten = 0;
     particleRuns_.clear();
     ParticleGroup* runGroup = nullptr;
@@ -1063,7 +1064,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
     bindParticleDepthSet(cmd, soft);
 
     VkDeviceSize vbOffset = 0;
-    vkCmdBindVertexBuffers(cmd, 0, 1, &m2ParticleVB_, &vbOffset);
+    vkCmdBindVertexBuffers(cmd, 0, 1, &m2ParticleVB_[vbFrame], &vbOffset);
 
     VkPipeline currentPipeline = VK_NULL_HANDLE;
 
