@@ -132,8 +132,8 @@ WMOModel WMOLoader::load(const std::vector<uint8_t>& wmoData) {
                 model.boundingBoxMax.y = read<float>(wmoData, offset);
                 model.boundingBoxMax.z = read<float>(wmoData, offset);
 
-                // flags and numLod (uint16 each) - skip for now
-                offset += 4;
+                model.headerFlags = read<uint16_t>(wmoData, offset);
+                offset += 2;  // numLod
 
                 core::Logger::getInstance().debug("WMO header: nTextures=", model.nTextures, " nGroups=", model.nGroups);
                 break;
@@ -434,6 +434,7 @@ bool WMOLoader::loadGroup(const std::vector<uint8_t>& groupData,
 
     auto& group = model.groups[groupIndex];
     group.groupId = groupIndex;
+    uint16_t transBatchCount = 0;
 
     uint32_t offset = 0;
 
@@ -485,7 +486,8 @@ bool WMOLoader::loadGroup(const std::vector<uint8_t>& groupData,
             group.boundingBoxMax.z = read<float>(groupData, mogpOffset);
             group.portalStart = read<uint16_t>(groupData, mogpOffset);
             group.portalCount = read<uint16_t>(groupData, mogpOffset);
-            mogpOffset += 8; // transBatchCount, intBatchCount, extBatchCount, padding
+            transBatchCount = read<uint16_t>(groupData, mogpOffset);
+            mogpOffset += 6; // intBatchCount, extBatchCount, padding
             // fogIndices: 4 × uint8 (4 bytes total, NOT 4 × uint32)
             group.fogIndices[0] = read<uint8_t>(groupData, mogpOffset);
             group.fogIndices[1] = read<uint8_t>(groupData, mogpOffset);
@@ -702,6 +704,32 @@ bool WMOLoader::loadGroup(const std::vector<uint8_t>& groupData,
         }
 
         offset = chunkEnd;
+    }
+
+    // The vertex colours of a room, as the client prepares them at load. Unless
+    // the root says they are final (0x8), the file holds them with the
+    // building's ambient baked in and the alpha as a strength. Taken as stored,
+    // then doubled with the ambient added on top, about half the vertices of
+    // Northshire Abbey and the Goldshire inn went past white. Halved here
+    // because the room shader doubles them. Rooms only: the sky-lit and
+    // exterior groups have their own, already tuned, use of these colours.
+    constexpr uint32_t kHasVertexColors = 0x4, kExteriorLit = 0x40, kInterior = 0x2000;
+    if (!(model.headerFlags & 0x8) && (group.flags & kHasVertexColors) &&
+        (group.flags & kInterior) && !(group.flags & kExteriorLit)) {
+        const glm::vec3 ambient = (model.headerFlags & 0x2) ? glm::vec3(0.0f) : model.ambientColor;
+        // Vertices of the transition batches come first in the buffer.
+        size_t firstInterior = 0;
+        if (transBatchCount > 0 && transBatchCount <= group.batches.size()) {
+            firstInterior = static_cast<size_t>(group.batches[transBatchCount - 1].lastVertex) + 1;
+        }
+        for (size_t i = 0; i < group.vertices.size(); ++i) {
+            glm::vec4& c = group.vertices[i].color;
+            const glm::vec3 stored(c);
+            const glm::vec3 light = i < firstInterior
+                ? (stored - ambient) * (1.0f - c.a)
+                : stored * (1.0f + c.a * 255.0f / 64.0f) - ambient;
+            c = glm::vec4(glm::clamp(light, 0.0f, 1.0f) * 0.5f, c.a);
+        }
     }
 
     // Create a default batch if none were loaded

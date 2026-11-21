@@ -443,7 +443,10 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
     // Candles throw a stronger pool than their size says: a shop's
     // candelabrum lights the wall and counter round it in a warm halo, as the
     // Reforged client shows, where at a lamp's strength the pool was lost on
-    // the room's own baked light. WOWEE_CANDLE_LIGHT overrides it to compare.
+    // the light round it. Less in a room: its walls have the candle baked in,
+    // and at the full boost the abbey's stone burned white round every
+    // candelabrum. WOWEE_CANDLE_LIGHT overrides the outdoor one to compare.
+    constexpr float kRoomCandleBoost = 1.5f;
     static const float candleBoost = [] {
         const char* v = std::getenv("WOWEE_CANDLE_LIGHT");
         return v && *v ? std::clamp(static_cast<float>(std::atof(v)), 0.0f, 5.0f) : 2.0f;
@@ -567,7 +570,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                 radius = 6.0f * std::max(instance.scale, 0.5f);
                 intensity = 1.1f;
             }
-            if (model->isCandle) intensity *= candleBoost;
+            if (model->isCandle) intensity *= instance.roomAmbient.w > 0.5f ? kRoomCandleBoost : candleBoost;
             glm::vec3 color(1.0f, 0.58f, 0.22f);
             if (batch.glowTint == 1) color = glm::vec3(0.42f, 0.68f, 1.0f);
             else if (batch.glowTint == 2) color = glm::vec3(1.0f, 0.24f, 0.14f);
@@ -630,7 +633,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                         intensity = model->isTorch ? 0.95f : 1.05f;
                         color     = glm::vec3(1.0f, 0.50f, 0.18f);
                     }
-                    if (model->isCandle) intensity *= candleBoost;
+                    if (model->isCandle) intensity *= instance.roomAmbient.w > 0.5f ? kRoomCandleBoost : candleBoost;
                     candidates.push_back({.distSq = distSq,
                         .posRadius = glm::vec4(worldPos, radius),
                         .colorIntensity = glm::vec4(color, intensity),
@@ -714,7 +717,8 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                 ? lanternBreath(candidates[i].phaseSeed)
                 : lampFlicker(candidates[i].phaseSeed, flickerSeconds, 0.82f, 0.12f, 0.06f);
             // A lamp is lit for the night: by day its pool is lost in the sun.
-            outColorIntensity[i].w *= 1.0f + 0.6f * nightGlow_;
+            // Not in a room, which has no sun to lose it in and no night either.
+            if (!candidates[i].roomOnly) outColorIntensity[i].w *= 1.0f + 0.6f * nightGlow_;
         }
     }
     return fireCount + count;

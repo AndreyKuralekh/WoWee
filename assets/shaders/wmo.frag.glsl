@@ -94,7 +94,8 @@ vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo, bool interior, b
         float radius = localLightPosRadius[i].w;
         // Negative: a light of a model standing in a room. It lights rooms
         // only - a candle in the abbey's window niche lit the stone outside.
-        if (radius < 0.0) {
+        bool roomLight = radius < 0.0;
+        if (roomLight) {
             if (!room) continue;
             radius = -radius;
         }
@@ -108,7 +109,9 @@ vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo, bool interior, b
         float attenuation = 1.0 - dist / radius;
         attenuation *= attenuation;
         float wrappedDiffuse = 0.22 + 0.78 * max(dot(normal, lightVector), 0.0);
-        float share = (interior && i >= localLightMeta.y && i < localLightMeta.z) ? interiorFireShare : 1.0;
+        // A room's candles are baked into its walls just as its fires are.
+        float share = (interior && (roomLight || (i >= localLightMeta.y && i < localLightMeta.z)))
+                    ? interiorFireShare : 1.0;
         sum += albedo * localLightColorIntensity[i].rgb *
                (localLightColorIntensity[i].w * attenuation * wrappedDiffuse * share);
     }
