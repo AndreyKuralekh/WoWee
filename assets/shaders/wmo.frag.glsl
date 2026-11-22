@@ -471,7 +471,10 @@ void main() {
     // horizon, and read from it the windows took every night for day.
     if (isWindow == 1 || emissive == 3) {
         float night = lightDir.w;
-        result += texColor.rgb * vec3(1.0, 0.82, 0.58) * (0.9 * night);
+        // A little less in a headset (shadowParams.w), where a lit pane in a
+        // dark street fills more of the eye than it does on a monitor.
+        float windowGlow = shadowParams.w > 0.5 ? 0.765 : 0.9;
+        result += texColor.rgb * vec3(1.0, 0.82, 0.58) * (windowGlow * night);
     }
 
     outColor = vec4(result, alpha);

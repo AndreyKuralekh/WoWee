@@ -321,6 +321,21 @@ uint32_t M2Renderer::createInstanceWithMatrix(uint32_t modelId, const glm::mat4&
     return instance.id;
 }
 
+bool M2Renderer::skyMoonDirection(uint32_t instanceId, glm::vec3& out) const {
+    const auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) return false;
+    const M2Instance& inst = instances[idxIt->second];
+    if (!inst.cachedModel) return false;
+    for (const auto& batch : inst.cachedModel->batches) {
+        if (!batch.skyMoon) continue;
+        const glm::vec3 toDisc = animatedBatchWorldCenter(inst, batch) - inst.position;
+        if (glm::dot(toDisc, toDisc) < 1e-6f) return false;
+        out = glm::normalize(toDisc);
+        return true;
+    }
+    return false;
+}
+
 // WOWEE_SKY_M2_MAX_BATCH=<n> draws only the sky model's first n layers.
 //
 // Thirty-four of them, and every measurement says the set drawn is the same
@@ -1505,6 +1520,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         GlowSprite halo;
         halo.worldPos = flame;
         halo.color = glm::vec4(1.0f, 0.74f, 0.38f, 1.3f * flicker * fade * (0.35f + 0.65f * nightGlow_));
+        if (instance.roomAmbient.w <= 0.5f) halo.color.a *= headsetNightLamp();
         halo.size = 0.25f * instance.scale * (0.97f + 0.03f * flicker);
         halo.trueSize = true;
         glowSprites_.push_back(halo);
@@ -1919,6 +1935,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                             // Brighter and a little wider at night, with the
                             // light it throws in gatherLocalLights.
                             gs.color.a *= 1.0f + 0.6f * nightGlow_;
+                            if (inst.roomAmbient.w <= 0.5f) gs.color.a *= headsetNightLamp();
                             gs.size *= 1.0f + 0.3f * nightGlow_;
                             glowSprites_.push_back(gs);
                             GlowSprite halo = gs;

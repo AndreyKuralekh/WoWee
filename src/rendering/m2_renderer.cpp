@@ -701,6 +701,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             outColorIntensity[i].w *= c.slowFlicker
                 ? lanternBreath(c.phaseSeed)
                 : fireFlicker(c.phaseSeed, fireParams_.seconds, fireParams_.flicker);
+            if (c.slowFlicker && !c.roomOnly) outColorIntensity[i].w *= headsetNightLamp();
         }
         outPosRadius += fireCount;
         outColorIntensity += fireCount;
@@ -726,7 +727,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                 : lampFlicker(candidates[i].phaseSeed, flickerSeconds, 0.82f, 0.12f, 0.06f);
             // A lamp is lit for the night: by day its pool is lost in the sun.
             // Not in a room, which has no sun to lose it in and no night either.
-            if (!candidates[i].roomOnly) outColorIntensity[i].w *= 1.0f + 0.6f * nightGlow_;
+            if (!candidates[i].roomOnly) outColorIntensity[i].w *= (1.0f + 0.6f * nightGlow_) * headsetNightLamp();
         }
     }
     return fireCount + count;
@@ -3005,8 +3006,11 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                 }
             }
 
-            // Compute batch center and radius for glow sprite positioning
-            if ((bgpu.blendMode >= 3 || bgpu.colorKeyBlack || bgpu.glowCardLike) && batch.indexCount > 0) {
+            // Compute batch center and radius for glow sprite positioning, and
+            // for the place of a sky model's moon, which the night light follows.
+            bgpu.skyMoon = skyMode_ && batchTexKeyLower.find("moon") != std::string::npos;
+            if ((bgpu.blendMode >= 3 || bgpu.colorKeyBlack || bgpu.glowCardLike || bgpu.skyMoon) &&
+                batch.indexCount > 0) {
                 glm::vec3 sum(0.0f);
                 uint32_t counted = 0;
                 std::unordered_map<uint16_t, glm::vec4> boneAnchorSums;

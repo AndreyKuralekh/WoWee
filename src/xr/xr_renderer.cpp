@@ -840,14 +840,20 @@ void Renderer::vrBuildFogForEye(uint32_t eye) {
     // hundred yards of mist, the forward lobe put a blot round the sun
     // eighteen times the brightness beside it, and the headset's glow spread
     // it wider still; the shafts are seen from the side and keep most of it.
-    in.forwardScatter = 0.15f;
+    // The moon is far too faint for that blot. Its beams are seen from the
+    // side, across the air between the crowns and the ground, so at night the
+    // air takes much more of its light, evenly in every direction: any share
+    // of it thrown forward piled up over the disc into a blinding white blot.
+    const float moonNight = currentFrameData.lightDir.w;
+    in.forwardScatter = glm::mix(0.15f, 0.0f, moonNight);
+    in.sunScatter *= glm::mix(1.0f, 5.95f, moonNight);
     // The golden hour's haze is a wide lobe and stays: it lights the sky round
     // a low sun, not a blot on it.
     in.lowSunHaze = 0.5f * sunsetHaze_ * lowSun();
     in.windowPanes = windowPanes_;
     in.windowPaneCount = windowPaneCount_;
     in.cameraInRoom = fogCameraInRoom_;
-    in.windowColor = glm::vec4(1.0f, 0.74f, 0.42f, kWindowGlowStrength * windowGlow_);
+    in.windowColor = glm::vec4(1.0f, 0.74f, 0.42f, 0.85f * kWindowGlowStrength * windowGlow_);
     const uint32_t frame = vkCtx->getCurrentFrame();
     volumetricFog_->record(currentCmd, frame, perFrameDescSets[frame], in);
 }

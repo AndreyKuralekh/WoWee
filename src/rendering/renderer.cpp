@@ -660,15 +660,19 @@ void Renderer::updatePerFrameUBO() {
         // the sun - the sky, its disc, the flare and the shafts all want it
         // there - and its path takes it 65 degrees under the ground at
         // midnight: trees were lit on their undersides, the ground took no
-        // light at all, and a crown could not shade its own trunk. The moon
-        // stands the other side of the sky (the shadow map already cast from
-        // there); across the horizon the light passes over the top rather
-        // than swinging round through the ground.
+        // light at all, and a crown could not shade its own trunk. At night
+        // the light comes from the moon the sky draws (the point opposite the
+        // sun, used before, glowed in an empty part of the sky); across the
+        // horizon it passes over the top rather than through the ground.
         glm::vec3 sceneLight = lp.directionalDir;
         if (glm::length(sceneLight) > 1e-4f) {
             const glm::vec3 toSun = -glm::normalize(sceneLight);
             const float day = glm::smoothstep(-0.12f, 0.12f, std::asin(glm::clamp(toSun.z, -1.0f, 1.0f)));
-            sceneLight = -glm::normalize(day * toSun + (1.0f - day) * -toSun +
+            glm::vec3 toMoon = moonDirection(toSun);
+            // Not raking along the ground while it is low.
+            toMoon.z = std::max(toMoon.z, 0.2f);
+            toMoon = glm::normalize(toMoon);
+            sceneLight = -glm::normalize(day * toSun + (1.0f - day) * toMoon +
                                          glm::vec3(0.0f, 0.0f, 4.0f * day * (1.0f - day)));
         }
         currentFrameData.lightDir = glm::vec4(sceneLight, night);
@@ -4722,10 +4726,11 @@ glm::mat4 Renderer::computeLightSpaceMatrix() {
     // therefore shadow rays must use -directionalDir to stay aligned.
     glm::vec3 sunDir = glm::normalize(glm::vec3(-0.3f, -0.7f, -0.6f));
     if (lightingManager) {
-        const auto& lighting = lightingManager->getLightingParams();
-        float ldirLenSq = glm::dot(lighting.directionalDir, lighting.directionalDir);
+        // The scene's light, which at night is the moon's.
+        const glm::vec3 sceneLight(currentFrameData.lightDir);
+        float ldirLenSq = glm::dot(sceneLight, sceneLight);
         if (ldirLenSq > 1e-6f) {
-            sunDir = -lighting.directionalDir * glm::inversesqrt(ldirLenSq);
+            sunDir = sceneLight * glm::inversesqrt(ldirLenSq);
         }
     }
     // Shadow camera expects light rays pointing downward in render space (Z up).
@@ -5470,14 +5475,45 @@ void Renderer::writeFogVolumeBindings() {
 }
 
 float Renderer::lowSun() const {
-    // lightDir is the way the light travels: down while the sun is up.
+    // lightDir is the way the light travels: down by day and, from the moon,
+    // by night too. A low moon brings no golden hour.
     const glm::vec3 travel = glm::vec3(currentFrameData.lightDir);
     const float len = glm::length(travel);
     if (len < 1e-4f) return 0.0f;
     const float sinElevation = -travel.z / len;
     // Up from the horizon over the first few degrees, and gone by about
     // twenty: sin 3 degrees is 0.05, sin 20 degrees 0.34.
-    return glm::smoothstep(0.0f, 0.05f, sinElevation) * (1.0f - glm::smoothstep(0.12f, 0.34f, sinElevation));
+    return (1.0f - currentFrameData.lightDir.w) * glm::smoothstep(0.0f, 0.05f, sinElevation) *
+           (1.0f - glm::smoothstep(0.12f, 0.34f, sinElevation));
+}
+
+glm::vec3 Renderer::moonDirection(const glm::vec3& toSun, bool* drawn) const {
+    if (drawn) *drawn = false;
+    // Where a sky model is up, the moon on screen is its own: it keeps a path
+    // of its own through the night, twenty degrees off the procedural one.
+    if (skyboxModelRenderer_ && lightingManager) {
+        float best = 0.0f;
+        glm::vec3 fromModel(0.0f);
+        for (const auto& layer : lightingManager->getSkyboxLayers()) {
+            if (layer.weight <= best) continue;
+            const auto it = std::find_if(skyLayers_.begin(), skyLayers_.end(),
+                                         [&](const SkyLayerInstance& s) { return s.path == layer.path; });
+            if (it != skyLayers_.end() && skyboxModelRenderer_->skyMoonDirection(it->instanceId, fromModel)) {
+                best = layer.weight;
+            }
+        }
+        if (best >= 0.5f) {
+            if (drawn) *drawn = true;
+            return fromModel;
+        }
+    }
+    if (skySystem && lightingManager) {
+        if (const auto* celestial = skySystem->getCelestial()) {
+            if (drawn) *drawn = lastSkyParamsValid_ && skySystem->drawsCelestialBodies(lastSkyParams_);
+            return glm::normalize(celestial->getMoonPosition(lightingManager->getVisualTimeOfDayHours()));
+        }
+    }
+    return -toSun;
 }
 
 float Renderer::volumetricFogExtinction() const {
@@ -5559,9 +5595,13 @@ void Renderer::renderVolumetricFog() {
     // mountain - so the layer is never a ceiling over them. Chased over a
     // second or two so a step off a ledge does not lift the whole bank of
     // mist with it; a teleport snaps it, and drops last frame's air too.
-    float ground = characterPosition.z;
+    // Under a held debug camera, its own ground: the character is left
+    // elsewhere, and a shot from a terrace was taken above the mist there.
+    static const bool kDebugCameraHeld = std::getenv("WOWEE_DEBUG_CAMERA") != nullptr;
+    const glm::vec3 fogFeet = kDebugCameraHeld ? camera->getPosition() : characterPosition;
+    float ground = fogFeet.z;
     if (terrainManager) {
-        if (auto h = terrainManager->getHeightAt(characterPosition.x, characterPosition.y)) {
+        if (auto h = terrainManager->getHeightAt(fogFeet.x, fogFeet.y)) {
             ground = std::min(ground, *h);
         }
     }
@@ -5654,13 +5694,21 @@ SunShafts::FrameInputs Renderer::sunShaftInputs(const glm::mat4& view, const glm
         !(passAblation_ && passAblation_->skip(AblationPass::SunShafts))) {
         const auto& lp = lightingManager->getLightingParams();
         // The sun the lens flare draws around, from the same rule.
-        const glm::vec3 sunDir = sunDirectionFromLightDir(lp.directionalDir);
+        // By night the rays stream from the moon, fainter and cold.
+        const float night = currentFrameData.lightDir.w;
+        const bool moonRays = night >= 0.5f;
+        const glm::vec3 toSun = sunDirectionFromLightDir(lp.directionalDir);
+        bool moonDrawn = false;
+        const glm::vec3 sunDir = moonRays ? moonDirection(toSun, &moonDrawn) : toSun;
         const SunOnScreen sun = sunScreenPosition(view, projection, sunDir);
-        if (sun.inFront) {
+        if (sun.inFront && (!moonRays || moonDrawn)) {
             // Screen strength: 1 would be the sky's own colour over anything a
             // fully lit walk crosses. Less, because the sky around the sun is
             // already the brightest thing on screen.
-            float strength = 0.8f;
+            // Fainter in a headset, whose glow spreads whatever is bright.
+            const float kMoonRays = vrHeadsetFrame() ? 0.1f : 0.3f;
+            float strength = moonRays ? 0.8f * kMoonRays * glm::smoothstep(0.5f, 1.0f, night)
+                                      : 0.8f * (1.0f - glm::smoothstep(0.2f, 0.5f, night));
             // Up out of the horizon and gone again as it sets. A sun under the
             // ground lights nothing to stream from.
             strength *= glm::smoothstep(-0.02f, 0.1f, sunDir.z);
@@ -5675,7 +5723,7 @@ SunShafts::FrameInputs Renderer::sunShaftInputs(const glm::mat4& view, const glm
             // half white: the rays should warm at dusk, not turn orange.
             const glm::vec3 c = lp.diffuseColor;
             const float peak = std::max({c.r, c.g, c.b, 1e-3f});
-            in.tint = glm::mix(glm::vec3(1.0f), c / peak, 0.5f);
+            in.tint = moonRays ? glm::vec3(0.82f, 0.88f, 1.0f) : glm::mix(glm::vec3(1.0f), c / peak, 0.5f);
             in.sunUV = sun.uv;
             in.strength = strength;
         }

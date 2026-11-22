@@ -706,6 +706,9 @@ private:
     /// 0 to 1: how low the sun stands - 1 just over the horizon, 0 from
     /// about twenty degrees up, and 0 again once it has set.
     float lowSun() const;
+    /// Unit vector to the moon the sky draws, from its sky model where one is
+    /// up; opposite the sun without a sky. `drawn`: a disc is really there.
+    glm::vec3 moonDirection(const glm::vec3& toSun, bool* drawn = nullptr) const;
     /// Whether this frame builds the volume, decided where the per-frame block
     /// is written so the block's switch and the dispatch cannot disagree.
     bool volumetricThisFrame_ = false;

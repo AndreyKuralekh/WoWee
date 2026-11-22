@@ -91,6 +91,7 @@ struct M2ModelGPU {
         bool glowCardLike = false; // Batch likely is a flat emissive card that should be sprite-replaced
         bool preserveGlowMesh = false; // Keep emissive glass/fixture mesh below its glow sprite
         bool lanternGlass = false;     // A lantern's glass pane: a faint sprite, the pattern shows
+        bool skyMoon = false;          // A sky model's moon disc (see skyMoonDirection)
         // Forge fire card: the flame/coals/glow batches of a forge, as opposed
         // to the masonry and ironwork the rest of the model is made of.
         bool forgeFireCard = false;
@@ -729,6 +730,9 @@ public:
     /// from midnight: a "full day" sky model plays its sequence over the day,
     /// stars at night and blue at noon, rather than looping in real time.
     void setInstanceDayClock(uint32_t instanceId, float dayFraction);
+    /// Unit vector from a sky model to the moon disc it draws at this hour;
+    /// false when the model has no moon.
+    bool skyMoonDirection(uint32_t instanceId, glm::vec3& out) const;
     /// Play from the first frame, with bones to match.
     ///
     /// New instances start at a random point so placed doodads don't animate
@@ -1445,6 +1449,11 @@ private:
                model.isLavaModel || model.fireLight.valid;
     }
     FireLightParams fireParams_;
+    /// Outdoor lamps at night in a headset (the fire light is on only there):
+    /// their pool and glow, a little below a monitor's.
+    [[nodiscard]] float headsetNightLamp() const {
+        return fireParams_.enabled ? 1.0f - 0.15f * nightGlow_ : 1.0f;
+    }
     mutable uint32_t lastFireLightCount_ = 0;
     FireVolumeParams fireVolumeParams_;
     struct FireVolume {

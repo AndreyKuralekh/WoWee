@@ -145,10 +145,9 @@ void main() {
     // outdoors - toward a sun low enough to look at, through whatever stands
     // in front of it.
     //
-    // Only while the sun is up. At night the light's direction points up
-    // from under the ground; the shadow map flips it to build its projection,
-    // but flipped here the forward lobe would glow in the night sky at a
-    // mirrored sun that is not there. It fades out as the sun sets instead.
+    // At night the light is the moon's (lightDir.w is how far into the night):
+    // the same forward glow round its disc, a good deal fainter and cold white
+    // whatever blue the zone gives its night light.
     vec3 travel = normalize(lightDir.xyz);
     float sunUp = smoothstep(0.0, 0.08, -travel.z);
     vec3 toCamera = normalize(vol.rayOrigin.xyz - p);
@@ -156,7 +155,10 @@ void main() {
     vec3 light = fogColor.rgb * vol.lighting.z;
     if (sunUp > 0.0) {
         float sunVis = sunVisibility(p);
-        light += lightColor.rgb * (sunVis * phase * sunUp * vol.lighting.x);
+        const float kMoonScatter = 0.35;
+        float moonLuma = dot(lightColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+        vec3 beam = mix(lightColor.rgb, moonLuma * vec3(0.82, 0.88, 1.0) * kMoonScatter, lightDir.w);
+        light += beam * (sunVis * phase * sunUp * vol.lighting.x);
         // The golden hour: a sun low over the horizon lights the whole half
         // of the sky round it through a warm haze, not only a blot at the
         // sun. A wide lobe (g 0.4: four times the even glow toward the sun,
@@ -210,6 +212,17 @@ void main() {
             panes = max(panes, vec3(attenuation * attenuation));
         }
         local += panes * vol.windowColor.rgb * (vol.windowColor.w * lightDir.w);
+    }
+    // In a headset (shadowParams.w) the air right round a lamp stops short of
+    // white: in the thick mist of a terrace the sum along a ray blew a lamp
+    // and the wall behind it out. Below the knee a halo is left as it is.
+    if (shadowParams.w > 0.5) {
+        const float kHaloKnee = 0.4;
+        const float kHaloRange = 0.5;
+        float peak = max(local.r, max(local.g, local.b));
+        if (peak > kHaloKnee) {
+            local *= (kHaloKnee + kHaloRange * (1.0 - exp(-(peak - kHaloKnee) / kHaloRange))) / peak;
+        }
     }
     light += local * vol.lighting.y;
 
