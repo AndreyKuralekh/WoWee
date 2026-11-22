@@ -271,7 +271,7 @@ void M2Renderer::setInstanceTransform(uint32_t instanceId, const glm::mat4& tran
     // moves too, so they are carried with it. Taken about the old origin rather
     // than through a full matrix, whose float translation at these coordinates
     // would add a little noise to every particle every frame.
-    if (inst.drawWithHull && (!inst.particles.empty() || inst.cachedIsSmoke)) {
+    if ((inst.drawWithHull || inst.carriesParticles) && (!inst.particles.empty() || inst.cachedIsSmoke)) {
         const glm::vec3 oldOrigin(inst.modelMatrix[3]);
         const glm::vec3 newOrigin(transform[3]);
         const glm::mat3 turn = glm::mat3(transform) * glm::mat3(inst.invModelMatrix);
@@ -426,6 +426,12 @@ void M2Renderer::setInstanceHullOrigin(uint32_t instanceId, const glm::vec3& ori
     auto idxIt = instanceIndexById.find(instanceId);
     if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) return;
     instances[idxIt->second].hullOrigin = origin;
+}
+
+void M2Renderer::setInstanceCarriesParticles(uint32_t instanceId, bool carries) {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) return;
+    instances[idxIt->second].carriesParticles = carries;
 }
 
 void M2Renderer::setSkipCollision(uint32_t instanceId, bool skip) {

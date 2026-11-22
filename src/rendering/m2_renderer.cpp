@@ -464,7 +464,29 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         const M2ModelGPU* model = instance.cachedModel;
         if (!model || (!model->isLanternLike && !model->isTorch &&
                        !model->isBrazierOrFire && !model->isForge &&
-                       !model->isLavaModel && !model->fireLight.valid)) continue;
+                       !model->isLavaModel && !model->fireLight.valid &&
+                       !model->isHeldLight)) continue;
+
+        // A held light is the light its model describes, where the model puts
+        // it, a little under full: it sits a few inches from the hand and hip
+        // that it lights.
+        if (model->isHeldLight) {
+            if (model->heldLightReach <= 0.0f) continue;
+            glm::mat4 boneXform(1.0f);
+            if (model->heldLightBone >= 0 &&
+                static_cast<size_t>(model->heldLightBone) < instance.boneMatrices.size()) {
+                boneXform = instance.boneMatrices[static_cast<size_t>(model->heldLightBone)];
+            }
+            const glm::vec3 worldPos(instance.modelMatrix * boneXform * glm::vec4(model->heldLightPosition, 1.0f));
+            const glm::vec3 delta = worldPos - cameraPos;
+            const float distSq = glm::dot(delta, delta);
+            if (distSq > 300.0f * 300.0f) continue;
+            constexpr float kHeldLightStrength = 0.8f;
+            candidates.push_back({.distSq = distSq, .posRadius = glm::vec4(worldPos, model->heldLightReach),
+                                  .colorIntensity = glm::vec4(model->heldLightColor, kHeldLightStrength),
+                                  .flame = true, .slowFlicker = true, .phaseSeed = instance.position});
+            continue;
+        }
 
         // A fire, in the headset: its own light from the flames, the nearest
         // few of them first in the list (see FireLightParams).
@@ -2345,6 +2367,19 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     gpuModel.boundMin = tightMin;
     gpuModel.boundMax = tightMax;
     gpuModel.fireLight = resolveFireLight(gpuModel, model);
+    if (model.heldLight) {
+        // Not a fixture: no fire registry, so no looping fire sound in a hand.
+        gpuModel.fireLight = M2ModelGPU::FireLight{};
+        gpuModel.isHeldLight = true;
+        for (const auto& light : model.lights) {
+            if (light.type != 1 || light.attenuationEnd <= 0.0f) continue;
+            gpuModel.heldLightReach = std::clamp(light.attenuationEnd, 2.0f, 8.0f);
+            gpuModel.heldLightBone = light.bone;
+            gpuModel.heldLightPosition = light.position;
+            gpuModel.heldLightColor = light.diffuseColor;
+            break;
+        }
+    }
     if (gpuModel.isHangingCloth) {
         // Named, once each, so a banner that does not move can be told from a
         // banner this never saw: cloth built into a building's own mesh is not
@@ -2892,6 +2927,15 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                                     (bgpu.lanternGlowHint && flameCard);
             bgpu.glowTint = tcls.glowTint;
             bgpu.lanternGlass = tcls.lanternGlass;
+            // A lamp's sprite and emissive boost are sized to read across a
+            // street. In a hand, a yard from the eye, they burned the lantern
+            // to a white ball; its own additive layers are the look.
+            if (model.heldLight) {
+                bgpu.lanternGlowHint = false;
+                bgpu.glowCardLike = false;
+                bgpu.preserveGlowMesh = false;
+                bgpu.lanternGlass = false;
+            }
             if (tex != nullptr && tex != whiteTexture_.get()) {
                 auto pit = texturePropsByPtr_.find(tex);
                 if (pit != texturePropsByPtr_.end()) {

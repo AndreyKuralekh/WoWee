@@ -388,7 +388,9 @@ void main() {
                + shadow * (diff * lightColor.rgb * texColor.rgb + spec * lightColor.rgb);
     }
 
-    if (unlit == 0) result += localLightContribution(FragPos, norm, texColor.rgb);
+    // A negative boost on a lit material: a held lantern's own frame, which its
+    // flame, a few inches inside it, would otherwise burn white.
+    if (unlit == 0 && emissiveBoost >= 0.0) result += localLightContribution(FragPos, norm, texColor.rgb);
 
     float dist = length(viewPos.xyz - FragPos);
     result = applyFog(result, FragPos, dist);

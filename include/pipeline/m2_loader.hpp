@@ -310,6 +310,10 @@ struct M2Model {
     // Particle emitters
     std::vector<M2ParticleEmitter> particleEmitters;
     std::vector<M2Light> lights;    // M2Light (WotLK files only)
+    // Not from the file: this is the shining part of an item someone is holding
+    // (CharacterRenderer::itemGlowModelFor). Its layers draw as authored, with
+    // none of the sprites and boosts a lamp fixture gets to carry across a street.
+    bool heldLight = false;
 
     // Ribbon emitters
     std::vector<M2RibbonEmitter> ribbonEmitters;

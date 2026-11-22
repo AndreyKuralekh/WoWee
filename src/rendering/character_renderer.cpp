@@ -16,6 +16,7 @@
  */
 #include <atomic>
 #include "rendering/character_renderer.hpp"
+#include "rendering/m2_renderer.hpp"
 #include "rendering/pom_quality.hpp"
 #include "rendering/shadow_params.hpp"
 #include "rendering/normal_map.hpp"
@@ -612,6 +613,12 @@ void CharacterRenderer::clear() {
 
     vkDeviceWaitIdle(vkCtx_->getDevice());
     VkDevice device = vkCtx_->getDevice();
+
+    // Held lights live in the world's renderer and would outlast their owners.
+    pendingItemGlows_.clear();
+    for (auto& pair : instances) {
+        for (auto& attachment : pair.second.weaponAttachments) removeItemGlow(attachment);
+    }
 
     // Destroy GPU resources for all models
     for (auto& pair : models) {
@@ -2358,6 +2365,13 @@ void CharacterRenderer::update(float deltaTime, const glm::vec3& cameraPos) {
             }
             weapIt->second.overrideModelMatrix = weaponMat;
             weapIt->second.hasOverrideModelMatrix = true;
+            // Only noted here: this runs while M2Renderer::update is on a worker
+            // thread, and touching its instances from here corrupted them.
+            if (wa.glowModelId != 0 && itemGlowRenderer_) {
+                pendingItemGlows_.push_back({pair.first, wa.attachmentId,
+                                             instance.visible && weapIt->second.visible && instance.opacity > 0.05f,
+                                             weaponMat});
+            }
 
             // Enchant visuals ride the weapon, offset to their attachment point on it.
             for (const auto& fx : wa.effects) {
@@ -3251,6 +3265,12 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
                 if (instance.hasOverrideModelMatrix && !instance.isEffectModel && blendMode >= 3) {
                     continue;
                 }
+                // A held lantern's pane: alpha-keyed, its texture about 0.63 and
+                // its weight 0.75, which is under the key. Drawn anyway it is
+                // a grey ball in front of the flame.
+                if (instance.litItem && blendMode == 1 && batchColorAlpha < 0.999f) {
+                    continue;
+                }
 
                 // For body/equipment parts with white/fallback texture, use skin (type 1) texture.
                 if (texPtr == whiteTexture_.get() && !instance.isSceneModel) {
@@ -3440,7 +3460,8 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
                 matData.alphaTest = blendNeedsCutout ? 1 : 0;
                 matData.colorKeyBlack = colorKeyBlack ? 1 : 0;
                 matData.unlit = unlit ? 1 : 0;
-                matData.emissiveBoost = emissiveBoost;
+                // Negative on a lit material: no local lights (character.frag).
+                matData.emissiveBoost = (instance.litItem && !unlit) ? -1.0f : emissiveBoost;
                 matData.emissiveTintR = emissiveTint.r;
                 matData.emissiveTintG = emissiveTint.g;
                 matData.emissiveTintB = emissiveTint.b;
@@ -4364,7 +4385,8 @@ void CharacterRenderer::removeInstance(uint32_t instanceId) {
     // despawns. Their models get a fresh id per attach, so unload those too
     // once the instances are gone.
     auto attachments = it->second.weaponAttachments;
-    for (const auto& wa : attachments) {
+    for (auto& wa : attachments) {
+        removeItemGlow(wa);
         for (const auto& fx : wa.effects) removeInstance(fx.effectInstanceId);
         removeInstance(wa.weaponInstanceId);
     }
@@ -4621,12 +4643,93 @@ bool CharacterRenderer::attachWeapon(uint32_t charInstanceId, uint32_t attachmen
     wa.boneIndex = boneIndex;
     wa.offset = offset;
     wa.localTransform = localTransform;
+    // Only an item that says it is a light. Other weapons keep their additive
+    // cards dropped: on some swords those are detached flat quads.
+    if (itemGlowRenderer_ && !weaponModel.lights.empty()) {
+        wa.glowModelId = itemGlowModelFor(weaponModel);
+        if (wa.glowModelId != 0 && weapIt != instances.end()) weapIt->second.litItem = true;
+    }
     charInstance.weaponAttachments.push_back(wa);
 
     core::Logger::getInstance().debug("Attached weapon model ", weaponModelId,
         " to instance ", charInstanceId, " at attachment ", attachmentId,
         " (bone ", boneIndex, ", offset ", offset.x, ",", offset.y, ",", offset.z, ")");
     return true;
+}
+
+uint32_t CharacterRenderer::itemGlowModelFor(const pipeline::M2Model& item) {
+    if (const auto known = itemGlowIds_.find(item.name); known != itemGlowIds_.end()) return known->second;
+
+    // The same model with only what shines left in it. The body and the panes
+    // stay here; what remains is the additive layers, the emitters and the light.
+    pipeline::M2Model glow = item;
+    glow.heldLight = true;
+    std::erase_if(glow.batches, [&](const pipeline::M2Batch& batch) {
+        return batch.materialIndex >= glow.materials.size() ||
+               glow.materials[batch.materialIndex].blendMode < 3;
+    });
+    if (glow.batches.empty() && glow.particleEmitters.empty()) return 0;
+
+    uint32_t id = nextItemGlowModelId_++;
+    while (itemGlowRenderer_->hasModel(id)) id = nextItemGlowModelId_++;
+    if (!itemGlowRenderer_->loadModel(glow, id)) {
+        LOG_WARNING("Held light: could not load the glow of '", item.name, "'");
+        itemGlowIds_[item.name] = 0;
+        return 0;
+    }
+    LOG_INFO("Held light '", item.name, "': ", glow.batches.size(), " glow batches, ",
+             glow.particleEmitters.size(), " emitters, ", glow.lights.size(), " lights");
+    itemGlowModels_.emplace(id, std::move(glow));
+    itemGlowIds_[item.name] = id;
+    return id;
+}
+
+void CharacterRenderer::applyItemGlows() {
+    for (const PendingItemGlow& glow : pendingItemGlows_) {
+        const auto owner = instances.find(glow.instanceId);
+        if (owner == instances.end()) continue;
+        for (auto& attachment : owner->second.weaponAttachments) {
+            if (attachment.attachmentId != glow.attachmentId || attachment.glowModelId == 0) continue;
+            syncItemGlow(attachment, glow.show, glow.matrix);
+            break;
+        }
+    }
+    pendingItemGlows_.clear();
+}
+
+void CharacterRenderer::syncItemGlow(WeaponAttachment& attachment, bool show, const glm::mat4& matrix) {
+    if (!itemGlowRenderer_) return;
+    if (!show) {
+        removeItemGlow(attachment);
+        return;
+    }
+    // A map change clears the world's renderer under this one.
+    if (attachment.glowInstanceId != 0 && !itemGlowRenderer_->hasInstance(attachment.glowInstanceId)) {
+        attachment.glowInstanceId = 0;
+    }
+    if (attachment.glowInstanceId == 0) {
+        if (!itemGlowRenderer_->hasModel(attachment.glowModelId)) {
+            const auto stored = itemGlowModels_.find(attachment.glowModelId);
+            if (stored == itemGlowModels_.end() ||
+                !itemGlowRenderer_->loadModel(stored->second, attachment.glowModelId)) {
+                return;
+            }
+        }
+        attachment.glowInstanceId = itemGlowRenderer_->createInstance(
+            attachment.glowModelId, glm::vec3(matrix[3]), glm::vec3(0.0f), 1.0f, /*allowPositionDedup=*/false);
+        if (attachment.glowInstanceId == 0) return;
+        itemGlowRenderer_->setSkipCollision(attachment.glowInstanceId, true);
+        itemGlowRenderer_->setInstanceCarriesParticles(attachment.glowInstanceId, true);
+        LOG_DEBUG("Held light lit at (", matrix[3].x, ", ", matrix[3].y, ", ", matrix[3].z, ")");
+    }
+    itemGlowRenderer_->setInstanceTransform(attachment.glowInstanceId, matrix);
+}
+
+void CharacterRenderer::removeItemGlow(WeaponAttachment& attachment) {
+    if (attachment.glowInstanceId != 0 && itemGlowRenderer_) {
+        itemGlowRenderer_->removeInstance(attachment.glowInstanceId);
+    }
+    attachment.glowInstanceId = 0;
 }
 
 bool CharacterRenderer::getInstanceBounds(uint32_t instanceId, glm::vec3& outCenter, float& outRadius) const {
@@ -4722,6 +4825,7 @@ void CharacterRenderer::detachWeapon(uint32_t charInstanceId, uint32_t attachmen
         if (it->attachmentId == attachmentId) {
             // Collect model ids before erasing the attachment, then unload the
             // ones no instance still uses (each attach allocates a fresh id).
+            removeItemGlow(*it);
             std::vector<uint32_t> modelIds;
             modelIds.push_back(it->weaponModelId);
             for (const auto& fx : it->effects) {

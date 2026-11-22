@@ -245,6 +245,11 @@ struct M2ModelGPU {
     bool isFoliageLike = false;     // Model name matches foliage/tree/bush/grass etc (precomputed)
     bool isElvenLike = false;       // Model name matches elf/elven/quel (precomputed)
     bool isLanternLike = false;     // Model name matches lantern/lamp/light (precomputed)
+    bool isHeldLight = false;       // The shining part of a held item (M2Model::heldLight)
+    float heldLightReach = 0.0f;    // its M2Light: reach in yards, 0 if it has no point light
+    int heldLightBone = -1;
+    glm::vec3 heldLightPosition{0.0f};
+    glm::vec3 heldLightColor{1.0f};
     bool isCandle = false;          // A candle or candelabrum (by name)
     bool hasLanternGlass = false;   // Draws a lantern's glass panes (a batch's lanternGlass)
     bool hasLanternGlowCard = false; // a batch the glow sprites start from
@@ -445,6 +450,8 @@ struct M2Instance {
     // ship lost them and sailed on with bare masts.
     bool drawWithHull = false;
     glm::vec3 hullOrigin{0.0f};  // the carrying hull's position, when drawWithHull
+    // Its live particles move with it: a flame in a lantern someone is carrying.
+    bool carriesParticles = false;
 
     void recomputeCachedCullFactors();
 
@@ -816,6 +823,8 @@ public:
     /// Draw this doodad as far as the WMO hull that carries it is drawn.
     void setInstanceDrawWithHull(uint32_t instanceId, bool drawWithHull);
     void setInstanceHullOrigin(uint32_t instanceId, const glm::vec3& origin);
+    /// Move this instance's live particles with it when it moves.
+    void setInstanceCarriesParticles(uint32_t instanceId, bool carries);
     void setSkipCollision(uint32_t instanceId, bool skip);
     void setSkipWallCollision(uint32_t instanceId, bool skip);
     /// A WMO doodad standing in a room (pipeline::doodadRoomLights): drawn
@@ -1469,7 +1478,7 @@ private:
     }
     [[nodiscard]] static bool givesLight(const M2ModelGPU& model) {
         return model.isLanternLike || model.isTorch || model.isBrazierOrFire || model.isForge ||
-               model.isLavaModel || model.fireLight.valid;
+               model.isLavaModel || model.fireLight.valid || model.isHeldLight;
     }
     FireLightParams fireParams_;
     /// Outdoor lamps at night in a headset (the fire light is on only there):

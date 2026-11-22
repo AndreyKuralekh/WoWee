@@ -28,6 +28,7 @@ namespace rendering {
 class Camera;
 class VkContext;
 class VkTexture;
+class M2Renderer;
 
 // Enchant visual (glint, glow) attached to a weapon at one of the weapon model's
 // own item-visual attachment points.
@@ -47,6 +48,10 @@ struct WeaponAttachment {
     glm::mat4 localTransform{1.0f}; // sheath/hand orientation after attachment point
     float sheathPush = 0.0f;   // smoothed outward push when the arm swings into the blade
     std::vector<WeaponEffectAttachment> effects;
+    // A held item that is a light - a lantern, a torch - burns in M2Renderer,
+    // which has the reflections, particles and lights this renderer lacks.
+    uint32_t glowModelId = 0;
+    uint32_t glowInstanceId = 0;
 };
 
 /**
@@ -70,6 +75,12 @@ public:
     void clear();  // Remove all models/instances/textures but keep pipelines/pools
 
     void setAssetManager(pipeline::AssetManager* am) { assetManager = am; }
+    /// Where held items that carry their own light draw their flame and glow.
+    /// Unset (the character preview), they are drawn without them.
+    void setItemGlowRenderer(M2Renderer* renderer) { itemGlowRenderer_ = renderer; }
+    /// Moves held lights to where update() posed them. Call once M2Renderer's
+    /// own update, which runs alongside update() on a worker, has finished.
+    void applyItemGlows();
 
     bool loadModel(const pipeline::M2Model& model, uint32_t id);
     /** The same, taking the model rather than copying it. The copy is the
@@ -291,6 +302,7 @@ private:
         glm::vec3 rotation;
         float scale;
         bool visible = true;  // For first-person camera hiding
+        bool litItem = false;  // A held light: its faded pane is not drawn over the flame
         float torsoYawOverrideRad = 0.0f;
 #ifdef WOWEE_VR
         bool headless = false;  // see setInstanceHeadless
@@ -573,6 +585,22 @@ private:
     uint32_t numAnimThreads_ = 1;
     std::vector<std::future<void>> animFutures_;
     std::vector<std::reference_wrapper<CharacterInstance>> toUpdate_;  // reused across frames
+
+    // Held lights; see WeaponAttachment::glowModelId.
+    uint32_t itemGlowModelFor(const pipeline::M2Model& item);
+    void syncItemGlow(WeaponAttachment& attachment, bool show, const glm::mat4& matrix);
+    void removeItemGlow(WeaponAttachment& attachment);
+    M2Renderer* itemGlowRenderer_ = nullptr;
+    struct PendingItemGlow {
+        uint32_t instanceId;
+        uint32_t attachmentId;
+        bool show;
+        glm::mat4 matrix;
+    };
+    std::vector<PendingItemGlow> pendingItemGlows_;
+    std::unordered_map<std::string, uint32_t> itemGlowIds_;       // by the item's model name
+    std::unordered_map<uint32_t, pipeline::M2Model> itemGlowModels_;  // to load again after a map change
+    uint32_t nextItemGlowModelId_ = 998000;  // below the spell visuals' 999000
 
     // Shadow pipeline resources
     VkPipeline shadowPipeline_ = VK_NULL_HANDLE;

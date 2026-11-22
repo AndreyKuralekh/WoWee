@@ -2662,6 +2662,7 @@ void Renderer::update(float deltaTime) {
         catch (const std::exception& e) { LOG_ERROR("M2 animation worker: ", e.what()); }
         m2AnimLaunched = false;
     }
+    if (characterRenderer) characterRenderer->applyItemGlows();
 
     // Footsteps: age visual prints, then let authored footfall events add new ones.
     updateMarks.mark(4, "model animation");
@@ -4417,6 +4418,7 @@ bool Renderer::initializeRenderers(pipeline::AssetManager* assetManager, const s
                 LOG_WARNING("Character shadow pipeline initialization failed");
         }
     }
+    characterRenderer->setItemGlowRenderer(m2Renderer.get());
 
     // Initialize AnimationController (§4.2)
     if (!animationController_) {
