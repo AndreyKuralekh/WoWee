@@ -221,6 +221,13 @@ void EntityController::processOutOfRangeObjects(const std::vector<uint64_t>& gui
                      " now=", playerAboardNow,
                      " sticky=", stickyAboard,
                      " movement=", movementSaysAboard);
+            // Kept for when it comes back, but it is not here now: a hull left
+            // at the pier on the client's clock was boarded after the real ship
+            // had sailed, and the rider was left in the open sea.
+            if (!isPreWotlk() && !playerAboardNow && !stickyAboard && !movementSaysAboard &&
+                owner_.getTransportManager()) {
+                owner_.getTransportManager()->setServerPresent(guid, false);
+            }
             continue;
         }
 
@@ -2201,6 +2208,10 @@ void EntityController::onCreateGameObject(const UpdateBlock& block, std::shared_
                  " displayId=", go->getDisplayId(),
                  " pos=(", go->getX(), ", ", go->getY(), ", ", go->getZ(), ")");
         // Note: TransportSpawnCallback will be invoked from Application after WMO instance is created
+        if (owner_.getTransportManager()) owner_.getTransportManager()->setServerPresent(block.guid, true);
+        // The route's period and phase come with the create block; the transport
+        // manager holds them until the hull has loaded and registered.
+        applyTransportRouteClock(block);
     }
     if (go->getDisplayId() != 0 && owner_.gameObjectSpawnCallbackRef()) {
         float goScale = 1.0f;
@@ -2491,7 +2502,7 @@ void EntityController::applyTransportRouteClock(const UpdateBlock& block) {
     // Both fields are WotLK-only. Nothing earlier published a transport's phase,
     // so on those expansions fieldIndex returns 0xFFFF and this does nothing.
     auto* tm = owner_.getTransportManager();
-    if (!tm || !tm->getTransport(block.guid)) return;
+    if (!tm || transportGuids_.count(block.guid) == 0) return;
 
     const uint16_t ufLevel = fieldIndex(UF::GAMEOBJECT_LEVEL);
     const uint16_t ufDynamic = fieldIndex(UF::GAMEOBJECT_DYNAMIC);

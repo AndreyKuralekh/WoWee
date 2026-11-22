@@ -2756,9 +2756,13 @@ void Application::applyServerMovementState(float deltaTime) {
     bool landingClampActive = !onTaxi && worldEntryCallbacks_ && worldEntryCallbacks_->getTaxiLandingClampTimer() > 0.0f &&
                               worldEntryCallbacks_->getWorldEntryMovementGraceTimer() <= 0.0f &&
                               !gameHandler->isMounted();
+    // Not while rising from a jump: the deck is looked for only once the rider
+    // stops rising, and holding the physics here meant they never did - jumping
+    // aboard hung the character in the air at the ship's rail.
+    const bool holdForDeck = deckFloorPending_ && !renderer->getCameraController()->isJumping();
     renderer->getCameraController()->setExternalFollow(
         externallyDrivenMotion || landingClampActive || hearthFreeze ||
-        transportTransferFreeze || deckFloorPending_);
+        transportTransferFreeze || holdForDeck);
     renderer->getCameraController()->setExternalMoving(externallyDrivenMotion);
     if (externallyDrivenMotion) {
         // Drop any stale local movement toggles while server drives taxi motion.

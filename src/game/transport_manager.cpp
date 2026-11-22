@@ -483,7 +483,22 @@ void TransportManager::applyServerRouteClock(uint64_t transportGuid, float phase
                      const auto* p = pathRepo_.findPath(transport->pathId);
                      return p ? p->spline.durationMs() : 0u;
                  }(), "ms)");
+        // Its route was timed at a nominal speed before the period was known.
+        // Stops do not scale with speed, so the phase would land on the wrong
+        // stretch of it: time it again at the speed this period says.
+        if (transport->assignedTaxiPathId != 0) {
+            assignTaxiPathToTransport(transport->entry, transport->assignedTaxiPathId,
+                                      transport->assignedTaxiMapId);
+        }
     }
+}
+
+void TransportManager::setServerPresent(uint64_t transportGuid, bool present) {
+    auto* transport = getTransport(transportGuid);
+    if (!transport || transport->isM2 || transport->serverGone == !present) return;
+    transport->serverGone = !present;
+    LOG_INFO("Transport 0x", std::hex, transportGuid, std::dec, " entry=", transport->entry,
+             present ? " created by the server" : " removed by the server");
 }
 
 void TransportManager::applyDoodadMotionState(ActiveTransport& transport, bool moving) {
@@ -634,7 +649,7 @@ void TransportManager::updateTransportMovement(ActiveTransport& transport, float
     // slice holds the hull at its last dock through the off-map stretch, so
     // this parks the rider at the pier rather than dropping them mid-ocean.
     const bool carryingRider = riderTransportGuid_ != 0 && transport.guid == riderTransportGuid_;
-    const bool presentNow = pathEntry->presentAt(pathTimeMs) || carryingRider;
+    const bool presentNow = (pathEntry->presentAt(pathTimeMs) && !transport.serverGone) || carryingRider;
     if (presentNow != transport.onThisMap) {
         transport.onThisMap = presentNow;
         LOG_INFO("Transport 0x", std::hex, transport.guid, std::dec,
@@ -871,6 +886,7 @@ bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPa
         PathEntry copied(taxiEntry->spline, entry, taxiEntry->zOnly,
                          /*dbc=*/false, taxiEntry->worldCoords);
         copied.presentMs = taxiEntry->presentMs;
+        copied.routeOriginMs = taxiEntry->routeOriginMs;
         if (route && transport.hasServerRouteClock) {
             const float speed =
                 TransportPathRepository::taxiRouteSpeedFor(*route, transport.routePeriodMs);
@@ -894,6 +910,9 @@ bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPa
         transport.pathId = entry;
         transport.worldCoords = true;
         transport.borrowedPath = false;  // This route is its own now.
+        transport.routeOriginMs = storedEntry ? storedEntry->routeOriginMs : 0u;
+        transport.assignedTaxiPathId = taxiPathId;
+        transport.assignedTaxiMapId = mapId;
         transport.basePosition = glm::vec3(0.0f);  // World-coordinate path, no base offset
         transport.useClientAnimation = true;  // Server won't send position updates
 

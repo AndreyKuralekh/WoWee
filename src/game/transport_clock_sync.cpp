@@ -41,7 +41,8 @@ bool TransportClockSync::computePathTime(
         double wrapped = std::fmod(serverMs, static_cast<double>(transport.routePeriodMs));
         if (wrapped < 0.0) wrapped += transport.routePeriodMs;
         const double fraction = wrapped / static_cast<double>(transport.routePeriodMs);
-        outPathTimeMs = static_cast<uint32_t>(fraction * durationMs) % durationMs;
+        // The server counts from the arrival at the route's first stop.
+        outPathTimeMs = (static_cast<uint32_t>(fraction * durationMs) + transport.routeOriginMs) % durationMs;
         return true;
     }
 

@@ -83,6 +83,10 @@ struct PathEntry {
     /// map and every TransportAnimation route.
     std::vector<std::pair<uint32_t, uint32_t>> presentMs;
 
+    /// Where on this timeline the server's route phase is zero: the arrival at
+    /// the route's first stop. Its clock starts there, and this one at node 0.
+    uint32_t routeOriginMs = 0;
+
     [[nodiscard]] bool presentAt(uint32_t timeMs) const {
         if (presentMs.empty()) return true;
         for (const auto& [from, to] : presentMs) {

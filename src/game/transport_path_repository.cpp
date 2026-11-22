@@ -629,6 +629,12 @@ PathEntry TransportPathRepository::buildTaxiRouteSlice(const TaxiRoute& route,
     }
 
     PathEntry entry(math::CatmullRomSpline(std::move(keys), false), 0u, false, false, true);
+    for (const Visit& v : visits) {
+        if (v.departMs > v.arriveMs) {
+            entry.routeOriginMs = v.arriveMs;
+            break;
+        }
+    }
     // A route that never leaves this map is always present; saying so with an
     // empty list keeps presentAt free for every path that is not a ferry.
     if (!(presence.size() == 1 && presence.front().first == 0 &&

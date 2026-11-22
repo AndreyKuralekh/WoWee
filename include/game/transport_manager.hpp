@@ -94,6 +94,11 @@ struct ActiveTransport {
     /// here either.
     bool onThisMap = true;
 
+    /// The server took it out of the player's world (a ship gone to the other
+    /// continent). Whatever the route clock says, there is no deck here to
+    /// board until the server creates it again.
+    bool serverGone = false;
+
     /// Whether a player standing on this is carried by it.
     ///
     /// The client decides boarding for itself - the server never says "you
@@ -138,6 +143,11 @@ struct ActiveTransport {
     bool hasServerRouteClock = false;
     float routePhase = 0.0f;
     uint32_t routePeriodMs = 0;
+    // Where the server's phase zero falls on this hull's own timeline.
+    uint32_t routeOriginMs = 0;
+    // The taxi route it was given, to retime it if the period arrives later.
+    uint32_t assignedTaxiPathId = 0;
+    uint32_t assignedTaxiMapId = 0;
     double routePhaseAtTime = 0.0;
 };
 
@@ -272,6 +282,8 @@ public:
     // fraction in [0,1) of periodMs. Cheap and idempotent - safe to call on every
     // object update that carries the fields.
     void applyServerRouteClock(uint64_t transportGuid, float phase, uint32_t periodMs);
+    // The server created this transport in the player's world, or removed it.
+    void setServerPresent(uint64_t transportGuid, bool present);
 
     // Ship machinery follows the hull: ShipMoving while under way, ShipStop when
     // holding at a dock. Cheap to call every frame - it only reaches the
