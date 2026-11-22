@@ -265,6 +265,30 @@ void M2Renderer::setInstanceTransform(uint32_t instanceId, const glm::mat4& tran
     const glm::vec3 oldBoundsMax = inst.worldBoundsMax;
     const glm::vec3 oldPosition = inst.position;
 
+    // Particles live in world space, which is right for a torch on a wall and
+    // wrong for a lantern on a ship: left where they were born, its sparks
+    // streamed out astern at the speed of the hull. On a moving deck the air
+    // moves too, so they are carried with it. Taken about the old origin rather
+    // than through a full matrix, whose float translation at these coordinates
+    // would add a little noise to every particle every frame.
+    if (inst.drawWithHull && (!inst.particles.empty() || inst.cachedIsSmoke)) {
+        const glm::vec3 oldOrigin(inst.modelMatrix[3]);
+        const glm::vec3 newOrigin(transform[3]);
+        const glm::mat3 turn = glm::mat3(transform) * glm::mat3(inst.invModelMatrix);
+        for (M2Particle& particle : inst.particles) {
+            particle.position = newOrigin + turn * (particle.position - oldOrigin);
+            particle.velocity = turn * particle.velocity;
+        }
+        // A model named for smoke emits through the shared smoke pool instead.
+        if (inst.cachedIsSmoke) {
+            for (SmokeParticle& particle : smokeParticles) {
+                if (particle.instanceId != inst.id) continue;
+                particle.position = newOrigin + turn * (particle.position - oldOrigin);
+                particle.velocity = turn * particle.velocity;
+            }
+        }
+    }
+
     // Update model matrix directly
     inst.modelMatrix = transform;
     inst.invModelMatrix = glm::inverse(transform);
