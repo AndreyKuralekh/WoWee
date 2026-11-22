@@ -976,7 +976,12 @@ void TerrainRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, c
     }
 
     glm::vec3 camPos = camera.getPosition();
-    const float maxTerrainDistSq = maxViewDistance_ * maxViewDistance_;
+    // A chunk is measured to its centre and a building to its nearest corner,
+    // so at the same limit a building on the edge outlives the ground under it
+    // and stands in the air. The ground has to reach past whatever stands on it.
+    constexpr float kGroundBeyondBuildings = 120.0f;
+    const float maxTerrainDist = maxViewDistance_ + kGroundBeyondBuildings;
+    const float maxTerrainDistSq = maxTerrainDist * maxTerrainDist;
 
     renderedChunks = 0;
     culledChunks = 0;
