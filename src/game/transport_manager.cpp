@@ -122,7 +122,15 @@ TransportManager::TransportManager() = default;
 TransportManager::~TransportManager() = default;
 
 void TransportManager::update(float deltaTime) {
-    elapsedTime_ += deltaTime;
+    // Real time, not the frame's delta: that is capped on a slow frame, and the
+    // server's route does not wait. Summed from it, the clock fell 12 s behind
+    // the ship per lap at a low frame rate.
+    const auto clockNow = std::chrono::steady_clock::now();
+    elapsedTime_ += hasLastUpdateClock_
+        ? std::chrono::duration<double>(clockNow - lastUpdateClock_).count()
+        : static_cast<double>(deltaTime);
+    lastUpdateClock_ = clockNow;
+    hasLastUpdateClock_ = true;
 
     for (auto& [guid, transport] : transports_) {
         // Once we have server clock offset, we can predict server time indefinitely
@@ -470,6 +478,9 @@ void TransportManager::applyServerRouteClock(uint64_t transportGuid, float phase
         return;
     }
 
+    // Already set from the hull's real position, which this cannot improve on.
+    if (transport->routeAnchored) return;
+
     const bool firstSample = !transport->hasServerRouteClock;
     transport->hasServerRouteClock = true;
     transport->routePhase = phase;
@@ -499,6 +510,68 @@ void TransportManager::setServerPresent(uint64_t transportGuid, bool present) {
     transport->serverGone = !present;
     LOG_INFO("Transport 0x", std::hex, transportGuid, std::dec, " entry=", transport->entry,
              present ? " created by the server" : " removed by the server");
+}
+
+void TransportManager::anchorRouteClock(uint64_t transportGuid, const glm::vec3& canonicalPosition) {
+    auto* transport = getTransport(transportGuid);
+    if (!transport || transport->isM2) return;
+    transport->pendingAnchor = canonicalPosition;
+    transport->hasPendingAnchor = true;
+    applyRouteAnchor(*transport);
+}
+
+void TransportManager::applyRouteAnchor(ActiveTransport& transport) {
+    if (!transport.hasPendingAnchor || !transport.hasServerRouteClock ||
+        !transport.worldCoords || transport.routePeriodMs == 0) {
+        return;
+    }
+    const auto* path = pathRepo_.findPath(transport.pathId);
+    if (!path || path->presentMs.empty()) return;
+    const auto& spline = path->spline;
+    const uint32_t duration = spline.durationMs();
+    if (duration == 0) return;
+    transport.hasPendingAnchor = false;
+
+    const auto flatDistance = [](const glm::vec3& a, const glm::vec3& b) {
+        return glm::length(glm::vec2(a.x - b.x, a.y - b.y));
+    };
+    constexpr uint32_t kStepMs = 200u;
+    float best = std::numeric_limits<float>::max();
+    for (const auto& [from, to] : path->presentMs) {
+        for (uint32_t t = from; t <= to; t += kStepMs) {
+            best = std::min(best, flatDistance(spline.evaluatePosition(t), transport.pendingAnchor));
+        }
+    }
+    // Not on this route as the client knows it: leave the published phase.
+    constexpr float kOnRouteYards = 12.0f;
+    if (best > kOnRouteYards) return;
+
+    // A route can pass one point twice, so of the matches take the one nearest
+    // to where the phase put it.
+    uint32_t now = 0;
+    if (!clockSync_.computePathTime(transport, spline, elapsedTime_, 0.0f, now)) return;
+    uint32_t chosen = 0;
+    uint32_t chosenGap = std::numeric_limits<uint32_t>::max();
+    for (const auto& [from, to] : path->presentMs) {
+        for (uint32_t t = from; t <= to; t += kStepMs) {
+            if (flatDistance(spline.evaluatePosition(t), transport.pendingAnchor) > best + 2.0f) continue;
+            const uint32_t forward = (t + duration - now) % duration;
+            const uint32_t gap = std::min(forward, duration - forward);
+            if (gap < chosenGap) { chosenGap = gap; chosen = t; }
+        }
+    }
+    // At a dock the position says nothing about how far through the stop it is.
+    constexpr uint32_t kDwellProbeMs = 500u;
+    const glm::vec3 before = spline.evaluatePosition(chosen > kDwellProbeMs ? chosen - kDwellProbeMs : 0u);
+    const glm::vec3 after = spline.evaluatePosition(std::min(chosen + kDwellProbeMs, duration));
+    if (flatDistance(before, after) < 0.5f) return;
+
+    transport.routePhase = static_cast<float>((chosen + duration - transport.routeOriginMs) % duration) /
+                           static_cast<float>(duration);
+    transport.routePhaseAtTime = elapsedTime_;
+    transport.routeAnchored = true;
+    LOG_INFO("Transport 0x", std::hex, transport.guid, std::dec, " entry=", transport.entry,
+             " clock set from its position: route time ", chosen, "ms (phase said ", now, "ms)");
 }
 
 void TransportManager::applyDoodadMotionState(ActiveTransport& transport, bool moving) {
@@ -658,10 +731,44 @@ void TransportManager::updateTransportMovement(ActiveTransport& transport, float
                  " at route time ", pathTimeMs, "ms");
     }
     if (!presentNow) {
-        setInstanceHidden(transport, true);
-        applyDoodadMotionState(transport, /*moving=*/false);
+        // Out of the server's world, but the eye can still follow it. A hull
+        // that blinks out at the map edge does so in plain view of the harbour,
+        // so it sails on until the view distance takes it. A route clock that
+        // says "at the pier" with no ship from the server is not an edge, and
+        // showing it there is the phantom that people boarded.
+        // The published phase leaves this clock up to 12 s behind the server's
+        // or 30 s ahead of it, differently on each login, so the hull can be
+        // removed before the route here reaches the edge and created well
+        // after the route has come back onto this map.
+        constexpr uint32_t kClockToleranceMs = 35000u;
+        glm::vec3 sailPosition(0.0f);
+        glm::vec3 sailDirection(0.0f);
+        bool drawn = false;
+        if (pathEntry->presentAt(pathTimeMs)) {
+            if (pathEntry->nearMapEdge(pathTimeMs, kClockToleranceMs)) {
+                animator_.evaluateAndApply(transport, *pathEntry, pathTimeMs);
+                drawn = true;
+            }
+        } else if (pathEntry->offMapPose(pathTimeMs, sailPosition, sailDirection)) {
+            transport.position = sailPosition;
+            transport.rotation = glm::angleAxis(
+                std::atan2(sailDirection.x, sailDirection.y) +
+                    transportModelBowOffset(transport.displayId),
+                glm::vec3(0.0f, 0.0f, 1.0f));
+            drawn = true;
+        }
+        transport.sailingOffMap = drawn;
+        if (!drawn) {
+            setInstanceHidden(transport, true);
+            applyDoodadMotionState(transport, /*moving=*/false);
+            return;
+        }
+        updateTransformMatrices(transport);
+        pushTransform(transport);
+        applyDoodadMotionState(transport, /*moving=*/true);
         return;
     }
+    transport.sailingOffMap = false;
 
     // Evaluate position + rotation via Animator
     animator_.evaluateAndApply(transport, *pathEntry, pathTimeMs);
@@ -693,7 +800,10 @@ void TransportManager::setInstanceHidden(const ActiveTransport& transport, bool 
 }
 
 void TransportManager::pushTransform(ActiveTransport& transport) {
-    setInstanceHidden(transport, !transport.onThisMap);
+    setInstanceHidden(transport, !transport.onThisMap && !transport.sailingOffMap);
+    if (!transport.isM2 && wmoRenderer_) {
+        wmoRenderer_->setInstanceVisualOnly(transport.wmoInstanceId, !transport.onThisMap);
+    }
     if (transport.isM2) {
         if (m2Renderer_) m2Renderer_->setInstanceTransform(transport.wmoInstanceId, transport.transform);
     } else {
@@ -887,6 +997,9 @@ bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPa
                          /*dbc=*/false, taxiEntry->worldCoords);
         copied.presentMs = taxiEntry->presentMs;
         copied.routeOriginMs = taxiEntry->routeOriginMs;
+        copied.arrivals = taxiEntry->arrivals;
+        copied.departures = taxiEntry->departures;
+        copied.edgeSpeed = taxiEntry->edgeSpeed;
         if (route && transport.hasServerRouteClock) {
             const float speed =
                 TransportPathRepository::taxiRouteSpeedFor(*route, transport.routePeriodMs);
@@ -949,6 +1062,7 @@ bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPa
                  " waypoints=", storedEntry ? storedEntry->spline.keyCount() : 0u,
                  " duration=", storedEntry ? storedEntry->spline.durationMs() : 0u, "ms",
                  " startPos=(", transport.position.x, ", ", transport.position.y, ", ", transport.position.z, ")");
+        applyRouteAnchor(transport);
         assignedAny = true;
     }
 

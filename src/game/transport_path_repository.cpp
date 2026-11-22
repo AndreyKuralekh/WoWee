@@ -640,6 +640,31 @@ PathEntry TransportPathRepository::buildTaxiRouteSlice(const TaxiRoute& route,
     if (!(presence.size() == 1 && presence.front().first == 0 &&
           presence.front().second >= cycleMs)) {
         entry.presentMs = std::move(presence);
+
+        // The heading at each end of a run on this map, level, from the first
+        // two distinct points there. Where the route closes on this map its
+        // two ends are one continuous leg and not an edge at all.
+        const auto heading = [](const std::vector<Stop>& run, bool atEnd, glm::vec3& out) {
+            const size_t n = run.size();
+            for (size_t i = 1; i < n; ++i) {
+                glm::vec3 d = atEnd ? run[n - 1].pos - run[n - 1 - i].pos
+                                    : run[i].pos - run[0].pos;
+                d.z = 0.0f;
+                const float len = glm::length(d);
+                if (len > 0.01f) { out = d / len; return true; }
+            }
+            return false;
+        };
+        entry.edgeSpeed = speed;
+        for (size_t r = 0; r < runs.size(); ++r) {
+            glm::vec3 dir(0.0f);
+            if (!(wrapsHere && r == 0) && heading(runs[r], false, dir)) {
+                entry.arrivals.push_back({runs[r].front().arriveMs, runs[r].front().pos, dir});
+            }
+            if (!(wrapsHere && r + 1 == runs.size()) && heading(runs[r], true, dir)) {
+                entry.departures.push_back({runs[r].back().departMs, runs[r].back().pos, dir});
+            }
+        }
     }
     return entry;
 }

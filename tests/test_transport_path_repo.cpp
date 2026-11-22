@@ -477,6 +477,38 @@ TEST_CASE("a hull holds still on the map it has left", "[transport_path_repo][ta
     CHECK(worst < 1.0f);
 }
 
+TEST_CASE("a hull sails on out of sight past the map edge", "[transport_path_repo][taxi]") {
+    game::TaxiRoute route;
+    route.nodes = {
+        {{0.0f, 0.0f, 0.0f}, 0, 0u},
+        {{200.0f, 0.0f, 0.0f}, 0, 0u},
+        {{400.0f, 0.0f, 0.0f}, 0, 0u},
+        {{5000.0f, 0.0f, 0.0f}, 1, 0u},
+        {{5200.0f, 0.0f, 0.0f}, 1, 0u},
+        {{5400.0f, 0.0f, 0.0f}, 1, 0u},
+    };
+    route.circuit = game::TransportPathRepository::taxiRouteIsCircuit(route);
+    const auto slice = game::TransportPathRepository::buildTaxiRouteSlice(route, 0, 20.0f);
+    REQUIRE(slice.spline.durationMs() == 40000u);
+
+    glm::vec3 pos(0.0f), dir(0.0f);
+    // Never while it is really here.
+    CHECK_FALSE(slice.offMapPose(10000u, pos, dir));
+    // Straight on from where it left, at its own speed.
+    REQUIRE(slice.offMapPose(25000u, pos, dir));
+    CHECK(glm::distance(pos, glm::vec3(500.0f, 0.0f, 0.0f)) < 0.1f);
+    CHECK(glm::distance(dir, glm::vec3(1.0f, 0.0f, 0.0f)) < 0.001f);
+    // In along the line it will arrive on.
+    REQUIRE(slice.offMapPose(35000u, pos, dir));
+    CHECK(glm::distance(pos, glm::vec3(-100.0f, 0.0f, 0.0f)) < 0.1f);
+    // Out of sight where the one hands over to the other.
+    CHECK_FALSE(slice.offMapPose(30000u, pos, dir));
+
+    CHECK(slice.nearMapEdge(15000u, 10000u));   // about to leave
+    CHECK(slice.nearMapEdge(5000u, 10000u));    // just arrived
+    CHECK_FALSE(slice.nearMapEdge(10000u, 5000u)); // in the middle of the run
+}
+
 TEST_CASE("a zeppelin flies its tower circuit round, not backwards",
           "[transport_path_repo][taxi][transport]") {
     // The slice used to be flown out and then retraced node by node, so the

@@ -637,6 +637,7 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
             cachedMaxRenderDistSq_, instance.cachedEffectiveMaxDistSqFactor,
             false, 0.0f, cappedViewDistance(),
             instance.cachedIsGroundDetail, groundDetailMaxDistance_);
+        if (instance.drawWithHull) effectiveMaxDistSq = hullDoodadMaxDistSq(instance, cachedCamPos_);
         if (instance.cachedIsSkyBird) {
             constexpr float kBirdMaxDistSq =
                 rendering::M2_SKY_BIRD_MAX_RENDER_DISTANCE *
@@ -645,7 +646,11 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
         }
         if (distSq > effectiveMaxDistSq) continue;
         float paddedRadius = instance.cachedPaddedRadius;
-        if (paddedRadius > 0.0f && !updateFrustum.intersectsSphere(instance.cachedCullCenter, paddedRadius)) continue;
+        // A ship's rigging is posed whether or not it is in view: a pose frozen
+        // off screen can be the one with the sails drawn in, and the ship then
+        // comes into sight with bare masts.
+        if (!instance.drawWithHull && paddedRadius > 0.0f &&
+            !updateFrustum.intersectsSphere(instance.cachedCullCenter, paddedRadius)) continue;
 
         // LOD 3 skip: models beyond 150 units use the lowest LOD mesh which has
         // no visible skeletal animation.  Keep their last-computed bone matrices
@@ -654,7 +659,7 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
         // motion is baked entirely into bone animation.
         constexpr float kLOD3DistSq = rendering::M2_LOD3_DISTANCE * rendering::M2_LOD3_DISTANCE;
         const bool needsDistantBones = instance.cachedIsSkyBird || instance.cachedIsLightBeam ||
-                                       instance.cachedIsTransportDoodad;
+                                       instance.cachedIsTransportDoodad || instance.drawWithHull;
         if (distSq > kLOD3DistSq && !needsDistantBones) continue;
 
         // Distance-based frame skipping: update distant bones less frequently
@@ -895,10 +900,11 @@ void M2Renderer::dispatchCullCompute(VkCommandBuffer cmd, uint32_t frameIndex, c
     // The shader rejects on this bound before it ever reads the per-instance
     // distance, so it has to clear the game-object floor as well - otherwise
     // that floor is silently capped at 2x the ambient doodad distance.
-    const float maxPossibleDistSq = std::max(
+    const float maxPossibleDistSq = std::max({
         maxRenderDistanceSq * 4.0f,  // 2x safety margin
         rendering::M2_GAME_OBJECT_MIN_RENDER_DISTANCE *
-        rendering::M2_GAME_OBJECT_MIN_RENDER_DISTANCE);
+        rendering::M2_GAME_OBJECT_MIN_RENDER_DISTANCE,
+        hullDoodadDistSq()});
 
     // --- Upload frustum planes + camera (UBO, binding 0) ---
     const glm::mat4 vp = camera.getProjectionMatrix() * camera.getViewMatrix();
@@ -988,6 +994,7 @@ void M2Renderer::dispatchCullCompute(VkCommandBuffer cmd, uint32_t frameIndex, c
                 inst.isGameObject, rendering::M2_GAME_OBJECT_MIN_RENDER_DISTANCE,
                 cappedViewDistance(),
                 inst.cachedIsGroundDetail, groundDetailMaxDistance_);
+            if (inst.drawWithHull) effectiveMaxDistSq = hullDoodadMaxDistSq(inst, camPos);
             if (inst.cachedIsSkyBird && inst.cachedHasAnimation && !inst.cachedDisableAnimation) {
                 constexpr float kBirdMaxDistSq =
                     rendering::M2_SKY_BIRD_MAX_RENDER_DISTANCE *
@@ -1014,7 +1021,7 @@ void M2Renderer::dispatchCullCompute(VkCommandBuffer cmd, uint32_t frameIndex, c
             // itself) - the "mailbox went invisible in place" report. Frustum +
             // distance culling still bound them; only the unreliable occlusion
             // test is waived.
-            if (inst.hizPrevCulledFrames < 2 && !inst.isGameObject)
+            if (inst.hizPrevCulledFrames < 2 && !inst.isGameObject && !inst.drawWithHull)
                 flags |= 8u;
 
             input[i].sphere = glm::vec4(inst.cachedCullCenter, inst.cachedPaddedRadius);
@@ -1233,10 +1240,11 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
     }
     // Matches the bound uploaded to the cull shader, including the headroom the
     // game-object floor needs (see dispatchCullCompute).
-    const float maxPossibleDistSq = std::max(
+    const float maxPossibleDistSq = std::max({
         maxRenderDistanceSq * 4.0f,
         rendering::M2_GAME_OBJECT_MIN_RENDER_DISTANCE *
-        rendering::M2_GAME_OBJECT_MIN_RENDER_DISTANCE);
+        rendering::M2_GAME_OBJECT_MIN_RENDER_DISTANCE,
+        hullDoodadDistSq()});
 
     const uint32_t totalInstances = static_cast<uint32_t>(instances.size());
     struct VisibleChunk {
@@ -1264,11 +1272,13 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             // Server game objects keep a distance floor instead of following the
             // ambient doodad distance down; it also feeds the fade curve below,
             // so a mailbox doesn't fade out at the doodad boundary either.
-            const float instanceMaxDistSq = rendering::m2InstanceMaxDistSq(
-                maxRenderDistanceSq, instance.cachedEffectiveMaxDistSqFactor,
-                instance.isGameObject, rendering::M2_GAME_OBJECT_MIN_RENDER_DISTANCE,
-                cappedViewDistance(),
-                instance.cachedIsGroundDetail, groundDetailMaxDistance_);
+            const float instanceMaxDistSq = instance.drawWithHull
+                ? hullDoodadMaxDistSq(instance, camPos)
+                : rendering::m2InstanceMaxDistSq(
+                      maxRenderDistanceSq, instance.cachedEffectiveMaxDistSqFactor,
+                      instance.isGameObject, rendering::M2_GAME_OBJECT_MIN_RENDER_DISTANCE,
+                      cappedViewDistance(),
+                      instance.cachedIsGroundDetail, groundDetailMaxDistance_);
 
             // Hidden outright: a spare model particle, or a sky faded out.
             if (instance.fade <= 0.0f) continue;
@@ -1636,7 +1646,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 float fadeFrac = model.disableAnimation ? 0.55f : fadeStartFraction;
                 float fadeStartDistSq = entry.effectiveMaxDistSq * fadeFrac * fadeFrac;
                 float fadeAlpha = 1.0f;
-                if (entry.distSq > fadeStartDistSq) {
+                if (entry.distSq > fadeStartDistSq && !instance.drawWithHull) {
                     fadeAlpha = std::clamp((entry.effectiveMaxDistSq - entry.distSq) /
                                           (entry.effectiveMaxDistSq - fadeStartDistSq), 0.0f, 1.0f);
                 }
@@ -1661,7 +1671,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 // the way back to full detail. A model carrying 0 and 1 and
                 // asked for 3 was drawn at 0 - the most expensive level there
                 // is - at the distance where it mattered least.
-                uint16_t targetLOD = desiredLOD;
+                uint16_t targetLOD = instance.drawWithHull ? uint16_t{0} : desiredLOD;
                 while (targetLOD > 0 && !(model.availableLODs & (1u << targetLOD))) --targetLOD;
 
                 pending.push_back({.instanceIdx = entry.index, .fadeAlpha = instanceFadeAlpha, .useBones = needsBones, .targetLOD = targetLOD});
@@ -2196,7 +2206,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         float fadeAlpha = 1.0f;
         float fadeFrac = model.disableAnimation ? 0.55f : fadeStartFraction;
         float fadeStartDistSq = entry.effectiveMaxDistSq * fadeFrac * fadeFrac;
-        if (entry.distSq > fadeStartDistSq) {
+        if (entry.distSq > fadeStartDistSq && !instance.drawWithHull) {
             fadeAlpha = std::clamp((entry.effectiveMaxDistSq - entry.distSq) /
                                   (entry.effectiveMaxDistSq - fadeStartDistSq), 0.0f, 1.0f);
         }
@@ -2215,7 +2225,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         else if (entry.distSq > 80.0f * 80.0f) desiredLOD = 2;
         else if (entry.distSq > 40.0f * 40.0f) desiredLOD = 1;
         // The nearest level the model has; see the note in the batched path.
-        uint16_t targetLOD = desiredLOD;
+        uint16_t targetLOD = instance.drawWithHull ? uint16_t{0} : desiredLOD;
         while (targetLOD > 0 && !(model.availableLODs & (1u << targetLOD))) --targetLOD;
 
         const bool particleDominantEffect = model.isSpellEffect &&

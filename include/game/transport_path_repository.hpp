@@ -5,6 +5,7 @@
 #pragma once
 
 #include "math/spline.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 #include <unordered_map>
@@ -91,6 +92,62 @@ struct PathEntry {
         if (presentMs.empty()) return true;
         for (const auto& [from, to] : presentMs) {
             if (timeMs >= from && timeMs <= to) return true;
+        }
+        return false;
+    }
+
+    /// Where the hull comes onto this map or leaves it, heading level.
+    struct MapEdge { uint32_t timeMs; glm::vec3 position; glm::vec3 direction; };
+    std::vector<MapEdge> arrivals;
+    std::vector<MapEdge> departures;
+    float edgeSpeed = 0.0f;   ///< yards per second
+
+    /// How long a hull stays in sight past a map edge: long enough to sail out
+    /// of the view distance rather than vanish in the middle of it.
+    static constexpr uint32_t kOffMapSailMs = 60000u;
+
+    /// A pose for the hull while it is off this map but still within sight of
+    /// the edge, sailing straight on from where it left or towards where it
+    /// will arrive. For drawing only: the server has no such ship here.
+    [[nodiscard]] bool offMapPose(uint32_t timeMs, glm::vec3& position,
+                                  glm::vec3& direction) const {
+        const uint32_t cycle = spline.durationMs();
+        if (cycle == 0 || presentAt(timeMs) || edgeSpeed <= 0.0f) return false;
+        const MapEdge* left = nullptr;
+        const MapEdge* next = nullptr;
+        uint32_t sinceLeft = cycle;
+        uint32_t untilNext = cycle;
+        for (const MapEdge& e : departures) {
+            const uint32_t age = (timeMs + cycle - e.timeMs % cycle) % cycle;
+            if (age < sinceLeft) { sinceLeft = age; left = &e; }
+        }
+        for (const MapEdge& e : arrivals) {
+            const uint32_t wait = (e.timeMs % cycle + cycle - timeMs) % cycle;
+            if (wait < untilNext) { untilNext = wait; next = &e; }
+        }
+        // Hidden for a moment halfway, where one pose hands over to the other.
+        const uint32_t gap = sinceLeft + untilNext;
+        const uint32_t reach = std::min(kOffMapSailMs, gap / 2 > 1000u ? gap / 2 - 1000u : 0u);
+        if (left && sinceLeft <= untilNext && sinceLeft <= reach) {
+            direction = left->direction;
+            position = left->position + direction * edgeSpeed * (sinceLeft / 1000.0f);
+            return true;
+        }
+        if (next && untilNext < sinceLeft && untilNext <= reach) {
+            direction = next->direction;
+            position = next->position - direction * edgeSpeed * (untilNext / 1000.0f);
+            return true;
+        }
+        return false;
+    }
+
+    /// Within marginMs of the start or end of a span on this map.
+    [[nodiscard]] bool nearMapEdge(uint32_t timeMs, uint32_t marginMs) const {
+        for (const MapEdge& e : departures) {
+            if (timeMs <= e.timeMs && e.timeMs - timeMs <= marginMs) return true;
+        }
+        for (const MapEdge& e : arrivals) {
+            if (timeMs >= e.timeMs && timeMs - e.timeMs <= marginMs) return true;
         }
         return false;
     }

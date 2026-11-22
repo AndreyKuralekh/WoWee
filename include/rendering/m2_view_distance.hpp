@@ -5,6 +5,13 @@
 namespace wowee {
 namespace rendering {
 
+/// A transport is drawn or not as one object: hull and doodads alike ask how far
+/// the hull's origin is from the camera, against the view distance plus this.
+inline constexpr float kTransportDrawMargin = 60.0f;
+/// Further than any doodad of a ship sits from that origin. Only keeps a doodad
+/// the hull has passed from being culled by its own position.
+inline constexpr float kTransportDoodadSpan = 150.0f;
+
 /// The distance at which one M2 instance stops drawing, squared.
 ///
 /// Three separate inputs each push an instance further out than the scene's

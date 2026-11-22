@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rendering/collision_geometry.hpp"
+#include "rendering/m2_view_distance.hpp"
 #include "rendering/spatial_grid.hpp"
 #include "rendering/shadow_params.hpp"
 
@@ -439,6 +440,12 @@ struct M2Instance {
     // Set by the spawner; see M2_GAME_OBJECT_MIN_RENDER_DISTANCE.
     bool isGameObject = false;
 
+    // Part of a transport's hull as far as the eye goes: sails and rigging are
+    // small models on a big ship, and at a small model's distance a departing
+    // ship lost them and sailed on with bare masts.
+    bool drawWithHull = false;
+    glm::vec3 hullOrigin{0.0f};  // the carrying hull's position, when drawWithHull
+
     void recomputeCachedCullFactors();
 
     // Frame-skip optimization (update distant animations less frequently)
@@ -806,6 +813,9 @@ public:
     /// Mark an instance as a server game object so the adaptive doodad render
     /// distance can't cull it while the server still considers it visible.
     void setInstanceIsGameObject(uint32_t instanceId, bool isGameObject);
+    /// Draw this doodad as far as the WMO hull that carries it is drawn.
+    void setInstanceDrawWithHull(uint32_t instanceId, bool drawWithHull);
+    void setInstanceHullOrigin(uint32_t instanceId, const glm::vec3& origin);
     void setSkipCollision(uint32_t instanceId, bool skip);
     void setSkipWallCollision(uint32_t instanceId, bool skip);
     /// A WMO doodad standing in a room (pipeline::doodadRoomLights): drawn
@@ -928,6 +938,19 @@ public:
         return doodadDistanceCapYards_ > 0.0f
                    ? std::min(viewDistanceAbsolute_, doodadDistanceCapYards_)
                    : viewDistanceAbsolute_;
+    }
+    /// The furthest a doodad of a drawn hull can be from the camera, squared.
+    float hullDoodadDistSq() const {
+        const float reach = viewDistanceAbsolute_ + kTransportDrawMargin + kTransportDoodadSpan;
+        return reach * reach;
+    }
+    /// This doodad's limit for this camera: all of it while its hull is in
+    /// range and none once it is not, so the two go in the same frame. See
+    /// WMORenderer's cull, which makes the same test on the same point.
+    float hullDoodadMaxDistSq(const M2Instance& instance, const glm::vec3& camPos) const {
+        const glm::vec3 toHull = instance.hullOrigin - camPos;
+        const float reach = viewDistanceAbsolute_ + kTransportDrawMargin;
+        return glm::dot(toHull, toHull) <= reach * reach ? hullDoodadDistSq() : 0.0f;
     }
     void setViewDistance(float distance) {
         viewDistanceRaw_ = std::clamp(distance, 400.0f, 2400.0f);

@@ -5,6 +5,7 @@
 #include "rendering/wmo_vertex.hpp"
 #include "rendering/shadow_params.hpp"
 #include "rendering/wmo_renderer.hpp"
+#include "rendering/m2_view_distance.hpp"
 #include "rendering/rt_bvh.hpp"
 #include "rendering/rt_scene.hpp"
 #include "rendering/wmo_material_class.hpp"
@@ -1263,7 +1264,35 @@ void WMORenderer::setInstanceIsTransport(uint32_t instanceId, bool isTransport) 
 void WMORenderer::setInstanceHidden(uint32_t instanceId, bool hidden) {
     auto idxIt = instanceIndexById.find(instanceId);
     if (idxIt == instanceIndexById.end()) return;
-    instances[idxIt->second].hidden = hidden;
+    auto& inst = instances[idxIt->second];
+    if (inst.hidden == hidden) return;
+    inst.hidden = hidden;
+
+    // Its doodads are instances of their own in the M2 renderer, and a ship's
+    // sails, rigging and lanterns are doodads: hiding the hull alone left them
+    // hanging over the water where it was last seen.
+    if (m2Renderer_) {
+        for (const auto& doodad : inst.doodads) {
+            m2Renderer_->setInstanceTransform(doodad.m2InstanceId,
+                                              doodadWorldTransform(inst, doodad.localTransform));
+            m2Renderer_->setInstanceHullOrigin(doodad.m2InstanceId, inst.position);
+        }
+    }
+}
+
+glm::mat4 WMORenderer::doodadWorldTransform(const WMOInstance& inst, const glm::mat4& local) const {
+    const glm::mat4 world = inst.modelMatrix * local;
+    if (!inst.hidden) return world;
+    // Parked far below the world rather than flagged: that takes it out of
+    // drawing, shadows, particles, lights and collision without a check in each.
+    constexpr float kParkedDepth = 20000.0f;
+    return glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -kParkedDepth)) * world;
+}
+
+void WMORenderer::setInstanceVisualOnly(uint32_t instanceId, bool visualOnly) {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end()) return;
+    instances[idxIt->second].visualOnly = visualOnly;
 }
 
 void WMORenderer::setInstanceTransform(uint32_t instanceId, const glm::mat4& transform) {
@@ -1303,8 +1332,9 @@ void WMORenderer::setInstanceTransform(uint32_t instanceId, const glm::mat4& tra
     // Propagate transform to child M2 doodads (chairs, furniture on transports)
     if (m2Renderer_ && !inst.doodads.empty()) {
         for (const auto& doodad : inst.doodads) {
-            glm::mat4 worldTransform = inst.modelMatrix * doodad.localTransform;
-            m2Renderer_->setInstanceTransform(doodad.m2InstanceId, worldTransform);
+            m2Renderer_->setInstanceTransform(doodad.m2InstanceId,
+                                              doodadWorldTransform(inst, doodad.localTransform));
+            m2Renderer_->setInstanceHullOrigin(doodad.m2InstanceId, inst.position);
         }
     }
 
@@ -1338,7 +1368,8 @@ void WMORenderer::addDoodadToInstance(uint32_t instanceId, uint32_t m2InstanceId
     // push, so it is never drawn at the origin for a frame and never sits there
     // indefinitely if the parent is static.
     if (m2Renderer_) {
-        m2Renderer_->setInstanceTransform(m2InstanceId, it->modelMatrix * localTransform);
+        m2Renderer_->setInstanceTransform(m2InstanceId, doodadWorldTransform(*it, localTransform));
+        m2Renderer_->setInstanceHullOrigin(m2InstanceId, it->position);
     }
 }
 
@@ -1657,7 +1688,8 @@ void WMORenderer::gatherCandidates(const glm::vec3& queryMin, const glm::vec3& q
     gatherIds(spatialGrid, queryMin, queryMax, tl_candidateIdScratch,
               [&](uint32_t id) {
                   auto idxIt = instanceIndexById.find(id);
-                  if (idxIt != instanceIndexById.end() && !instances[idxIt->second].hidden) {
+                  if (idxIt != instanceIndexById.end() && !instances[idxIt->second].hidden &&
+                      !instances[idxIt->second].visualOnly) {
                       outIndices.push_back(idxIt->second);
                   }
               });
@@ -1667,7 +1699,7 @@ void WMORenderer::gatherCandidates(const glm::vec3& queryMin, const glm::vec3& q
     if (outIndices.empty() && !instances.empty()) {
         outIndices.reserve(instances.size());
         for (size_t i = 0; i < instances.size(); i++) {
-            if (!instances[i].hidden) outIndices.push_back(i);
+            if (!instances[i].hidden && !instances[i].visualOnly) outIndices.push_back(i);
         }
     }
 }
@@ -1766,6 +1798,20 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
         const ModelData& model = mdlIt->second;
 
         result.model = &model;   // cache so the draw-list loop doesn't redo the hash lookup
+
+        // A transport is in view or not as a whole, by its origin - the test
+        // M2Renderer::hullDoodadMaxDistSq makes for its sails and rigging. By
+        // group, the hull outlasted them by a hundred yards and more.
+        // Whether or not culling is on for the world: without this a hull was
+        // drawn at any distance while its sails stopped at the view distance.
+        if (instance.isTransport) {
+            const glm::vec3 toHull = instance.position - camPos;
+            const float reach = viewDistance_ + kTransportDrawMargin;
+            if (glm::dot(toHull, toHull) > reach * reach) {
+                result.distanceCulled = static_cast<uint32_t>(model.groups.size());
+                return;
+            }
+        }
 
         // Portal-based visibility - reuse member scratch buffer (avoid per-frame alloc)
         bool usePortalCulling = doPortalCull && !model.portals.empty() && !model.portalRefs.empty();
@@ -1894,7 +1940,7 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
             // not - the flag only chose between two distances - so turning that
             // flag off never stopped anything past viewDistance_ disappearing.
             // Now nothing is dropped at all unless culling is asked for.
-            if (cullingEnabled_ && gi < instance.worldGroupBounds.size()) {
+            if (cullingEnabled_ && !instance.isTransport && gi < instance.worldGroupBounds.size()) {
                 const auto& [gMin, gMax] = instance.worldGroupBounds[gi];
 
                 glm::vec3 closestPoint = glm::clamp(camPos, gMin, gMax);
@@ -2663,7 +2709,7 @@ bool WMORenderer::updateEnclosure(const Camera& camera) {
     frustum.extractFromMatrix(camera.getProjectionMatrix() * camera.getViewMatrix());
     std::unordered_set<uint32_t> visible;
     for (const auto& instance : instances) {
-        if (instance.hidden) continue;
+        if (instance.hidden || instance.visualOnly) continue;
         if (camPos.x < instance.worldBoundsMin.x || camPos.x > instance.worldBoundsMax.x ||
             camPos.y < instance.worldBoundsMin.y || camPos.y > instance.worldBoundsMax.y ||
             camPos.z < instance.worldBoundsMin.z || camPos.z > instance.worldBoundsMax.z) {

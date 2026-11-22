@@ -2208,10 +2208,20 @@ void EntityController::onCreateGameObject(const UpdateBlock& block, std::shared_
                  " displayId=", go->getDisplayId(),
                  " pos=(", go->getX(), ", ", go->getY(), ", ", go->getZ(), ")");
         // Note: TransportSpawnCallback will be invoked from Application after WMO instance is created
-        if (owner_.getTransportManager()) owner_.getTransportManager()->setServerPresent(block.guid, true);
+        auto* transportManager = owner_.getTransportManager();
+        // Coming back onto this map, as opposed to being announced at login:
+        // only then is the position in this block where the hull is right now.
+        // At login it is the last waypoint the server recorded, up to half a
+        // minute stale, and the phase beside it is just as old.
+        const auto* known = transportManager ? transportManager->getTransport(block.guid) : nullptr;
+        const bool cameBack = known && known->serverGone;
+        if (transportManager) transportManager->setServerPresent(block.guid, true);
         // The route's period and phase come with the create block; the transport
         // manager holds them until the hull has loaded and registered.
         applyTransportRouteClock(block);
+        if (cameBack) {
+            transportManager->anchorRouteClock(block.guid, glm::vec3(go->getX(), go->getY(), go->getZ()));
+        }
     }
     if (go->getDisplayId() != 0 && owner_.gameObjectSpawnCallbackRef()) {
         float goScale = 1.0f;
@@ -2513,10 +2523,12 @@ void EntityController::applyTransportRouteClock(const UpdateBlock& block) {
     if (itPeriod == block.fields.end() || itDynamic == block.fields.end()) return;
 
     const uint32_t periodMs = itPeriod->second;
-    // Signed on the wire: -1 means "this object has no path progress to report",
-    // which every non-transport GameObject sends.
-    const int16_t rawProgress = static_cast<int16_t>((itDynamic->second >> 16) & 0xFFFF);
-    if (periodMs == 0 || rawProgress < 0) return;
+    // 0xFFFF means "this object has no path progress to report", which every
+    // non-transport GameObject sends. Anything else is a fraction of 65535:
+    // read as signed, the second half of every route came out negative and a
+    // ship created there never adopted the server's clock.
+    const uint16_t rawProgress = static_cast<uint16_t>((itDynamic->second >> 16) & 0xFFFF);
+    if (periodMs == 0 || rawProgress == 0xFFFF) return;
 
     const float phase = static_cast<float>(rawProgress) / 65535.0f;
     tm->applyServerRouteClock(block.guid, phase, periodMs);

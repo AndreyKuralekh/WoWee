@@ -99,6 +99,10 @@ struct ActiveTransport {
     /// board until the server creates it again.
     bool serverGone = false;
 
+    /// Not on this map, but still in sight: sailing away from the map edge or
+    /// in towards it. Drawn and nothing else - no deck, no collision, no rider.
+    bool sailingOffMap = false;
+
     /// Whether a player standing on this is carried by it.
     ///
     /// The client decides boarding for itself - the server never says "you
@@ -149,6 +153,11 @@ struct ActiveTransport {
     uint32_t assignedTaxiPathId = 0;
     uint32_t assignedTaxiMapId = 0;
     double routePhaseAtTime = 0.0;
+    // Where the server created the hull, waiting for a route to find it on.
+    bool hasPendingAnchor = false;
+    glm::vec3 pendingAnchor{0.0f};
+    // The clock was set from that position, which is exact; the phase is not.
+    bool routeAnchored = false;
 };
 
 class TransportManager {
@@ -284,6 +293,9 @@ public:
     void applyServerRouteClock(uint64_t transportGuid, float phase, uint32_t periodMs);
     // The server created this transport in the player's world, or removed it.
     void setServerPresent(uint64_t transportGuid, bool present);
+    // Set the route clock from where the server put the hull as it came back
+    // onto this map. The phase in the same packet can be 20-30 s off.
+    void anchorRouteClock(uint64_t transportGuid, const glm::vec3& canonicalPosition);
 
     // Ship machinery follows the hull: ShipMoving while under way, ShipStop when
     // holding at a dock. Cheap to call every frame - it only reaches the
@@ -376,6 +388,8 @@ private:
     void pushTransform(ActiveTransport& transport);
     /// Take the hull out of the world, or put it back. See ActiveTransport::onThisMap.
     void setInstanceHidden(const ActiveTransport& transport, bool hidden);
+    /// Uses a pending anchor once the hull has both a route and a period.
+    void applyRouteAnchor(ActiveTransport& transport);
 
     TransportPathRepository pathRepo_;
     TransportClockSync clockSync_;
@@ -396,6 +410,8 @@ private:
     // double: float loses millisecond precision after ~4.5 hours (2^23 / 1000),
     // causing transport path interpolation to visibly jerk in long play sessions.
     double elapsedTime_ = 0.0;
+    std::chrono::steady_clock::time_point lastUpdateClock_{};
+    bool hasLastUpdateClock_ = false;
 };
 
 } // namespace wowee::game

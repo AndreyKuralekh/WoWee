@@ -163,6 +163,10 @@ public:
     /// query, which is where collision comes from.
     void setInstanceHidden(uint32_t instanceId, bool hidden);
 
+    /// Drawn, but not there: every spatial query passes through it. A ship
+    /// sailing out of sight after the server has taken it off this map.
+    void setInstanceVisualOnly(uint32_t instanceId, bool visualOnly);
+
     /**
      * Add doodad (child M2) to WMO instance
      * @param instanceId WMO instance to add doodad to
@@ -734,6 +738,9 @@ private:
         /// setInstanceHidden.
         bool hidden = false;
 
+        /// See setInstanceVisualOnly.
+        bool visualOnly = false;
+
         void updateModelMatrix();
     };
 
@@ -823,6 +830,10 @@ public:
      *  shut in a building: it stands on the floor of one of the building's
      *  groups the portals show. -1 from groupAtInEnclosure: on none. */
     int groupAtInEnclosure(const glm::vec3& worldPos) const;
+    /// Where a doodad of this instance belongs: on it, or out of the world
+    /// while it is hidden.
+    glm::mat4 doodadWorldTransform(const WMOInstance& inst, const glm::mat4& local) const;
+
     /** Every group a model at a world point may be seen in: the one whose
      *  floor it stands on, and every group whose box holds it. A model hung
      *  on a wall - the throne room's drapes over its doors - has its floor

@@ -392,6 +392,18 @@ void M2Renderer::setInstanceIsGameObject(uint32_t instanceId, bool isGameObject)
     instances[idxIt->second].isGameObject = isGameObject;
 }
 
+void M2Renderer::setInstanceDrawWithHull(uint32_t instanceId, bool drawWithHull) {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) return;
+    instances[idxIt->second].drawWithHull = drawWithHull;
+}
+
+void M2Renderer::setInstanceHullOrigin(uint32_t instanceId, const glm::vec3& origin) {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) return;
+    instances[idxIt->second].hullOrigin = origin;
+}
+
 void M2Renderer::setSkipCollision(uint32_t instanceId, bool skip) {
     for (auto& inst : instances) {
         if (inst.id == instanceId) {

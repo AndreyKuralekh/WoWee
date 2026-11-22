@@ -1023,8 +1023,11 @@ void EntitySpawner::spawnOnlineGameObject(uint64_t guid, uint32_t entry, uint32_
             if (m2Renderer && isTransport) {
                 const auto* doodadTemplates = wmoRenderer->getDoodadTemplates(modelId);
                 if (doodadTemplates && !doodadTemplates->empty()) {
-                    constexpr size_t kMaxTransportDoodads = 192;
-                    const size_t doodadBudget = std::min(doodadTemplates->size(), kMaxTransportDoodads);
+                    // All of them, as the path for a model still loading does. A
+                    // cap of 192 here cost every ship after the first of its
+                    // class whatever came last: on the Alliance ship, doodad
+                    // 207 of 208 is the sails.
+                    const size_t doodadBudget = doodadTemplates->size();
                     LOG_DEBUG("Queueing ", doodadBudget, "/", doodadTemplates->size(),
                              " transport doodads for WMO instance ", instanceId);
                     pendingTransportDoodadBatches_.push_back(PendingTransportDoodadBatch{
