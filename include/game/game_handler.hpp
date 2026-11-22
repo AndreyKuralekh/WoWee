@@ -1741,6 +1741,11 @@ public:
     }
     bool completePlayerTransportWorldTransfer(uint64_t transportGuid,
                                               glm::vec3& worldPosition);
+    /// While a rider's ship is being rebuilt on the new map, nothing may be
+    /// sent about the player's movement. The server carries a passenger by
+    /// itself, and a movement packet without the transport in it is how a
+    /// client says it has stepped off. Gives up if the ship never appears.
+    [[nodiscard]] bool holdsMovementForTransportTransfer();
 
     // Cooldowns
     float getSpellCooldown(uint32_t spellId) const;
@@ -4485,6 +4490,7 @@ private:
     uint32_t pendingPlayerTransportEntry_ = 0;
     uint32_t pendingPlayerTransportMapId_ = 0xFFFFFFFFu;
     glm::vec3 pendingPlayerTransportOffset_ = glm::vec3(0.0f);
+    std::chrono::steady_clock::time_point pendingPlayerTransportSince_{};
     std::unique_ptr<TransportManager> transportManager_;  // Transport movement manager
     uint32_t weaponProficiency_ = 0;  // bitmask from SMSG_SET_PROFICIENCY itemClass=2
     uint32_t armorProficiency_  = 0;  // bitmask from SMSG_SET_PROFICIENCY itemClass=4

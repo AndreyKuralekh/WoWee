@@ -502,7 +502,11 @@ void MovementHandler::sendMovement(Opcode opcode) {
     // player then walks up to is out of the server's reach, and refuses in
     // silence. Once per stretch of it, not per packet.
     const char* heldReason = nullptr;
-    if (!taxiAllowed) {
+    // Heartbeats and stops too: the server reads any of them without the
+    // transport in it as the rider stepping off the ship.
+    if (owner_.holdsMovementForTransportTransfer()) {
+        heldReason = "the ship is crossing to the new map";
+    } else if (!taxiAllowed) {
         if (!serverMovementAllowed_) heldReason = "the server has not given control of the character";
         else if (onTaxiFlight_) heldReason = "a taxi flight is in progress";
         else if (taxiMountActive_) heldReason = "a taxi mount is on";

@@ -191,6 +191,10 @@ void GameHandler::disconnect() {
     friendGuids_.clear();
     contacts_.clear();
     transportAttachments_.clear();
+    pendingPlayerTransportTransfer_ = false;
+    pendingPlayerTransportGuid_ = 0;
+    pendingPlayerTransportEntry_ = 0;
+    pendingPlayerTransportMapId_ = 0xFFFFFFFFu;
     // Warden state is WardenHandler's; this used to clear a second copy of it
     // that nothing ever filled.
     if (wardenHandler_) wardenHandler_->reset();
@@ -1578,6 +1582,7 @@ void GameHandler::beginPlayerTransportWorldTransfer(
     pendingPlayerTransportGuid_ = playerTransportGuid_;
     pendingPlayerTransportMapId_ = destinationMapId;
     pendingPlayerTransportOffset_ = localOffset;
+    pendingPlayerTransportSince_ = std::chrono::steady_clock::now();
     pendingPlayerTransportEntry_ = 0;
     if (transportManager_) {
         if (const auto* transport = transportManager_->getTransport(playerTransportGuid_)) {
@@ -1625,6 +1630,23 @@ bool GameHandler::completePlayerTransportWorldTransfer(
     pendingPlayerTransportEntry_ = 0;
     pendingPlayerTransportMapId_ = 0xFFFFFFFFu;
     return true;
+}
+
+bool GameHandler::holdsMovementForTransportTransfer() {
+    if (!pendingPlayerTransportTransfer_) return false;
+    // Far longer than any map load. Past it the ship is not coming, and a
+    // player who can never send movement again is worse than one left behind.
+    constexpr auto kGiveUpAfter = std::chrono::seconds(120);
+    if (std::chrono::steady_clock::now() - pendingPlayerTransportSince_ < kGiveUpAfter) return true;
+
+    LOG_WARNING("Transport world transfer abandoned: guid=0x", std::hex,
+                pendingPlayerTransportGuid_, std::dec, " entry=", pendingPlayerTransportEntry_,
+                " never appeared on map ", pendingPlayerTransportMapId_);
+    pendingPlayerTransportTransfer_ = false;
+    pendingPlayerTransportGuid_ = 0;
+    pendingPlayerTransportEntry_ = 0;
+    pendingPlayerTransportMapId_ = 0xFFFFFFFFu;
+    return false;
 }
 
 // Client-side transport boarding/disembark detection for locally animated transports.
