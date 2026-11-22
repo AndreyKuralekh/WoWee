@@ -2218,7 +2218,8 @@ void EntityController::onCreateGameObject(const UpdateBlock& block, std::shared_
         if (transportManager) transportManager->setServerPresent(block.guid, true);
         // The route's period and phase come with the create block; the transport
         // manager holds them until the hull has loaded and registered.
-        applyTransportRouteClock(block);
+        const glm::vec3 createPosition(go->getX(), go->getY(), go->getZ());
+        applyTransportRouteClock(block, &createPosition);
         if (cameBack) {
             transportManager->anchorRouteClock(block.guid, glm::vec3(go->getX(), go->getY(), go->getZ()));
         }
@@ -2498,7 +2499,8 @@ void EntityController::trackActiveCritter(const UpdateBlock& block) {
              " by spell=", summonedBy);
 }
 
-void EntityController::applyTransportRouteClock(const UpdateBlock& block) {
+void EntityController::applyTransportRouteClock(const UpdateBlock& block,
+                                                const glm::vec3* createPosition) {
     // A moving transport publishes where it is on its route: LEVEL is the route's
     // period in milliseconds, and the high int16 of DYNAMIC is how far through
     // that period it currently is, as a fraction of 65535.
@@ -2531,7 +2533,7 @@ void EntityController::applyTransportRouteClock(const UpdateBlock& block) {
     if (periodMs == 0 || rawProgress == 0xFFFF) return;
 
     const float phase = static_cast<float>(rawProgress) / 65535.0f;
-    tm->applyServerRouteClock(block.guid, phase, periodMs);
+    tm->applyServerRouteClock(block.guid, phase, periodMs, createPosition);
 }
 
 // ============================================================
@@ -3152,7 +3154,7 @@ void EntityController::handleGameObjectQueryResponse(network::Packet& packet) {
                                 owner_.getTransportManager()->hasTaxiPath(taxiPathId) ? 1 : 0, ")");
                 }
             } else if (owner_.getTransportManager()->assignTaxiPathToTransport(
-                           data.entry, taxiPathId, mapId)) {
+                           data.entry, taxiPathId, mapId, data.data[1], data.data[2])) {
                 if (sayThis) {
                     LOG_WARNING("MO_TRANSPORT entry=", data.entry, " assigned TaxiPathNode path ",
                                 taxiPathId, " on map ", mapId);

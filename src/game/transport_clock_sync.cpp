@@ -37,7 +37,8 @@ bool TransportClockSync::computePathTime(
         const double sinceSampleMs =
             std::max(0.0, (elapsedTime - transport.routePhaseAtTime) * 1000.0);
         const double serverMs =
-            static_cast<double>(transport.routePhase) * transport.routePeriodMs + sinceSampleMs;
+            static_cast<double>(transport.routePhase) * transport.routePeriodMs + sinceSampleMs +
+            transport.routeBiasMs;
         double wrapped = std::fmod(serverMs, static_cast<double>(transport.routePeriodMs));
         if (wrapped < 0.0) wrapped += transport.routePeriodMs;
         const double fraction = wrapped / static_cast<double>(transport.routePeriodMs);

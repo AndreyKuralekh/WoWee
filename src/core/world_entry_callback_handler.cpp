@@ -10,6 +10,7 @@
 #include "rendering/wmo_renderer.hpp"
 #include "rendering/m2_renderer.hpp"
 #include "game/game_handler.hpp"
+#include "game/transport_manager.hpp"
 #include "pipeline/asset_manager.hpp"
 
 #include <cmath>
@@ -147,6 +148,7 @@ void WorldEntryCallbackHandler::setupCallbacks() {
     gameHandler_.setWorldEntryCallback([this](uint32_t mapId, float x, float y, float z, bool isInitialEntry) {
         LOG_INFO("Online world entry: mapId=", mapId, " pos=(", x, ", ", y, ", ", z, ")"
                  " initial=", isInitialEntry);
+        if (auto* transports = gameHandler_.getTransportManager()) transports->noteWorldEntry();
         renderer_.resetCombatVisualState();
 
         // Reconnect to the same map: terrain stays loaded but all online entities are stale.

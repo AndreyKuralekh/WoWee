@@ -190,7 +190,9 @@ private:
     void handleMovementUpdate(const UpdateBlock& block);
     /// Seed a transport's route phase from the server's own path clock, so the
     /// client stops animating on a period it invented for itself.
-    void applyTransportRouteClock(const UpdateBlock& block);
+    /// createPosition is the hull's position, when the block is a create block.
+    void applyTransportRouteClock(const UpdateBlock& block,
+                                  const glm::vec3* createPosition = nullptr);
     /// Note which non-combat companion is out and what called it, so casting
     /// that spell again dismisses instead of summoning another.
     void trackActiveCritter(const UpdateBlock& block);

@@ -1222,7 +1222,8 @@ void EntitySpawner::processPendingTransportRegistrations() {
                 uint32_t taxiPathId = goData->data[0];
                 const uint32_t mapId = gameHandler_->getCurrentMapId();
                 if (transportManager->hasTaxiPathForMap(taxiPathId, mapId)) {
-                    transportManager->assignTaxiPathToTransport(pending.entry, taxiPathId, mapId);
+                    transportManager->assignTaxiPathToTransport(pending.entry, taxiPathId, mapId,
+                                                                goData->data[1], goData->data[2]);
                     LOG_DEBUG("Assigned cached TaxiPathNode path for MO_TRANSPORT entry=", pending.entry,
                              " taxiPathId=", taxiPathId, " map=", mapId);
                 }

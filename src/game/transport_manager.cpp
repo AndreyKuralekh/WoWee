@@ -135,6 +135,7 @@ void TransportManager::update(float deltaTime) {
     for (auto& [guid, transport] : transports_) {
         // Once we have server clock offset, we can predict server time indefinitely
         // No need for watchdog - keep using the offset even if server updates stop
+        transport.routeBiasMs = transport.serverTimeline ? routeBiasMs_ : 0.0;
         updateTransportMovement(transport, deltaTime);
     }
 }
@@ -284,9 +285,11 @@ void TransportManager::registerTransport(uint64_t guid,
     // A route phase the server published before this was registered.
     if (auto pendingClock = pendingRouteClocks_.find(guid);
         pendingClock != pendingRouteClocks_.end()) {
-        const auto [phase, periodMs] = pendingClock->second;
+        const PendingRouteClock held = pendingClock->second;
         pendingRouteClocks_.erase(pendingClock);
-        applyServerRouteClock(guid, phase, periodMs);
+        // Timed from when it arrived: the model can take seconds to load.
+        adoptRouteClock(transports_[guid], held.phase, held.periodMs, held.sampleTime,
+                        held.hasPosition ? &held.position : nullptr);
     }
 
     glm::vec3 renderPos = core::coords::canonicalToRender(transport.position);
@@ -461,10 +464,38 @@ bool TransportManager::isPointOnTransportDeck(uint64_t transportGuid,
     return floorDelta >= -0.35f && floorDelta <= maxFloorDelta;
 }
 
+double TransportManager::routeClockNow() const {
+    if (!hasLastUpdateClock_) return elapsedTime_;
+    return elapsedTime_ +
+           std::chrono::duration<double>(std::chrono::steady_clock::now() - lastUpdateClock_).count();
+}
+
+void TransportManager::noteWorldEntry() {
+    worldEntryTime_ = routeClockNow();
+    worldEntryBatchEnd_ = 0.0;
+    worldEntryBatchOpen_ = true;
+}
+
+double TransportManager::createBlockTime(double receivedAt) {
+    if (!worldEntryBatchOpen_) return receivedAt;
+    // The whole map's transports come together, in the first packets handled
+    // once it has loaded. Anything later is a hull really arriving.
+    constexpr double kBatchSeconds = 1.0;
+    if (worldEntryBatchEnd_ == 0.0) worldEntryBatchEnd_ = receivedAt + kBatchSeconds;
+    if (receivedAt > worldEntryBatchEnd_) {
+        worldEntryBatchOpen_ = false;
+        return receivedAt;
+    }
+    return worldEntryTime_;
+}
+
 void TransportManager::applyServerRouteClock(uint64_t transportGuid, float phase,
-                                             uint32_t periodMs) {
+                                             uint32_t periodMs, const glm::vec3* createPosition) {
     if (periodMs == 0) return;
     if (!(phase >= 0.0f) || phase >= 1.0f) return;   // also rejects NaN
+
+    const double receivedAt = routeClockNow();
+    const double sampleTime = createPosition ? createBlockTime(receivedAt) : receivedAt;
 
     auto* transport = getTransport(transportGuid);
     if (!transport) {
@@ -474,34 +505,87 @@ void TransportManager::applyServerRouteClock(uint64_t transportGuid, float phase
         // is created and rarely again, so dropping it here meant a hull that
         // never adopted the server's clock at all and invented one from
         // distance over speed instead. Held until registerTransport asks.
-        pendingRouteClocks_[transportGuid] = {phase, periodMs};
+        pendingRouteClocks_[transportGuid] = {phase, periodMs, sampleTime, createPosition != nullptr,
+                                              createPosition ? *createPosition : glm::vec3(0.0f)};
         return;
     }
+    adoptRouteClock(*transport, phase, periodMs, sampleTime, createPosition);
+}
 
+void TransportManager::adoptRouteClock(ActiveTransport& transport, float phase, uint32_t periodMs,
+                                       double sampleTime, const glm::vec3* createPosition) {
     // Already set from the hull's real position, which this cannot improve on.
-    if (transport->routeAnchored) return;
+    if (transport.routeAnchored) return;
 
-    const bool firstSample = !transport->hasServerRouteClock;
-    transport->hasServerRouteClock = true;
-    transport->routePhase = phase;
-    transport->routePeriodMs = periodMs;
-    transport->routePhaseAtTime = elapsedTime_;
+    const bool firstSample = !transport.hasServerRouteClock;
+    transport.hasServerRouteClock = true;
+    transport.routePhase = phase;
+    transport.routePeriodMs = periodMs;
+    transport.routePhaseAtTime = sampleTime;
+    transport.hasRouteSamplePosition = createPosition != nullptr;
+    if (createPosition) transport.routeSamplePosition = *createPosition;
 
     if (firstSample) {
-        LOG_WARNING("Transport 0x", std::hex, transportGuid, std::dec,
+        LOG_WARNING("Transport 0x", std::hex, transport.guid, std::dec,
                  " adopted server route clock: period=", periodMs, "ms phase=", phase,
                  " (client period was ", [&]() -> uint32_t {
-                     const auto* p = pathRepo_.findPath(transport->pathId);
+                     const auto* p = pathRepo_.findPath(transport.pathId);
                      return p ? p->spline.durationMs() : 0u;
                  }(), "ms)");
         // Its route was timed at a nominal speed before the period was known.
         // Stops do not scale with speed, so the phase would land on the wrong
         // stretch of it: time it again at the speed this period says.
-        if (transport->assignedTaxiPathId != 0) {
-            assignTaxiPathToTransport(transport->entry, transport->assignedTaxiPathId,
-                                      transport->assignedTaxiMapId);
+        if (transport.assignedTaxiPathId != 0) {
+            assignTaxiPathToTransport(transport.entry, transport.assignedTaxiPathId,
+                                      transport.assignedTaxiMapId, transport.routeMoveSpeed,
+                                      transport.routeAccelRate);
         }
     }
+    calibrateRouteBias(transport);
+}
+
+void TransportManager::calibrateRouteBias(ActiveTransport& transport) {
+    if (!transport.serverTimeline || !transport.hasRouteSamplePosition) return;
+    const auto* path = pathRepo_.findPath(transport.pathId);
+    if (!path || path->spline.durationMs() == 0) return;
+    const auto& spline = path->spline;
+    const uint32_t duration = spline.durationMs();
+    transport.hasRouteSamplePosition = false;
+
+    const auto flatDistance = [](const glm::vec3& a, const glm::vec3& b) {
+        return glm::length(glm::vec2(a.x - b.x, a.y - b.y));
+    };
+    // The lag is well under this for any server that has been up less than
+    // three days, and a route can pass one point twice further apart.
+    constexpr int kSearchMs = 5000;
+    constexpr int kStepMs = 20;
+    const int published = static_cast<int>(static_cast<double>(transport.routePhase) * duration);
+    float best = std::numeric_limits<float>::max();
+    int bestOffset = 0;
+    for (int offset = -kSearchMs; offset <= kSearchMs; offset += kStepMs) {
+        const uint32_t t = static_cast<uint32_t>(
+            (published + offset + static_cast<int>(duration)) % static_cast<int>(duration));
+        if (!path->presentAt(t)) continue;
+        const float d = flatDistance(spline.evaluatePosition(t), transport.routeSamplePosition);
+        if (d < best) { best = d; bestOffset = offset; }
+    }
+    constexpr float kOnRouteYards = 1.5f;
+    if (best > kOnRouteYards) return;
+
+    // At a dock the position says nothing about how far through the stop it is.
+    const uint32_t found = static_cast<uint32_t>(
+        (published + bestOffset + static_cast<int>(duration)) % static_cast<int>(duration));
+    constexpr uint32_t kDwellProbeMs = 500u;
+    const glm::vec3 before = spline.evaluatePosition((found + duration - kDwellProbeMs) % duration);
+    const glm::vec3 after = spline.evaluatePosition((found + kDwellProbeMs) % duration);
+    if (flatDistance(before, after) < 0.25f) return;
+
+    // A sample is good to about one server tick; smooth them.
+    routeBiasMs_ = hasRouteBias_ ? routeBiasMs_ * 0.75 + bestOffset * 0.25
+                                 : static_cast<double>(bestOffset);
+    hasRouteBias_ = true;
+    LOG_INFO("Transport 0x", std::hex, transport.guid, std::dec, " entry=", transport.entry,
+             " phase lags its position by ", bestOffset, "ms, using ", routeBiasMs_, "ms");
 }
 
 void TransportManager::setServerPresent(uint64_t transportGuid, bool present) {
@@ -514,13 +598,18 @@ void TransportManager::setServerPresent(uint64_t transportGuid, bool present) {
 
 void TransportManager::anchorRouteClock(uint64_t transportGuid, const glm::vec3& canonicalPosition) {
     auto* transport = getTransport(transportGuid);
-    if (!transport || transport->isM2) return;
+    // On the server's timeline the phase is already exact.
+    if (!transport || transport->isM2 || transport->serverTimeline) return;
     transport->pendingAnchor = canonicalPosition;
     transport->hasPendingAnchor = true;
     applyRouteAnchor(*transport);
 }
 
 void TransportManager::applyRouteAnchor(ActiveTransport& transport) {
+    if (transport.serverTimeline) {
+        transport.hasPendingAnchor = false;
+        return;
+    }
     if (!transport.hasPendingAnchor || !transport.hasServerRouteClock ||
         !transport.worldCoords || transport.routePeriodMs == 0) {
         return;
@@ -740,7 +829,8 @@ void TransportManager::updateTransportMovement(ActiveTransport& transport, float
         // or 30 s ahead of it, differently on each login, so the hull can be
         // removed before the route here reaches the edge and created well
         // after the route has come back onto this map.
-        constexpr uint32_t kClockToleranceMs = 35000u;
+        // On the server's own timeline the two agree to a fraction of a second.
+        const uint32_t kClockToleranceMs = transport.serverTimeline ? 3000u : 35000u;
         glm::vec3 sailPosition(0.0f);
         glm::vec3 sailDirection(0.0f);
         bool drawn = false;
@@ -959,7 +1049,8 @@ bool TransportManager::hasTaxiPathForMap(uint32_t taxiPathId, uint32_t mapId) co
     return pathRepo_.hasTaxiPathForMap(taxiPathId, mapId);
 }
 
-bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPathId, uint32_t mapId) {
+bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPathId, uint32_t mapId,
+                                                 uint32_t moveSpeed, uint32_t accelRate) {
     auto* taxiEntry = pathRepo_.findTaxiPath(taxiPathId, mapId);
     if (!taxiEntry) {
         LOG_WARNING("No TaxiPathNode segment for taxiPathId=", taxiPathId, " on mapId=", mapId,
@@ -1000,7 +1091,29 @@ bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPa
         copied.arrivals = taxiEntry->arrivals;
         copied.departures = taxiEntry->departures;
         copied.edgeSpeed = taxiEntry->edgeSpeed;
-        if (route && transport.hasServerRouteClock) {
+        if (moveSpeed != 0 && accelRate != 0) {
+            transport.routeMoveSpeed = moveSpeed;
+            transport.routeAccelRate = accelRate;
+        }
+        // The server's own timeline, if its published period confirms it.
+        std::optional<PathEntry> serverSlice;
+        if (route && transport.hasServerRouteClock && transport.routeMoveSpeed != 0) {
+            serverSlice = TransportPathRepository::buildServerRouteSlice(
+                *route, mapId, static_cast<float>(transport.routeMoveSpeed),
+                static_cast<float>(transport.routeAccelRate), transport.routePeriodMs);
+            if (!serverSlice) {
+                LOG_WARNING("Transport entry=", entry, " route ", taxiPathId, " speed=",
+                            transport.routeMoveSpeed, " accel=", transport.routeAccelRate,
+                            " does not come to the server's ", transport.routePeriodMs,
+                            "ms period - using the constant-speed timeline");
+            }
+        }
+        if (serverSlice) {
+            serverSlice->pathId = entry;
+            LOG_INFO("Transport entry=", entry, " route ", taxiPathId, " on the server's timeline: ",
+                     serverSlice->spline.keyCount(), " keys, period ", serverSlice->spline.durationMs(), "ms");
+            copied = std::move(*serverSlice);
+        } else if (route && transport.hasServerRouteClock) {
             const float speed =
                 TransportPathRepository::taxiRouteSpeedFor(*route, transport.routePeriodMs);
             if (speed > 0.0f) {
@@ -1024,6 +1137,7 @@ bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPa
         transport.worldCoords = true;
         transport.borrowedPath = false;  // This route is its own now.
         transport.routeOriginMs = storedEntry ? storedEntry->routeOriginMs : 0u;
+        transport.serverTimeline = storedEntry && storedEntry->serverTimeline;
         transport.assignedTaxiPathId = taxiPathId;
         transport.assignedTaxiMapId = mapId;
         transport.basePosition = glm::vec3(0.0f);  // World-coordinate path, no base offset
@@ -1063,6 +1177,7 @@ bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPa
                  " duration=", storedEntry ? storedEntry->spline.durationMs() : 0u, "ms",
                  " startPos=(", transport.position.x, ", ", transport.position.y, ", ", transport.position.z, ")");
         applyRouteAnchor(transport);
+        calibrateRouteBias(transport);
         assignedAny = true;
     }
 

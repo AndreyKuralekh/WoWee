@@ -669,6 +669,372 @@ PathEntry TransportPathRepository::buildTaxiRouteSlice(const TaxiRoute& route,
     return entry;
 }
 
+namespace {
+
+/// A Catmull-Rom curve through one run of a route, with a virtual point before
+/// the first node and the last node repeated, as the server builds it. Its
+/// lengths are measured in three straight steps per segment: they feed the
+/// timing, so a more accurate length would be a different period.
+struct ServerSpline {
+    std::vector<glm::vec3> points;
+    std::vector<double> lengths;
+
+    explicit ServerSpline(const std::vector<glm::vec3>& controls) {
+        const size_t n = controls.size();
+        points.reserve(n + 2);
+        points.push_back(controls[0] + (controls[1] - controls[0]) * -1.0f);
+        points.insert(points.end(), controls.begin(), controls.end());
+        points.push_back(controls[n - 1]);
+        lengths.assign(n + 1, 0.0);
+        double total = 0.0;
+        for (size_t i = 1; i < n; ++i) {
+            glm::vec3 current = points[i];
+            float segment = 0.0f;
+            double sum = 0.0;
+            for (int step = 1; step <= 3; ++step) {
+                const glm::vec3 next = at(i, static_cast<float>(step) / 3.0f);
+                sum += glm::length(next - current);
+                current = next;
+            }
+            segment = static_cast<float>(sum);
+            total += segment;
+            lengths[i + 1] = total;
+        }
+    }
+
+    [[nodiscard]] glm::vec3 at(size_t index, float t) const {
+        const float t2 = t * t;
+        const float t3 = t2 * t;
+        return points[index - 1] * (-0.5f * t3 + t2 - 0.5f * t) +
+               points[index] * (1.5f * t3 - 2.5f * t2 + 1.0f) +
+               points[index + 1] * (-1.5f * t3 + 2.0f * t2 + 0.5f * t) +
+               points[index + 2] * (0.5f * t3 - 0.5f * t2);
+    }
+};
+
+struct ServerFrame {
+    const TaxiRouteNode* node = nullptr;
+    bool teleport = false;
+    float distFromPrev = 0.0f;
+    float nextDistFromPrev = 0.0f;
+    float distSinceStop = 0.0f;
+    float distUntilStop = 0.0f;
+    float timeFrom = 0.0f;
+    float timeTo = 0.0f;
+    uint32_t arriveMs = 0;
+    uint32_t departMs = 0;
+    uint32_t nextArriveMs = 0;
+    size_t splineIndex = 0;
+    int spline = -1;
+
+    [[nodiscard]] bool isStop() const { return node->actionFlags == 2u; }
+};
+
+struct ServerTimeline {
+    std::vector<ServerFrame> frames;
+    std::vector<ServerSpline> splines;
+    float speed = 0.0f;
+    float accel = 0.0f;
+    float accelTime = 0.0f;
+    float accelDist = 0.0f;
+    uint32_t periodMs = 0;
+
+    /// The hull's position on a moving frame.
+    [[nodiscard]] glm::vec3 positionAt(const ServerFrame& frame, uint32_t timerMs) const {
+        const float now = static_cast<float>(timerMs) * 0.001f;
+        const float depart = static_cast<float>(frame.departMs) * 0.001f;
+        const float sinceStop = frame.timeFrom + (now - depart);
+        const float untilStop = frame.timeTo - (now - depart);
+        float segmentPos = 0.0f;
+        if (sinceStop < untilStop) {
+            const float dist = sinceStop < accelTime
+                ? 0.5f * accel * sinceStop * sinceStop
+                : accelDist + (sinceStop - accelTime) * speed;
+            segmentPos = dist - frame.distSinceStop;
+        } else {
+            const float dist = untilStop < accelTime
+                ? 0.5f * accel * untilStop * untilStop
+                : accelDist + (untilStop - accelTime) * speed;
+            segmentPos = frame.distUntilStop - dist;
+        }
+        const float u = std::clamp(segmentPos / frame.nextDistFromPrev, 0.0f, 1.0f);
+        return splines[static_cast<size_t>(frame.spline)].at(frame.splineIndex, u);
+    }
+
+    /// How fast the hull is going as it passes a frame.
+    [[nodiscard]] float speedAt(const ServerFrame& frame) const {
+        const float fromStop = std::min(frame.distSinceStop, frame.distUntilStop);
+        return std::min(speed, std::sqrt(2.0f * accel * std::max(fromStop, 0.0f)));
+    }
+};
+
+/// TransportMgr::GeneratePath, step for step.
+std::optional<ServerTimeline> buildServerTimeline(const TaxiRoute& route, float speed, float accel) {
+    if (speed <= 0.0f || accel <= 0.0f || route.nodes.size() < 4) return std::nullopt;
+
+    ServerTimeline line;
+    line.speed = speed;
+    line.accel = accel;
+    line.accelTime = speed / accel;
+    line.accelDist = 0.5f * speed * speed / accel;
+
+    // The node before a map change and the one after it are never flown: the
+    // last node kept teleports straight to the one after those.
+    auto& frames = line.frames;
+    bool mapChange = false;
+    for (size_t i = 0; i < route.nodes.size(); ++i) {
+        if (mapChange) { mapChange = false; continue; }
+        const TaxiRouteNode& node = route.nodes[i];
+        if (i + 1 != route.nodes.size() &&
+            ((node.actionFlags & 1u) != 0u || node.mapId != route.nodes[i + 1].mapId)) {
+            if (frames.empty()) return std::nullopt;
+            frames.back().teleport = true;
+            mapChange = true;
+        } else {
+            ServerFrame frame;
+            frame.node = &node;
+            frames.push_back(frame);
+        }
+    }
+    if (frames.size() < 4) return std::nullopt;
+    frames.erase(frames.begin());
+    frames.pop_back();
+    frames.back().teleport = true;
+
+    std::vector<glm::vec3> points;
+    points.reserve(frames.size());
+    for (const ServerFrame& frame : frames) points.push_back(frame.node->position);
+
+    int firstStop = frames[0].isStop() ? 0 : -1;
+    int lastStop = firstStop;
+    frames[0].splineIndex = 1;
+    line.splines.reserve(frames.size());
+
+    size_t start = 0;
+    for (size_t i = 1; i < frames.size(); ++i) {
+        if (frames[i - 1].teleport || i + 1 == frames.size()) {
+            const size_t extra = frames[i - 1].teleport ? 0u : 1u;
+            if (i + extra - start < 2) return std::nullopt;   // no curve through one point
+            line.splines.emplace_back(std::vector<glm::vec3>(
+                points.begin() + static_cast<std::ptrdiff_t>(start),
+                points.begin() + static_cast<std::ptrdiff_t>(i + extra)));
+            const int spline = static_cast<int>(line.splines.size()) - 1;
+            const ServerSpline& curve = line.splines.back();
+            for (size_t j = start; j < i + extra; ++j) {
+                frames[j].splineIndex = j - start + 1;
+                frames[j].distFromPrev = static_cast<float>(
+                    curve.lengths[j + 1 - start] - curve.lengths[j - start]);
+                if (j > 0) frames[j - 1].nextDistFromPrev = frames[j].distFromPrev;
+                frames[j].spline = spline;
+            }
+            if (frames[i - 1].teleport) {
+                frames[i].splineIndex = i - start + 1;
+                frames[i].distFromPrev = 0.0f;
+                frames[i - 1].nextDistFromPrev = 0.0f;
+                frames[i].spline = spline;
+            }
+            start = i;
+        }
+        if (frames[i].isStop()) {
+            if (firstStop == -1) firstStop = static_cast<int>(i);
+            lastStop = static_cast<int>(i);
+        }
+    }
+    frames.back().nextDistFromPrev = frames.front().distFromPrev;
+    if (firstStop == -1 || lastStop == -1) firstStop = lastStop = 0;
+
+    const size_t n = frames.size();
+    float tmp = 0.0f;
+    for (size_t i = 0; i < n; ++i) {
+        const size_t j = (i + static_cast<size_t>(lastStop)) % n;
+        if (frames[j].isStop() || j == static_cast<size_t>(lastStop)) tmp = 0.0f;
+        else tmp += frames[j].distFromPrev;
+        frames[j].distSinceStop = tmp;
+    }
+    tmp = 0.0f;
+    for (size_t i = n; i-- > 0; ) {
+        const size_t j = (i + static_cast<size_t>(firstStop)) % n;
+        tmp += frames[(j + 1) % n].distFromPrev;
+        frames[j].distUntilStop = tmp;
+        if (frames[j].isStop() || j == static_cast<size_t>(firstStop)) tmp = 0.0f;
+    }
+
+    for (ServerFrame& f : frames) {
+        const float total = f.distSinceStop + f.distUntilStop;
+        if (total < 2.0f * line.accelDist) {
+            if (f.distSinceStop < f.distUntilStop) {
+                f.timeTo = 2.0f * std::sqrt(total / accel) - std::sqrt(2.0f * f.distSinceStop / accel);
+            } else {
+                f.timeTo = std::sqrt(2.0f * f.distUntilStop / accel);
+            }
+        } else if (f.distSinceStop < line.accelDist) {
+            f.timeTo = total / speed + speed / accel - std::sqrt(2.0f * f.distSinceStop / accel);
+        } else if (f.distUntilStop < line.accelDist) {
+            f.timeTo = std::sqrt(2.0f * f.distUntilStop / accel);
+        } else {
+            f.timeTo = f.distUntilStop / speed + 0.5f * speed / accel;
+        }
+    }
+
+    float segmentTime = 0.0f;
+    for (size_t i = 0; i < n; ++i) {
+        const size_t j = (i + static_cast<size_t>(lastStop)) % n;
+        if (frames[j].isStop() || j == static_cast<size_t>(lastStop)) segmentTime = frames[j].timeTo;
+        frames[j].timeFrom = segmentTime - frames[j].timeTo;
+    }
+
+    const auto delaySeconds = [](const ServerFrame& f) {
+        return static_cast<float>(f.node->dwellMs / 1000u);
+    };
+    float pathTime = 0.0f;
+    if (frames[0].isStop()) {
+        pathTime = delaySeconds(frames[0]);
+        frames[0].departMs = static_cast<uint32_t>(pathTime * 1000.0f);
+    }
+    for (size_t i = 1; i < n; ++i) {
+        pathTime += frames[i - 1].timeTo;
+        if (frames[i].isStop()) {
+            frames[i].arriveMs = static_cast<uint32_t>(pathTime * 1000.0f);
+            frames[i - 1].nextArriveMs = frames[i].arriveMs;
+            pathTime += delaySeconds(frames[i]);
+            frames[i].departMs = static_cast<uint32_t>(pathTime * 1000.0f);
+        } else {
+            pathTime -= frames[i].timeTo;
+            frames[i].arriveMs = static_cast<uint32_t>(pathTime * 1000.0f);
+            frames[i - 1].nextArriveMs = frames[i].arriveMs;
+            frames[i].departMs = frames[i].arriveMs;
+        }
+    }
+    frames.back().nextArriveMs = frames.back().departMs;
+    line.periodMs = frames.back().departMs;
+    return line;
+}
+
+}  // namespace
+
+std::optional<PathEntry> TransportPathRepository::buildServerRouteSlice(
+    const TaxiRoute& route, uint32_t mapId, float moveSpeed, float accelRate,
+    uint32_t publishedPeriodMs) {
+    const auto timeline = buildServerTimeline(route, moveSpeed, accelRate);
+    if (!timeline) return std::nullopt;
+    // Rounding in the server's float arithmetic can differ by a millisecond.
+    constexpr uint32_t kPeriodToleranceMs = 3u;
+    const uint32_t period = timeline->periodMs;
+    const uint32_t difference = period > publishedPeriodMs ? period - publishedPeriodMs
+                                                           : publishedPeriodMs - period;
+    if (period == 0 || difference > kPeriodToleranceMs) return std::nullopt;
+
+    const auto& frames = timeline->frames;
+    struct Run { size_t first; size_t last; };
+    std::vector<Run> runs;
+    size_t runStart = 0;
+    for (size_t i = 0; i < frames.size(); ++i) {
+        if (!frames[i].teleport) continue;
+        if (frames[runStart].node->mapId == mapId && i > runStart) runs.push_back({runStart, i});
+        runStart = i + 1;
+    }
+    if (runs.empty()) return std::nullopt;
+
+    std::vector<math::SplineKey> keys;
+    keys.reserve(frames.size() * 40u);
+    const auto addKey = [&keys](uint32_t timeMs, const glm::vec3& position) {
+        if (keys.empty() || timeMs > keys.back().timeMs) keys.push_back({timeMs, position});
+    };
+    std::vector<std::pair<uint32_t, uint32_t>> presence;
+
+    // Dense enough that the curve between two keys is the server's. Keys are
+    // also kept apart in space: two nearly equal positions are how a stop is
+    // written on this spline, and a hull creeping out of a dock would read as
+    // a string of little stops.
+    constexpr uint32_t kSampleMs = 250u;
+    constexpr float kMinKeySpacing = 0.5f;
+
+    for (size_t r = 0; r < runs.size(); ++r) {
+        const ServerFrame& first = frames[runs[r].first];
+        const uint32_t arrive = first.arriveMs;
+        if (keys.empty()) {
+            if (arrive > 0) addKey(0u, first.node->position);
+        } else {
+            // Between two runs on this map: hold at the last node to halfway
+            // and at the next one after it, so that neither end of a run has
+            // a curve reaching across the gap.
+            const uint32_t from = keys.back().timeMs;
+            const glm::vec3 held = keys.back().position;
+            const uint32_t to = std::max(arrive, from + 3u);
+            const uint32_t mid = from + (to - from) / 2u;
+            addKey(from + 1u, held);
+            addKey(mid, held);
+            addKey(mid + 1u, first.node->position);
+            addKey(to, first.node->position);
+        }
+
+        for (size_t i = runs[r].first; i <= runs[r].last; ++i) {
+            const ServerFrame& frame = frames[i];
+            if (keys.empty() || glm::distance(keys.back().position, frame.node->position) >= kMinKeySpacing ||
+                frame.isStop() || i == runs[r].first || i == runs[r].last) {
+                addKey(frame.arriveMs, frame.node->position);
+            }
+            if (frame.departMs > frame.arriveMs) addKey(frame.departMs, frame.node->position);
+            if (i == runs[r].last || frame.nextDistFromPrev <= 0.0f) continue;
+
+            const ServerFrame& next = frames[i + 1];
+            const bool endsHere = next.isStop() || i + 1 == runs[r].last;
+            for (uint32_t t = frame.departMs + kSampleMs; t < frame.nextArriveMs; t += kSampleMs) {
+                const glm::vec3 p = timeline->positionAt(frame, t);
+                if (glm::distance(keys.back().position, p) < kMinKeySpacing) continue;
+                if (endsHere && glm::distance(next.node->position, p) < kMinKeySpacing) continue;
+                addKey(t, p);
+            }
+        }
+
+        const uint32_t leave = frames[runs[r].last].arriveMs;
+        if (!presence.empty() && presence.back().second == arrive) presence.back().second = leave;
+        else presence.emplace_back(arrive, leave);
+    }
+    if (keys.back().timeMs < period) addKey(period, keys.back().position);
+
+    PathEntry entry(math::CatmullRomSpline(std::move(keys), false), 0u, false, false, true);
+    entry.serverTimeline = true;
+    if (presence.size() == 1 && presence.front().first == 0 && presence.front().second >= period) {
+        return entry;   // Never leaves this map.
+    }
+    entry.presentMs = std::move(presence);
+    entry.edgeSpeed = moveSpeed;
+
+    // The hull's heading and speed where it crosses each edge of a span here,
+    // so what is drawn past the edge carries straight on from it.
+    const auto level = [](glm::vec3 d, glm::vec3& out) {
+        d.z = 0.0f;
+        const float length = glm::length(d);
+        if (length <= 0.001f) return false;
+        out = d / length;
+        return true;
+    };
+    for (size_t r = 0; r < runs.size(); ++r) {
+        const ServerFrame& first = frames[runs[r].first];
+        const ServerFrame& beforeLast = frames[runs[r].last - 1];
+        const ServerFrame& last = frames[runs[r].last];
+        glm::vec3 direction(0.0f);
+        const bool joinsPrevious = r > 0 && frames[runs[r - 1].last].arriveMs == first.arriveMs;
+        const bool joinsNext = r + 1 < runs.size() && frames[runs[r + 1].first].arriveMs == last.arriveMs;
+        if (!joinsPrevious && first.spline >= 0) {
+            const ServerSpline& curve = timeline->splines[static_cast<size_t>(first.spline)];
+            if (level(curve.at(first.splineIndex, 0.05f) - curve.at(first.splineIndex, 0.0f), direction)) {
+                entry.arrivals.push_back({first.arriveMs, first.node->position, direction,
+                                          timeline->speedAt(first)});
+            }
+        }
+        if (!joinsNext && beforeLast.spline >= 0) {
+            const ServerSpline& curve = timeline->splines[static_cast<size_t>(beforeLast.spline)];
+            if (level(curve.at(beforeLast.splineIndex, 1.0f) - curve.at(beforeLast.splineIndex, 0.95f), direction)) {
+                entry.departures.push_back({last.arriveMs, last.node->position, direction,
+                                            timeline->speedAt(last)});
+            }
+        }
+    }
+    return entry;
+}
+
 const TaxiRoute* TransportPathRepository::findTaxiRoute(uint32_t taxiPathId) const {
     auto it = taxiRoutes_.find(taxiPathId);
     return it != taxiRoutes_.end() ? &it->second : nullptr;
@@ -711,6 +1077,7 @@ bool TransportPathRepository::loadTaxiPathNodeDBC(pipeline::AssetManager* assetM
         uint32_t mapId;
         float x, y, z;
         uint32_t delaySeconds;
+        uint32_t actionFlags;
     };
     std::map<uint32_t, std::vector<TaxiNode>> nodesByPath;
 
@@ -721,11 +1088,13 @@ bool TransportPathRepository::loadTaxiPathNodeDBC(pipeline::AssetManager* assetM
         float posX = dbc.getFloat(i, 4);          // X (server coords)
         float posY = dbc.getFloat(i, 5);          // Y (server coords)
         float posZ = dbc.getFloat(i, 6);          // Z (server coords)
+        uint32_t actionFlags = dbc.getUInt32(i, 7);  // 1 = teleport, 2 = stop
         uint32_t delaySeconds = dbc.getUInt32(i, 8); // Dock dwell time
 
         nodesByPath[pathId].push_back({.nodeIndex = nodeIdx, .mapId = mapId,
                                        .x = posX, .y = posY, .z = posZ,
-                                       .delaySeconds = delaySeconds});
+                                       .delaySeconds = delaySeconds,
+                                       .actionFlags = actionFlags});
     }
 
     int pathsLoaded = 0;
@@ -740,7 +1109,8 @@ bool TransportPathRepository::loadTaxiPathNodeDBC(pipeline::AssetManager* assetM
             route.nodes.push_back({
                 .position = core::coords::serverToCanonical(glm::vec3(node.x, node.y, node.z)),
                 .mapId = node.mapId,
-                .dwellMs = node.delaySeconds * 1000u});
+                .dwellMs = node.delaySeconds * 1000u,
+                .actionFlags = node.actionFlags});
         }
         route.circuit = taxiRouteIsCircuit(route);
 

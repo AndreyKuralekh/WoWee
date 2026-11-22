@@ -153,6 +153,17 @@ struct ActiveTransport {
     uint32_t assignedTaxiPathId = 0;
     uint32_t assignedTaxiMapId = 0;
     double routePhaseAtTime = 0.0;
+    // data[1] and data[2] of the GO template: what the server's timeline is
+    // worked out from. Zero until the template is known.
+    uint32_t routeMoveSpeed = 0;
+    uint32_t routeAccelRate = 0;
+    // On the server's own timeline (PathEntry::serverTimeline).
+    bool serverTimeline = false;
+    // How far the published phase runs behind the server's timer, in ms.
+    double routeBiasMs = 0.0;
+    // Where the create block that carried the phase put the hull.
+    bool hasRouteSamplePosition = false;
+    glm::vec3 routeSamplePosition{0.0f};
     // Where the server created the hull, waiting for a route to find it on.
     bool hasPendingAnchor = false;
     glm::vec3 pendingAnchor{0.0f};
@@ -289,8 +300,14 @@ public:
                                      const glm::vec3& serverOffset) const;
     // Adopt the server's published route phase for a transport. phase is a
     // fraction in [0,1) of periodMs. Cheap and idempotent - safe to call on every
-    // object update that carries the fields.
-    void applyServerRouteClock(uint64_t transportGuid, float phase, uint32_t periodMs);
+    // object update that carries the fields. createPosition is the hull's
+    // position in the same create block, when there is one.
+    void applyServerRouteClock(uint64_t transportGuid, float phase, uint32_t periodMs,
+                               const glm::vec3* createPosition = nullptr);
+    // The player has just entered a world, by login or by a map change. The
+    // server builds its transport create blocks now, and they wait in the
+    // socket until the map has loaded: what they say is as of this moment.
+    void noteWorldEntry();
     // The server created this transport in the player's world, or removed it.
     void setServerPresent(uint64_t transportGuid, bool present);
     // Set the route clock from where the server put the hull as it came back
@@ -331,7 +348,9 @@ public:
     // Assign a TaxiPathNode path to an existing transport (called when GO query response arrives).
     // mapId selects the per-map segment (cross-map boat paths only have valid world
     // geometry on the transport's current map). Returns true if the transport was updated.
-    bool assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPathId, uint32_t mapId);
+    // moveSpeed and accelRate are data[1] and data[2] of the GO template.
+    bool assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPathId, uint32_t mapId,
+                                   uint32_t moveSpeed = 0, uint32_t accelRate = 0);
 
     // Check if a path exists for a given GameObject entry
     [[nodiscard]] bool hasPathForEntry(uint32_t entry) const;
@@ -390,6 +409,14 @@ private:
     void setInstanceHidden(const ActiveTransport& transport, bool hidden);
     /// Uses a pending anchor once the hull has both a route and a period.
     void applyRouteAnchor(ActiveTransport& transport);
+    /// Real time on the route clock, between updates and across a loading screen.
+    [[nodiscard]] double routeClockNow() const;
+    /// The time a create block's phase was true at. See noteWorldEntry.
+    [[nodiscard]] double createBlockTime(double receivedAt);
+    void adoptRouteClock(ActiveTransport& transport, float phase, uint32_t periodMs,
+                         double sampleTime, const glm::vec3* createPosition);
+    /// Measures the phase's lag from a moving hull's position in its create block.
+    void calibrateRouteBias(ActiveTransport& transport);
 
     TransportPathRepository pathRepo_;
     TransportClockSync clockSync_;
@@ -401,8 +428,22 @@ private:
     /// A transport is registered once its model has loaded, several frames
     /// after its create block arrives - and the create block is where the
     /// server puts the route phase. See applyServerRouteClock.
-    struct PendingRouteClock { float phase; uint32_t periodMs; };
+    struct PendingRouteClock {
+        float phase;
+        uint32_t periodMs;
+        double sampleTime;
+        bool hasPosition;
+        glm::vec3 position;
+    };
     std::unordered_map<uint64_t, PendingRouteClock> pendingRouteClocks_;
+    // The server's timer overflows the 16-bit phase by one count a lap, so the
+    // phase falls behind by uptime / 65536 - the same for every transport.
+    double routeBiasMs_ = 0.0;
+    bool hasRouteBias_ = false;
+    // See noteWorldEntry.
+    double worldEntryTime_ = 0.0;
+    double worldEntryBatchEnd_ = 0.0;
+    bool worldEntryBatchOpen_ = false;
     uint64_t riderTransportGuid_ = 0;
     rendering::WMORenderer* wmoRenderer_ = nullptr;
     rendering::M2Renderer* m2Renderer_ = nullptr;

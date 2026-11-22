@@ -7,6 +7,7 @@
 #include "math/spline.hpp"
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <vector>
 #include <unordered_map>
 #include <glm/glm.hpp>
@@ -88,6 +89,11 @@ struct PathEntry {
     /// the route's first stop. Its clock starts there, and this one at node 0.
     uint32_t routeOriginMs = 0;
 
+    /// This timeline is the server's own: time on it is the server's path
+    /// timer, with its stops, its acceleration and the nodes it actually uses.
+    /// See TransportPathRepository::buildServerRouteSlice.
+    bool serverTimeline = false;
+
     [[nodiscard]] bool presentAt(uint32_t timeMs) const {
         if (presentMs.empty()) return true;
         for (const auto& [from, to] : presentMs) {
@@ -97,7 +103,12 @@ struct PathEntry {
     }
 
     /// Where the hull comes onto this map or leaves it, heading level.
-    struct MapEdge { uint32_t timeMs; glm::vec3 position; glm::vec3 direction; };
+    struct MapEdge {
+        uint32_t timeMs;
+        glm::vec3 position;
+        glm::vec3 direction;
+        float speed = 0.0f;   ///< at this edge, yards per second; 0 means edgeSpeed
+    };
     std::vector<MapEdge> arrivals;
     std::vector<MapEdge> departures;
     float edgeSpeed = 0.0f;   ///< yards per second
@@ -130,12 +141,14 @@ struct PathEntry {
         const uint32_t reach = std::min(kOffMapSailMs, gap / 2 > 1000u ? gap / 2 - 1000u : 0u);
         if (left && sinceLeft <= untilNext && sinceLeft <= reach) {
             direction = left->direction;
-            position = left->position + direction * edgeSpeed * (sinceLeft / 1000.0f);
+            const float speed = left->speed > 0.0f ? left->speed : edgeSpeed;
+            position = left->position + direction * speed * (sinceLeft / 1000.0f);
             return true;
         }
         if (next && untilNext < sinceLeft && untilNext <= reach) {
             direction = next->direction;
-            position = next->position - direction * edgeSpeed * (untilNext / 1000.0f);
+            const float speed = next->speed > 0.0f ? next->speed : edgeSpeed;
+            position = next->position - direction * speed * (untilNext / 1000.0f);
             return true;
         }
         return false;
@@ -161,6 +174,7 @@ struct TaxiRouteNode {
     glm::vec3 position;      ///< canonical world coordinates
     uint32_t mapId = 0;
     uint32_t dwellMs = 0;    ///< authored stop at this node
+    uint32_t actionFlags = 0; ///< 1 = teleport from here, 2 = stop here
 };
 
 /// A transport's whole route, across every map it touches.
@@ -255,6 +269,22 @@ public:
     [[nodiscard]] static PathEntry buildTaxiRouteSlice(const TaxiRoute& route,
                                                       uint32_t mapId,
                                                       float speed = kDefaultTransportSpeed);
+
+    /// One map's view of a route on the server's own timeline, or nothing if
+    /// that timeline does not come to publishedPeriodMs.
+    ///
+    /// TrinityCore-family servers do not fly a taxi path node to node at a
+    /// constant speed. They drop the path's first and last node and the two
+    /// around each map change, accelerate out of each stop and brake into the
+    /// next, and count their timer from the first node they kept. Worked out
+    /// here the same way, a time on this slice is the server's timer. The
+    /// period is the check: it depends on every step of the calculation, and
+    /// a server that moves transports differently will not reproduce it.
+    ///
+    /// moveSpeed and accelRate are data[1] and data[2] of the GO template.
+    [[nodiscard]] static std::optional<PathEntry> buildServerRouteSlice(
+        const TaxiRoute& route, uint32_t mapId, float moveSpeed, float accelRate,
+        uint32_t publishedPeriodMs);
 
     /// Whether the route closes back on itself rather than running A to B.
     ///
