@@ -555,8 +555,9 @@ private:
             float clothCentreX = 0.0f;
             float clothCentreY = 0.0f;
             // 0 = not luminous, 1 = authored lamp glass (bright), 2 = firelit
-            // from behind with a flicker (clock faces). See wmo.frag's emissive
-            // branch for how each level is shaded.
+            // from behind with a flicker (clock faces), 3 = lit at night (SIDN),
+            // 4 = a window whose texture paints its own fire (the Alliance ship).
+            // See wmo.frag's emissive branch for how each level is shaded.
             uint8_t emissiveLevel = 0;
             // For multi-draw: store index ranges
             struct DrawRange { uint32_t firstIndex; uint32_t indexCount; };

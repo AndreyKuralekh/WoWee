@@ -477,5 +477,14 @@ void main() {
         result += texColor.rgb * vec3(1.0, 0.82, 0.58) * (windowGlow * night);
     }
 
+    // A window with its fire painted into the texture: the bright panes show
+    // that fire as painted, fully at night and mostly by day - in the shade of
+    // the hull the blue sky light turned it green. The wooden frame stays lit.
+    if (emissive == 4) {
+        float pane = smoothstep(0.45, 0.8, max(texColor.r, max(texColor.g, texColor.b)));
+        float strength = shadowParams.w > 0.5 ? 0.95 : 1.1;
+        result = mix(result, texColor.rgb * strength, pane * mix(0.75, 1.0, lightDir.w));
+    }
+
     outColor = vec4(result, alpha);
 }

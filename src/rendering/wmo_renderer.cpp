@@ -753,6 +753,10 @@ WMORenderer::ModelLoadResult WMORenderer::loadModelIncremental(
                         // Darkshire's town hall clock, and any building sharing the
                         // face: backlit by a flickering fire in the tower.
                         emissiveLevel = 2;
+                    } else if (texNameLower.find("10hu_transportship_4765755_glow") != std::string::npos) {
+                        // The ship's stern and cabin windows, the fire painted
+                        // into their panes. Lit by the night sky it turned green.
+                        emissiveLevel = 4;
                     }
                     isWindow = emissiveLevel == 0 &&
                                wmoMaterialIsGlass(matFlags, texName);
@@ -968,7 +972,7 @@ WMORenderer::ModelLoadResult WMORenderer::loadModelIncremental(
             // of yards across, and each cell is one pane of light. The same
             // materials the shader lights at night: glass outside a dungeon,
             // and what the artist marked SIDN.
-            if ((mb.isWindow && !wmoOnlyMap_) || mb.emissiveLevel == 3) {
+            if ((mb.isWindow && !wmoOnlyMap_) || mb.emissiveLevel == 3 || mb.emissiveLevel == 4) {
                 struct Cell { glm::vec3 sum{0.0f}; float area = 0.0f; };
                 std::unordered_map<int64_t, Cell> cells;
                 constexpr float kCell = 2.5f;

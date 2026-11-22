@@ -399,10 +399,12 @@ void main() {
         float shadow = 1.0;
         if (!isFoliage) {
             vec3 halfDir = normalize(ldir + viewDir);
-            spec = pow(max(dot(norm, halfDir), 0.0), 32.0) * specularIntensity;
+            spec = pow(max(dot(norm, halfDir), 0.0), 32.0) * max(specularIntensity, 0.0);
         }
 
-        if (shadowParams.x > 0.5) {
+        // Not on canvas (negative): a sail is one thin curved sheet that shades
+        // itself in a rash of dots wherever the map's texels cross it.
+        if (shadowParams.x > 0.5 && specularIntensity >= 0.0) {
             float normalOffset = shadowTexel() * 2.0 * (1.0 - abs(dot(norm, ldir)));
             vec3 biasedPos = FragPos + norm * normalOffset;
             vec4 lsPos = lightSpaceMatrix * vec4(biasedPos, 1.0);
@@ -440,7 +442,8 @@ void main() {
         // ambient than the canopy underside, giving the crown depth instead
         // of a uniformly-lit blob.
         RtLight rt = rtLightAt(FragPos);
-        shadow = rtShadow(rt, shadow);
+        // The ray-traced shadow too: its rays start on the sheet and hit it.
+        if (specularIntensity >= 0.0) shadow = rtShadow(rt, shadow);
         vec3 ambientTerm = rtAmbient(rt, ambientColor.rgb);
         if (isFoliage) {
             ambientTerm *= 0.82 + 0.30 * clamp(norm.z, 0.0, 1.0);
@@ -448,6 +451,17 @@ void main() {
         result = ambientTerm * texColor.rgb
                + shadow * (diff * lightColor.rgb * texColor.rgb + spec * lightColor.rgb)
                + sss;
+
+        // Canvas: above the knee the light rolls off, keeping the cloth's hue
+        // and painted pattern instead of clipping to a white patch.
+        if (specularIntensity < 0.0) {
+            const float kCanvasKnee = 0.62;
+            const float kCanvasRange = 0.28;
+            float peak = max(result.r, max(result.g, result.b));
+            if (peak > kCanvasKnee) {
+                result *= (kCanvasKnee + kCanvasRange * (1.0 - exp(-(peak - kCanvasKnee) / kCanvasRange))) / peak;
+            }
+        }
 
         if (interiorDarken > 0.0) {
             result *= mix(1.0, 0.5, interiorDarken);

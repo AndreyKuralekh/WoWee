@@ -3315,7 +3315,14 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             mat.volumetricBeam = bgpu.volumetricBeam ? 1 : 0;
             mat.fadeAlpha = 1.0f;
             mat.interiorDarken = 0.0f;
-            mat.specularIntensity = 0.5f;
+            // Canvas (negative, see m2.frag): no shine, and pale cloth in full
+            // sun stops short of white - the ship's sails burned out in patches.
+            {
+                std::string lowerName = gpuModel.name;
+                std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                mat.specularIntensity = lowerName.find("10xp_shipsails") != std::string::npos ? -1.0f : 0.5f;
+            }
             // A lantern's glass shows its own lit pattern, not a blown-out white.
             mat.emissiveBoost = bgpu.lanternGlass ? 1.2f : bgpu.preserveGlowMesh ? 2.4f : 1.0f;
             mat.combine2 = bgpu.combine2;
