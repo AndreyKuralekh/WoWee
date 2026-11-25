@@ -50,6 +50,23 @@ float sliceDepth(float s) {
     return volumetricParams.y * exp(s / (volumetricParams.w * volumetricParams.z));
 }
 
+// At night the mist's glow is held under a soft ceiling. One lamp's halo is
+// left as it is; a row of them seen end on lays halo behind halo along the
+// ray and added up to a white blot that dazzled in a headset. Above the knee
+// the glow grows ever more slowly toward knee + range, with its colour kept.
+// By day nothing changes, for the sun's shafts are meant to be bright.
+const float kGlowKnee = 0.35;
+const float kGlowRange = 0.45;
+
+vec3 softGlowCeiling(vec3 glow) {
+    float night = clamp(lightDir.w, 0.0, 1.0);
+    float peak = max(max(glow.r, glow.g), glow.b);
+    if (night <= 0.0 || peak <= kGlowKnee) return glow;
+    float over = peak - kGlowKnee;
+    float limited = kGlowKnee + over / (1.0 + over / kGlowRange);
+    return glow * (mix(peak, limited, night) / peak);
+}
+
 vec3 rayAt(vec2 uv) {
     vec3 top = mix(vol.rayCorner[0].xyz, vol.rayCorner[1].xyz, uv.x);
     vec3 bottom = mix(vol.rayCorner[2].xyz, vol.rayCorner[3].xyz, uv.x);
@@ -82,6 +99,6 @@ void main() {
         scattered += transmittance * (cell.rgb - cell.rgb * through) / extinction;
         transmittance *= through;
 
-        imageStore(uIntegratedOut, ivec3(column, z), vec4(scattered, transmittance));
+        imageStore(uIntegratedOut, ivec3(column, z), vec4(softGlowCeiling(scattered), transmittance));
     }
 }
