@@ -24,6 +24,67 @@
 namespace wowee {
 namespace rendering {
 
+namespace {
+
+/// A liquid layer's vertex heights, with the vertices it leaves empty filled in.
+///
+/// An MH2O layer stores a height for every vertex of its rectangle, and the
+/// ones off its water hold 0.0 - Elwynn's rivers have them along every bank.
+/// Taking a single such zero as proof the whole layer was bad drew a sloping
+/// stretch of river flat at its lowest height, and the next, sloping layer
+/// met it in a step with the river bed showing through. Only the empty
+/// vertices are replaced, from the nearest real ones; false when the layer
+/// has no real height at all and should lie flat.
+bool usableWaterHeights(const pipeline::ADTTerrain::WaterLayer& layer, std::vector<float>& out,
+                        bool& filled) {
+    filled = false;
+    const int gridW = layer.width + 1;
+    const int gridH = layer.height + 1;
+    const size_t count = static_cast<size_t>(gridW) * gridH;
+    if (layer.heights.size() != count) return false;
+    constexpr float kSlack = 1.0f;
+    out = layer.heights;
+    std::vector<uint8_t> known(count, 0);
+    size_t knownCount = 0;
+    for (size_t i = 0; i < count; ++i) {
+        const float h = out[i];
+        if (std::isfinite(h) && h >= layer.minHeight - kSlack && h <= layer.maxHeight + kSlack) {
+            known[i] = 1;
+            ++knownCount;
+        }
+    }
+    if (knownCount == 0) return false;
+    if (knownCount == count) return true;
+    filled = true;
+    // Grown in from the real vertices a ring at a time.
+    while (knownCount < count) {
+        std::vector<size_t> ring;
+        for (int y = 0; y < gridH; ++y) {
+            for (int x = 0; x < gridW; ++x) {
+                const size_t i = static_cast<size_t>(y) * gridW + x;
+                if (known[i]) continue;
+                float sum = 0.0f;
+                int n = 0;
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        const int nx = x + dx, ny = y + dy;
+                        if ((dx == 0 && dy == 0) || nx < 0 || ny < 0 || nx >= gridW || ny >= gridH) continue;
+                        const size_t j = static_cast<size_t>(ny) * gridW + nx;
+                        if (known[j] == 1) { sum += out[j]; ++n; }
+                    }
+                }
+                if (n > 0) { out[i] = sum / static_cast<float>(n); ring.push_back(i); }
+            }
+        }
+        if (ring.empty()) break;
+        for (size_t i : ring) known[i] = 1;
+        knownCount += ring.size();
+    }
+    return true;
+}
+
+}  // namespace
+
 // Matches set 1 binding 0 in water.frag.glsl
 struct WaterMaterialUBO {
     glm::vec4 waterColor;
@@ -876,6 +937,7 @@ void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool ap
     }
 
     int totalSurfaces = 0;
+    int filledLayers = 0;  // layers whose empty vertices were filled (usableWaterHeights)
 
     // Merge threshold: groups with more than this many chunks get merged into
     // one tile-wide surface.  Small groups (shore, lakes) stay per-chunk so
@@ -924,16 +986,11 @@ void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool ap
                 surface.height = layer.height;
 
                 size_t numVertices = (layer.width + 1) * (layer.height + 1);
-                bool useFlat = true;
-                if (layer.heights.size() == numVertices) {
-                    bool sane = true;
-                    for (float h : layer.heights) {
-                        if (!std::isfinite(h) || std::abs(h) > 50000.0f) { sane = false; break; }
-                        if (h < layer.minHeight - 8.0f || h > layer.maxHeight + 8.0f) { sane = false; break; }
-                    }
-                    if (sane) { useFlat = false; surface.heights = layer.heights; }
+                bool filled = false;
+                if (!usableWaterHeights(layer, surface.heights, filled)) {
+                    surface.heights.assign(numVertices, layer.minHeight);
                 }
-                if (useFlat) surface.heights.resize(numVertices, layer.minHeight);
+                if (filled) ++filledLayers;
 
                 if (isStormwindArea && layer.minHeight > 94.0f) {
                     float distToMoonwell = glm::distance(glm::vec2(tileWorldX, tileWorldY), moonwellPos2D);
@@ -1017,16 +1074,10 @@ void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool ap
 
             // Copy heights
             int layerGridW = layer.width + 1;
-            size_t numVertices = static_cast<size_t>(layerGridW) * (layer.height + 1);
-            bool useFlat = true;
-            if (layer.heights.size() == numVertices) {
-                bool sane = true;
-                for (float h : layer.heights) {
-                    if (!std::isfinite(h) || std::abs(h) > 50000.0f) { sane = false; break; }
-                    if (h < layer.minHeight - 8.0f || h > layer.maxHeight + 8.0f) { sane = false; break; }
-                }
-                if (sane) useFlat = false;
-            }
+            std::vector<float> layerHeights;
+            bool filled = false;
+            const bool useFlat = !usableWaterHeights(layer, layerHeights, filled);
+            if (filled) ++filledLayers;
 
             for (int ly = 0; ly <= layer.height; ly++) {
                 for (int lx = 0; lx <= layer.width; lx++) {
@@ -1037,7 +1088,7 @@ void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool ap
                     float h;
                     if (!useFlat) {
                         int layerIdx = ly * layerGridW + lx;
-                        h = layer.heights[layerIdx];
+                        h = layerHeights[layerIdx];
                     } else {
                         h = layer.minHeight;
                     }
@@ -1087,7 +1138,8 @@ void WaterRenderer::loadFromTerrain(const pipeline::ADTTerrain& terrain, bool ap
 
     if (totalSurfaces > 0) {
         LOG_INFO("Water: Loaded ", totalSurfaces, " surfaces from tile [", tileX, ",", tileY,
-                 "] (", mergeGroups.size(), " groups), total surfaces: ", surfaces.size());
+                 "] (", mergeGroups.size(), " groups), total surfaces: ", surfaces.size(),
+                 filledLayers ? ", empty vertices filled in " + std::to_string(filledLayers) + " layers" : "");
     }
 }
 
