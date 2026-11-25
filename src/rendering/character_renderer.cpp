@@ -608,13 +608,16 @@ void CharacterRenderer::clear() {
     LOG_INFO("CharacterRenderer::clear instances=", instances.size(),
              " models=", models.size());
 
-    // Wait for any in-flight background normal map generation threads
-    {
-        std::unique_lock<std::mutex> lock(normalMapResultsMutex_);
-        normalMapDoneCV_.wait(lock, [this] {
-            return pendingNormalMapCount_.load(std::memory_order_acquire) == 0;
-        });
-    }
+    // Normal maps still being worked out in the background belong to the old
+    // map: they are dropped when they finish (normalMapEpoch_), not waited
+    // for. Waiting held the main thread at a map change for as long as a
+    // port's worth of HD textures took - a ship to Kalimdor stood 50 seconds,
+    // past the server's minute of silence, and was disconnected. The threads
+    // touch nothing clear() frees; shutdown() still waits for them.
+    const int pendingNormalMaps = pendingNormalMapCount_.load(std::memory_order_acquire);
+    normalMapEpoch_.fetch_add(1, std::memory_order_acq_rel);
+    LOG_INFO("CharacterRenderer::clear: ", pendingNormalMaps,
+             " normal maps still being generated are dropped, not waited for");
     // Discard any completed results that haven't been uploaded
     {
         std::lock_guard<std::mutex> lock(normalMapResultsMutex_);
@@ -796,13 +799,15 @@ bool CharacterRenderer::queueNormalMapGeneration(const std::string& cacheKey,
     // shutdown() to see 0 and proceed while a thread is still running).
     pendingNormalMapCount_.fetch_add(1, std::memory_order_acq_rel);
     auto* self = this;
-    std::thread([self, ck = cacheKey, px = std::move(pixels), width, height]() mutable {
+    const uint32_t epoch = normalMapEpoch_.load(std::memory_order_acquire);
+    std::thread([self, ck = cacheKey, px = std::move(pixels), width, height, epoch]() mutable {
         // try-catch guarantees the counter is decremented even if the compute
         // throws (e.g., bad_alloc). Without this, shutdown() would deadlock
         // waiting for a count that never reaches zero.
         try {
             auto result = generateNormalHeightMapCPU(std::move(ck), std::move(px),
                                                      width, height);
+            result.epoch = epoch;
             {
                 std::lock_guard<std::mutex> lock(self->normalMapResultsMutex_);
                 self->completedNormalMaps_.push_back(std::move(result));
@@ -962,7 +967,9 @@ void CharacterRenderer::processPendingNormalMaps(int budget) {
     }
 
     // GPU upload only (~1-2ms each) - CPU work already done on background thread
+    const uint32_t epoch = normalMapEpoch_.load(std::memory_order_acquire);
     for (auto& result : ready) {
+        if (result.epoch != epoch) continue;  // queued before clear(): the old map's
         auto it = textureCache.find(result.cacheKey);
         if (it == textureCache.end()) continue;  // texture was evicted
 

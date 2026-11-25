@@ -800,9 +800,22 @@ void WorldLoader::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
     bool hasRendererData = renderer_ && (renderer_->getWMORenderer() || renderer_->getM2Renderer());
     if (loadedMapId_ != 0xFFFFFFFF || hasRendererData) {
         LOG_WARNING("Map change: cleaning up old map ", loadedMapId_, " before loading map ", mapId);
+        // How long each step holds the main thread: nothing is sent to the
+        // server meanwhile, and a minute of silence is a disconnect.
+        using CleanupClock = std::chrono::steady_clock;
+        const auto cleanupStart = CleanupClock::now();
+        auto stepStart = cleanupStart;
+        std::string cleanupSteps;
+        auto cleanupStep = [&](const char* name) {
+            const auto now = CleanupClock::now();
+            const long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - stepStart).count();
+            cleanupSteps += std::string(cleanupSteps.empty() ? "" : ", ") + name + " " + std::to_string(ms) + " ms";
+            stepStart = now;
+        };
 
         // Clear pending queues first (these don't touch GPU resources)
         entitySpawner_->clearAllQueues();
+        cleanupStep("queues");
 
         // Transport GUIDs are reused across maps (for example, Undercity elevator
         // GUIDs become Deeprun tram GUIDs). The renderer instances are map-local,
@@ -819,12 +832,15 @@ void WorldLoader::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
             // Clear all world geometry from old map (including textures/models).
             // WMO clearAll and M2 clear both call vkDeviceWaitIdle internally,
             // ensuring no GPU command buffers reference old resources.
+            cleanupStep("transports");
             if (auto* wmo = renderer_->getWMORenderer()) {
                 wmo->clearAll();
             }
+            cleanupStep("buildings");
             if (auto* m2 = renderer_->getM2Renderer()) {
                 m2->clear();
             }
+            cleanupStep("models");
 
             // Full clear of character renderer: removes all instances, models,
             // textures, and resets descriptor pools. This prevents stale GPU
@@ -835,6 +851,7 @@ void WorldLoader::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
                 cr->clear();
                 renderer_->setCharacterFollow(0);
             }
+            cleanupStep("characters");
             // Reset equipment dirty tracking so composited textures are rebuilt
             // after spawnPlayerCharacter() recreates the character instance.
             if (gameHandler_) {
@@ -845,6 +862,7 @@ void WorldLoader::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
                 terrain->softReset();
                 terrain->setStreamingEnabled(true);  // Re-enable in case previous map disabled it
             }
+            cleanupStep("terrain");
             if (auto* questMarkers = renderer_->getQuestMarkerRenderer()) {
                 questMarkers->clear();
             }
@@ -856,6 +874,10 @@ void WorldLoader::loadOnlineWorldTerrain(uint32_t mapId, float x, float y, float
 
         // Clear application-level instance tracking (after renderer cleanup)
         entitySpawner_->resetAllState();
+        cleanupStep("rest");
+        LOG_INFO("Map change cleanup: ", cleanupSteps, "; total ",
+                 std::chrono::duration_cast<std::chrono::milliseconds>(CleanupClock::now() - cleanupStart).count(),
+                 " ms");
 
         // Force player character re-spawn on new map
         app_.playerCharacterSpawned = false;

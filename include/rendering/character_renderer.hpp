@@ -567,12 +567,16 @@ private:
         std::vector<uint8_t> pixels;  // RGBA normal map output
         uint32_t width, height;
         float variance;
+        uint32_t epoch = 0;  // normalMapEpoch_ when queued; older ones are dropped
     };
     // Completed results ready for GPU upload (populated by background threads)
     std::mutex normalMapResultsMutex_;
     std::condition_variable normalMapDoneCV_;  // signaled when pendingNormalMapCount_ reaches 0
     std::deque<NormalMapResult> completedNormalMaps_;
     std::atomic<int> pendingNormalMapCount_{0};  // in-flight background tasks
+    // Bumped by clear(): results queued before it belong to the old map and are
+    // dropped rather than waited for (only shutdown() waits for the threads).
+    std::atomic<uint32_t> normalMapEpoch_{0};
 
     // Pure CPU normal map generation (thread-safe, no GPU access)
     /// Start deriving a normal/height map for a texture already in the cache.
