@@ -2669,6 +2669,15 @@ void Renderer::update(float deltaTime) {
         m2AnimLaunched = false;
     }
     if (characterRenderer) characterRenderer->applyItemGlows();
+    // What the server puts in a building's rooms - people, sittable chairs -
+    // lit by the room as the building's own doodads are.
+    if (wmoRenderer) {
+        const RoomLightQuery roomQuery = [this](const glm::vec3& pos, RoomLight& out) {
+            return wmoRenderer->roomLightAt(pos, out);
+        };
+        if (characterRenderer) characterRenderer->updateRoomLights(roomQuery, globalTime);
+        if (m2Renderer) m2Renderer->updateRoomLights(roomQuery, globalTime);
+    }
 
     // Footsteps: age visual prints, then let authored footfall events add new ones.
     updateMarks.mark(4, "model animation");

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rendering/collision_geometry.hpp"
+#include "rendering/room_light.hpp"
 #include "rendering/vk_shader.hpp"
 #include "rendering/spatial_grid.hpp"
 #include "rendering/shadow_params.hpp"
@@ -424,6 +425,11 @@ public:
     /** Inside a room: an interior group the sky does not light (no 0x40) -
      *  not a city district, which is interior too but open air. */
     bool isInsideRoomWMO(float glX, float glY, float glZ) const;
+    /** The light of the room a point stands in, as a doodad the building
+     *  placed there is lit (pipeline::raiseToWallLight over the room's baked
+     *  vertex light round it). False outside rooms, or in one with no baked
+     *  light. For what the server places in a room: chairs, people. */
+    bool roomLightAt(const glm::vec3& worldPos, RoomLight& out) const;
 
     /** The panes of glass nearest the camera that glow at night, for the fog
      *  volume to halo: world position and radius. Nearest first. */
@@ -527,6 +533,10 @@ private:
         glm::vec3 boundingBoxMax;
 
         uint32_t groupFlags = 0;
+        /// A room's baked vertex light in cells a couple of yards across,
+        /// for roomLightAt: where the cell's vertices are, and their light.
+        struct RoomLightCell { glm::vec3 pos; glm::vec3 light; };
+        std::vector<RoomLightCell> roomLightCells;
         bool allUntextured = false;  // True if ALL batches use fallback white texture (collision/placeholder group)
         bool isLOD = false;          // Distance-only group (skip when camera is close)
 

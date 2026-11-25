@@ -414,6 +414,44 @@ void M2Renderer::setInstanceIsGameObject(uint32_t instanceId, bool isGameObject)
     auto idxIt = instanceIndexById.find(instanceId);
     if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) return;
     instances[idxIt->second].isGameObject = isGameObject;
+    if (isGameObject) gameObjectIds_.push_back(instanceId);
+}
+
+void M2Renderer::updateRoomLights(const RoomLightQuery& query, float now) {
+    if (!query) return;
+    constexpr float kRecheckSeconds = 3.0f;
+    constexpr float kMovedYards = 0.5f;
+    size_t lit = 0;
+    size_t kept = 0;
+    for (uint32_t id : gameObjectIds_) {
+        auto idxIt = instanceIndexById.find(id);
+        if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) continue;
+        auto& inst = instances[idxIt->second];
+        if (!inst.isGameObject) continue;
+        gameObjectIds_[kept++] = id;
+        const glm::vec3 pos = glm::vec3(inst.modelMatrix[3]);
+        const glm::vec3 moved = pos - inst.roomCheckedAt;
+        const bool due = glm::dot(moved, moved) > kMovedYards * kMovedYards ||
+                         (inst.roomAmbient.w < 0.5f && now - inst.roomCheckTime > kRecheckSeconds);
+        if (due) {
+            inst.roomCheckedAt = pos;
+            inst.roomCheckTime = now;
+            RoomLight room;
+            if (query(pos, room)) {
+                inst.roomAmbient = glm::vec4(room.ambient, 1.0f);
+                inst.roomDirect = glm::vec4(room.direct, 0.0f);
+                inst.roomToLight = glm::vec4(room.toLight, 0.0f);
+            } else {
+                inst.roomAmbient = glm::vec4(0.0f);
+            }
+        }
+        if (inst.roomAmbient.w > 0.5f) ++lit;
+    }
+    gameObjectIds_.resize(kept);
+    if (lit != roomLitGameObjects_) {
+        roomLitGameObjects_ = lit;
+        LOG_INFO("Room light: ", lit, " of ", kept, " game objects lit by the room they stand in");
+    }
 }
 
 void M2Renderer::setInstanceDrawWithHull(uint32_t instanceId, bool drawWithHull) {

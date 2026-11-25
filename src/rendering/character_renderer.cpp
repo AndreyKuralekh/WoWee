@@ -234,6 +234,16 @@ static float evalBatchTextureWeight(const pipeline::M2Model& model,
                                  model.globalSequenceDurations, 1.0f);
 }
 
+// The push block of character.vert/frag: the model matrix, and the light of the
+// room the character stands in (roomAmbient.w 1 in one; updateRoomLights).
+struct CharPush {
+    glm::mat4 model;
+    glm::vec4 roomAmbient;
+    glm::vec4 roomDirect;
+    glm::vec4 roomToLight;
+};
+static_assert(sizeof(CharPush) == 112, "CharPush must match the shaders' push block");
+
 // CharMaterial UBO layout (matches character.frag.glsl set=1 binding=1)
 struct CharMaterialUBO {
     float opacity;
@@ -439,13 +449,13 @@ bool CharacterRenderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFram
 
     // --- Pipeline layout ---
     // set 0 = perFrame, set 1 = material, set 2 = bones
-    // Push constant: mat4 model = 64 bytes
+    // Push constant: CharPush - the model matrix and the room's light, 112 bytes
     {
         VkDescriptorSetLayout setLayouts[] = {perFrameLayout, materialSetLayout_, boneSetLayout_};
         VkPushConstantRange pushRange{};
-        pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         pushRange.offset = 0;
-        pushRange.size = 64; // mat4
+        pushRange.size = sizeof(CharPush);
 
         VkPipelineLayoutCreateInfo ci{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         ci.setLayoutCount = 3;
@@ -3052,8 +3062,10 @@ void CharacterRenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
             ? instance.overrideModelMatrix
             : getModelMatrix(instance);
 
-        // Push model matrix
-        vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &modelMat);
+        // Push the model matrix and the room it stands in
+        const CharPush charPush{modelMat, instance.roomAmbient, instance.roomDirect, instance.roomToLight};
+        vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(CharPush), &charPush);
 
         // Upload bone matrices to SSBO
         int numBones = std::min(static_cast<int>(instance.boneMatrices.size()), MAX_BONES);
@@ -4682,6 +4694,38 @@ uint32_t CharacterRenderer::itemGlowModelFor(const pipeline::M2Model& item) {
     itemGlowModels_.emplace(id, std::move(glow));
     itemGlowIds_[item.name] = id;
     return id;
+}
+
+void CharacterRenderer::updateRoomLights(const RoomLightQuery& query, float now) {
+    if (!query) return;
+    constexpr float kRecheckSeconds = 3.0f;
+    constexpr float kMovedYards = 0.5f;
+    size_t lit = 0;
+    for (auto& [id, inst] : instances) {
+        const glm::vec3 pos = inst.hasOverrideModelMatrix ? glm::vec3(inst.overrideModelMatrix[3]) : inst.position;
+        const glm::vec3 moved = pos - inst.roomCheckedAt;
+        const bool due = glm::dot(moved, moved) > kMovedYards * kMovedYards ||
+                         (inst.roomAmbient.w < 0.5f && now - inst.roomCheckTime > kRecheckSeconds);
+        if (due) {
+            inst.roomCheckedAt = pos;
+            inst.roomCheckTime = now;
+            // A little above the feet: standing on a floor, the feet are on
+            // the room's bottom face.
+            RoomLight room;
+            if (query(pos + glm::vec3(0.0f, 0.0f, 1.0f), room)) {
+                inst.roomAmbient = glm::vec4(room.ambient, 1.0f);
+                inst.roomDirect = glm::vec4(room.direct, 0.0f);
+                inst.roomToLight = glm::vec4(room.toLight, 0.0f);
+            } else {
+                inst.roomAmbient = glm::vec4(0.0f);
+            }
+        }
+        if (inst.roomAmbient.w > 0.5f) ++lit;
+    }
+    if (lit != roomLitCharacters_) {
+        roomLitCharacters_ = lit;
+        LOG_INFO("Room light: ", lit, " of ", instances.size(), " character models lit by the room they stand in");
+    }
 }
 
 void CharacterRenderer::applyItemGlows() {

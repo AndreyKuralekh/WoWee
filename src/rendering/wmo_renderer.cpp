@@ -2230,6 +2230,29 @@ bool WMORenderer::createGroupResources(const pipeline::WMOGroup& group, GroupRes
     resources.boundingBoxMin = group.boundingBoxMin;
     resources.boundingBoxMax = group.boundingBoxMax;
 
+    // A room's baked light, for roomLightAt: an interior group the sky does
+    // not light, with vertex colours (halved by the loader; doubled back).
+    if ((groupFlags & 0x2000) && !(groupFlags & 0x40) && !(groupFlags & 0x8) && (groupFlags & 0x4)) {
+        constexpr float kCell = 2.0f;
+        struct Acc { glm::vec3 pos{0.0f}; glm::vec3 light{0.0f}; uint32_t n = 0; };
+        std::unordered_map<int64_t, Acc> cells;
+        for (const auto& v : group.vertices) {
+            const glm::ivec3 k = glm::ivec3(glm::floor(v.position / kCell));
+            const int64_t key = (static_cast<int64_t>(k.x & 0x1FFFFF) << 42) |
+                                (static_cast<int64_t>(k.y & 0x1FFFFF) << 21) |
+                                static_cast<int64_t>(k.z & 0x1FFFFF);
+            Acc& a = cells[key];
+            a.pos += v.position;
+            a.light += glm::vec3(v.color) * 2.0f;
+            ++a.n;
+        }
+        resources.roomLightCells.reserve(cells.size());
+        for (const auto& [key, a] : cells) {
+            const float inv = 1.0f / static_cast<float>(a.n);
+            resources.roomLightCells.push_back({a.pos * inv, glm::clamp(a.light * inv, 0.0f, 1.0f)});
+        }
+    }
+
     std::vector<WMOVertex> vertices;
     vertices.reserve(group.vertices.size());
 
@@ -4644,6 +4667,45 @@ bool WMORenderer::isInsideInteriorWMO(float glX, float glY, float glZ) const {
 
 bool WMORenderer::isInsideRoomWMO(float glX, float glY, float glZ) const {
     return isInsideWMOGroups(glX, glY, glZ, /*interiorOnly=*/true, nullptr, /*roomsOnly=*/true);
+}
+
+bool WMORenderer::roomLightAt(const glm::vec3& worldPos, RoomLight& out) const {
+    std::vector<size_t> candidates;
+    gatherCandidates(worldPos - glm::vec3(0.5f), worldPos + glm::vec3(0.5f), candidates);
+    // As pipeline::doodadRoomLights: the client's default interior sun.
+    const glm::vec3 kFromAbove = glm::normalize(glm::vec3(0.30822f, 0.30822f, 0.9f));
+    for (size_t idx : candidates) {
+        const auto& instance = instances[idx];
+        if (!withinWorldBounds(instance, worldPos.x, worldPos.y, worldPos.z)) continue;
+        auto it = loadedModels.find(instance.modelId);
+        if (it == loadedModels.end()) continue;
+        const ModelData& model = it->second;
+        const glm::vec3 localPos = glm::vec3(instance.invModelMatrix * glm::vec4(worldPos, 1.0f));
+        for (const auto& group : model.groups) {
+            if (group.roomLightCells.empty()) continue;
+            if (localPos.x < group.boundingBoxMin.x || localPos.x > group.boundingBoxMax.x ||
+                localPos.y < group.boundingBoxMin.y || localPos.y > group.boundingBoxMax.y ||
+                localPos.z < group.boundingBoxMin.z || localPos.z > group.boundingBoxMax.z) continue;
+            // The cells within a few yards; the nearest one when none is.
+            glm::vec3 sum(0.0f);
+            float weight = 0.0f;
+            float nearestD2 = std::numeric_limits<float>::max();
+            glm::vec3 nearest(0.0f);
+            for (const auto& cell : group.roomLightCells) {
+                const glm::vec3 d = cell.pos - localPos;
+                const float d2 = glm::dot(d, d);
+                if (d2 < nearestD2) { nearestD2 = d2; nearest = cell.light; }
+                if (d2 <= 16.0f) { sum += cell.light; weight += 1.0f; }
+            }
+            const glm::vec3 wall = weight > 0.0f ? sum / weight : nearest;
+            out.ambient = model.wmoAmbientColor;
+            out.direct = glm::vec3(0.0f);
+            pipeline::raiseToWallLight(out.ambient, out.direct, wall);
+            out.toLight = glm::normalize(glm::mat3(instance.modelMatrix) * kFromAbove);
+            return true;
+        }
+    }
+    return false;
 }
 
 float WMORenderer::raycastBoundingBoxes(const glm::vec3& origin, const glm::vec3& direction, float maxDistance) const {

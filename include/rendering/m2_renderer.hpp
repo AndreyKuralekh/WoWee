@@ -9,6 +9,7 @@
 #include "pipeline/blp_loader.hpp"
 #include "pipeline/grass_clearing.hpp"
 #include "rendering/m2_model_classifier.hpp"
+#include "rendering/room_light.hpp"
 #include "rendering/vk_frame_data.hpp"
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
@@ -444,6 +445,10 @@ struct M2Instance {
     // interactable objects long before the server stopped sending them.
     // Set by the spawner; see M2_GAME_OBJECT_MIN_RENDER_DISTANCE.
     bool isGameObject = false;
+    // Where updateRoomLights last asked the building round this game object
+    // for its room's light, and when (renderer time, seconds).
+    glm::vec3 roomCheckedAt{1e9f};
+    float roomCheckTime = -1e9f;
 
     // Part of a transport's hull as far as the eye goes: sails and rigging are
     // small models on a big ship, and at a small model's distance a departing
@@ -839,6 +844,11 @@ public:
     /// as the client lights it, instead of by the sun.
     void setInstanceRoomLight(uint32_t instanceId, const glm::vec3& ambient, const glm::vec3& direct,
                               const glm::vec3& toLight);
+    /// Game objects (setInstanceIsGameObject) lit as the doodads of the room
+    /// they stand in: the server's chairs at a table drew by the night sky in
+    /// a lit room. Asked again when one moves, and every few seconds until
+    /// its building has streamed in. Main thread, with update() finished.
+    void updateRoomLights(const RoomLightQuery& query, float now);
     void clear();
     /** Drop all instances but keep models in GPU memory. Cheap path for the
      *  editor's rebuild loop where the same model is re-instanced repeatedly. */
@@ -1343,6 +1353,8 @@ private:
 
     SpatialGrid spatialGrid;
     std::unordered_map<uint32_t, size_t> instanceIndexById;
+    std::vector<uint32_t> gameObjectIds_;  // for updateRoomLights; stale ids are dropped there
+    size_t roomLitGameObjects_ = 0;        // last count logged by updateRoomLights
     // Instance to copy bone matrices from when spawning another of the same
     // model. Finding one by scanning every instance is O(n) per spawn, which
     // became 18ms for a single createInstance once a zone held tens of

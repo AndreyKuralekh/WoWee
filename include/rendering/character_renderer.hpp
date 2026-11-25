@@ -2,6 +2,7 @@
 
 #include "rendering/vk_shader.hpp"
 #include "rendering/shadow_params.hpp"
+#include "rendering/room_light.hpp"
 
 #include "pipeline/m2_loader.hpp"
 #include "pipeline/blp_loader.hpp"
@@ -81,6 +82,11 @@ public:
     /// Moves held lights to where update() posed them. Call once M2Renderer's
     /// own update, which runs alongside update() on a worker, has finished.
     void applyItemGlows();
+    /// Characters standing in a building's room lit by it, as its doodads
+    /// are, instead of by the sky: in a lit house at night the people drew
+    /// dark and blue. Asked again when one moves half a yard, and every few
+    /// seconds while outside any room. Main thread.
+    void updateRoomLights(const RoomLightQuery& query, float now);
 
     bool loadModel(const pipeline::M2Model& model, uint32_t id);
     /** The same, taking the model rather than copying it. The copy is the
@@ -304,6 +310,13 @@ private:
         bool visible = true;  // For first-person camera hiding
         bool litItem = false;  // A held light: its faded pane is not drawn over the flame
         float torsoYawOverrideRad = 0.0f;
+        // The room it stands in (updateRoomLights): ambient rgb with w 1 in a
+        // room, its light's colour, the way to it. Pushed with the model matrix.
+        glm::vec4 roomAmbient{0.0f};
+        glm::vec4 roomDirect{0.0f};
+        glm::vec4 roomToLight{0.0f, 0.0f, 1.0f, 0.0f};
+        glm::vec3 roomCheckedAt{1e9f};
+        float roomCheckTime = -1e9f;
 #ifdef WOWEE_VR
         bool headless = false;  // see setInstanceHeadless
         // See setInstanceArmReach; the wrist in the model's own space.
@@ -540,6 +553,7 @@ private:
 
     std::unordered_map<uint32_t, M2ModelGPU> models;
     std::unordered_map<uint32_t, CharacterInstance> instances;
+    size_t roomLitCharacters_ = 0;  // last count logged by updateRoomLights
 
     uint32_t nextInstanceId = 1;
 

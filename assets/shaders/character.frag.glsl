@@ -49,6 +49,16 @@ layout(set = 1, binding = 1) uniform CharMaterial {
 
 layout(set = 1, binding = 2) uniform sampler2D uNormalHeightMap;
 
+// The model matrix is the vertex shader's; the rest is the light of the
+// building's room the character stands in (CharacterRenderer::updateRoomLights),
+// roomAmbient.w 1 in one.
+layout(push_constant) uniform Push {
+    mat4 model;
+    vec4 roomAmbient;
+    vec4 roomDirect;
+    vec4 roomToLight;
+} push;
+
 layout(set = 0, binding = 1) uniform sampler2DShadow uShadowMap;
 layout(set = 0, binding = 2) uniform sampler3D uFogVolume;
 
@@ -386,6 +396,15 @@ void main() {
 
         result = rtAmbient(rt, ambientColor.rgb) * texColor.rgb
                + shadow * (diff * lightColor.rgb * texColor.rgb + spec * lightColor.rgb);
+
+        // In a room the sky does not reach: lit as the doodads round it are
+        // (m2.frag) - the room's light rather than the night's blue, which
+        // left the people of a lit house dark against its walls.
+        if (push.roomAmbient.w > 0.5) {
+            float roomDotL = abs(dot(norm, normalize(push.roomToLight.xyz)));
+            vec3 roomLight = push.roomAmbient.rgb * mix(0.7, 1.1, 0.5 + 0.5 * roomDotL) + push.roomDirect.rgb * roomDotL;
+            result = texColor.rgb * roomLight + spec * push.roomDirect.rgb * 0.5;
+        }
     }
 
     // A negative boost on a lit material: a held lantern's own frame, which its
