@@ -77,6 +77,21 @@ public:
     void tracePacketsFor(std::chrono::milliseconds duration, const std::string& reason);
 
     /**
+     * Keep the connection alive from the socket's own thread: when nothing has
+     * been sent for `interval`, send `wireOpcode` (CMSG_KEEP_ALIVE, no payload).
+     * The server closes a connection a minute after the last packet it got from
+     * a player in the world (AzerothCore SocketTimeOutTimeActive), and the
+     * game's own packets all leave from the main thread - which stood fifty
+     * seconds at a map change, and the ship to Kalimdor was disconnected.
+     * A ping would not do: it neither resets that timer nor may come more often
+     * than every 27 seconds. 0xFFFF (or 0) turns it off.
+     */
+    void setKeepAlive(uint16_t wireOpcode, std::chrono::milliseconds interval) {
+        keepAliveIntervalMs_.store(static_cast<int>(interval.count()), std::memory_order_relaxed);
+        keepAliveOpcode_.store(wireOpcode, std::memory_order_relaxed);
+    }
+
+    /**
      * Check if header encryption is enabled
      */
     [[nodiscard]] bool isEncryptionEnabled() const { return encryptionEnabled; }
@@ -89,6 +104,7 @@ private:
     void pumpNetworkIO();
     void dispatchQueuedPackets();
     void asyncPumpLoop();
+    void sendKeepAliveIfIdle();
     void startAsyncPump();
     void stopAsyncPump();
     void closeSocketNoJoin();
@@ -106,6 +122,10 @@ private:
     std::thread asyncPumpThread_;
     std::atomic<bool> asyncPumpStop_{false};   // THREAD-SAFE: atomic
     std::atomic<bool> asyncPumpRunning_{false}; // THREAD-SAFE: atomic
+    // setKeepAlive; lastSendTime_ is protected by ioMutex_ (set in send()).
+    std::atomic<uint16_t> keepAliveOpcode_{0xFFFF};
+    std::atomic<int> keepAliveIntervalMs_{0};
+    std::chrono::steady_clock::time_point lastSendTime_{};
     // Guards sockfd, encryptionEnabled, receiveBuffer, cipher state,
     // headerBytesDecrypted, and recentPacketHistory_.
     mutable std::mutex ioMutex_;

@@ -283,6 +283,7 @@ void WorldSocket::send(const Packet& packet) {
     static const bool kLogSwapItemPackets = core::envFlagEnabled("WOWEE_NET_LOG_SWAP_ITEM", false);
     std::lock_guard<std::mutex> lock(ioMutex_);
     if (!connected || sockfd == INVALID_SOCK) return;
+    lastSendTime_ = std::chrono::steady_clock::now();
 
     const auto& data = packet.getData();
     uint16_t opcode = packet.getOpcode();
@@ -456,10 +457,30 @@ void WorldSocket::stopAsyncPump() {
     asyncPumpRunning_.store(false, std::memory_order_release);
 }
 
+void WorldSocket::sendKeepAliveIfIdle() {
+    const uint16_t opcode = keepAliveOpcode_.load(std::memory_order_relaxed);
+    const int intervalMs = keepAliveIntervalMs_.load(std::memory_order_relaxed);
+    if (opcode == 0xFFFF || opcode == 0 || intervalMs <= 0) return;
+    const auto now = std::chrono::steady_clock::now();
+    long long idleMs = 0;
+    {
+        std::lock_guard<std::mutex> lock(ioMutex_);
+        if (!connected || sockfd == INVALID_SOCK || !encryptionEnabled) return;
+        if (lastSendTime_.time_since_epoch().count() == 0) return;  // nothing sent yet
+        idleMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastSendTime_).count();
+    }
+    if (idleMs < intervalMs) return;
+    // Through send(): the same lock, the same header cipher, in order with
+    // whatever the main thread sends next.
+    send(Packet(opcode));
+    LOG_WARNING("Keepalive: CMSG_KEEP_ALIVE after ", idleMs / 1000, " s with nothing sent");
+}
+
 void WorldSocket::asyncPumpLoop() {
     asyncPumpRunning_.store(true, std::memory_order_release);
     while (!asyncPumpStop_.load(std::memory_order_acquire)) {
         pumpNetworkIO();
+        sendKeepAliveIfIdle();
         {
             std::lock_guard<std::mutex> lock(ioMutex_);
             if (!connected) {

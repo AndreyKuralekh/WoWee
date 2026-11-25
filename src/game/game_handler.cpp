@@ -816,6 +816,32 @@ void GameHandler::update(float deltaTime) {
 
     updateTimers(deltaTime);
 
+    // Kept alive from the socket's thread while in the world, whatever the
+    // main thread is doing (WorldSocket::setKeepAlive). Off everywhere else:
+    // the login and character screens have their own, longer, idle timeout.
+    if (socket) {
+        socket->setKeepAlive(state == WorldState::IN_WORLD ? wireOpcode(Opcode::CMSG_KEEP_ALIVE) : uint16_t{0xFFFF},
+                             std::chrono::seconds(25));
+    }
+    // A diagnostic: WOWEE_NET_STALL_TEST=<seconds> holds the main thread once,
+    // twenty seconds into the world, as a long map change did - the connection
+    // should survive it on the keepalive alone.
+    if (state == WorldState::IN_WORLD) {
+        static const int stallTestSeconds = [] {
+            const char* v = std::getenv("WOWEE_NET_STALL_TEST");
+            return v ? std::atoi(v) : 0;
+        }();
+        static float inWorldSeconds = 0.0f;
+        static bool stallTestDone = false;
+        inWorldSeconds += deltaTime;
+        if (stallTestSeconds > 0 && !stallTestDone && inWorldSeconds > 20.0f) {
+            stallTestDone = true;
+            LOG_WARNING("WOWEE_NET_STALL_TEST: holding the main thread for ", stallTestSeconds, " s");
+            std::this_thread::sleep_for(std::chrono::seconds(stallTestSeconds));
+            LOG_WARNING("WOWEE_NET_STALL_TEST: main thread released");
+        }
+    }
+
     // Send periodic heartbeat if in world
     if (state == WorldState::IN_WORLD) {
         timeSinceLastPing += deltaTime;
