@@ -239,6 +239,12 @@ public:
     /** Time used by the visible sky, including persistent zone ambience. */
     [[nodiscard]] float getVisualTimeOfDayHours() const { return visualTimeOfDayHours_; }
 
+    /// Where the sun stands by the clock, without setLongEvenings drawing the
+    /// evening out (a zone's own sky time, Duskwood's night, still applies).
+    /// The windows of a town light by it: in the original they are lit by
+    /// 21:40, and a sun held up past 22:00 kept them dark well into the night.
+    [[nodiscard]] glm::vec3 getClockSunDirection() const;
+
     /// One of the original client's sky models, and how much of it is up.
     struct SkyboxLayer {
         std::string path;
@@ -337,6 +343,7 @@ private:
     glm::vec3 currentPlayerPos_{0.0f};
     float timeOfDay_ = 0.5f;  // Start at noon
     float visualTimeOfDayHours_ = 12.0f;
+    float clockTimeOfDayHours_ = 12.0f;  ///< visualTimeOfDayHours_ before setLongEvenings
     std::vector<SkyboxLayer> skyboxLayers_;
     /// When update last ran, for smoothing by real time rather than by frame.
     std::chrono::steady_clock::time_point lastUpdate_{};

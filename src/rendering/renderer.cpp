@@ -650,9 +650,12 @@ void Renderer::updatePerFrameUBO() {
         const auto& lp = lightingManager->getLightingParams();
         // Night by the height of the sun: the windows of a building glow by it
         // (wmo.frag reads it from lightDir.w), and so does an M2's glass.
+        // The sun by the clock, not the one Long summer evenings holds up:
+        // with it the windows stayed dark until 22:00, lit by 21:40 without.
         float night = 0.0f;
-        if (glm::length(lp.directionalDir) > 1e-4f) {
-            const float sunHeight = -glm::normalize(lp.directionalDir).z;
+        const glm::vec3 clockSun = lightingManager->getClockSunDirection();
+        if (glm::length(clockSun) > 1e-4f) {
+            const float sunHeight = -glm::normalize(clockSun).z;
             night = glm::smoothstep(0.12f, -0.08f, sunHeight);
             if (m2Renderer) m2Renderer->setNightGlow(night);
         }

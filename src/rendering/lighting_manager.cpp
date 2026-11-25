@@ -416,6 +416,7 @@ void LightingManager::update(const glm::vec3& playerPos, uint32_t mapId, uint32_
     // world clock continues normally for gameplay and every other zone.
     visualTimeOfDayHours_ = resolveZoneVisualTimeHours(
         zoneId, isIndoors_, timeOfDay_ * 24.0f);
+    clockTimeOfDayHours_ = visualTimeOfDayHours_;
     // A summer evening (setLongEvenings): 19:00-21:30 shows the tables'
     // 19:00-20:30, slowly; 21:30-22:30 their 20:30-22:30, quickly.
     if (longEvenings_) {
@@ -971,6 +972,10 @@ glm::vec3 LightingManager::dbcColorToVec3(uint32_t dbcColor) const {
     const uint8_t b = dbcColor & 0xFF;
 
     return glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f);
+}
+
+glm::vec3 LightingManager::getClockSunDirection() const {
+    return sunLightDirForDayFraction(clockTimeOfDayHours_ / 24.0f);
 }
 
 } // namespace rendering
