@@ -179,6 +179,7 @@ public:
     struct DoodadTemplate {
         std::string m2Path;
         glm::mat4 localTransform;
+        bool inRoom = false;  // stands in an interior group of the model
     };
 
     /**
@@ -192,6 +193,10 @@ public:
     /// sequence is left as it is.
     size_t setInstanceDoodadAnimation(uint32_t instanceId, uint32_t animationId, bool loop);
     const std::vector<DoodadTemplate>* getDoodadTemplates(uint32_t modelId) const;
+    /// Tell this model's rooms they are a transport's: their lamps are kept
+    /// to them, but were never baked into their walls as a building's are, so
+    /// they light them at full strength. Safe to call for every spawn of one.
+    void markTransportRooms(uint32_t modelId);
 
     /**
      * Remove WMO instance
@@ -504,7 +509,7 @@ private:
         float wmoAmbientB;         // 60 (interior ambient color B)
         int32_t emissive;           // 64 (0 none, 1 lamp glass, 2 firelit)
         int32_t hasVertexColors;    // 68: the group carries MOCV (MOGP flag 0x4)
-        int32_t padding1;           // 72
+        int32_t isTransportRoom;    // 72: a room of a transport (markTransportRooms)
         int32_t padding2;           // 76
     };  // 80 bytes total
 

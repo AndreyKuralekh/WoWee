@@ -1021,6 +1021,7 @@ void EntitySpawner::spawnOnlineGameObject(uint64_t guid, uint32_t entry, uint32_
 
             auto* m2Renderer = renderer_->getM2Renderer();
             if (m2Renderer && isTransport) {
+                wmoRenderer->markTransportRooms(modelId);
                 const auto* doodadTemplates = wmoRenderer->getDoodadTemplates(modelId);
                 if (doodadTemplates && !doodadTemplates->empty()) {
                     // All of them, as the path for a model still loading does. A

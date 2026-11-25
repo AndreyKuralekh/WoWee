@@ -893,6 +893,7 @@ void EntitySpawner::finishWmoSpawn(const PreparedGameObjectWMO& result, uint32_t
     std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (lowerPath.find("transport") != std::string::npos) {
+        wmoRenderer->markTransportRooms(modelId);
         const auto* doodadTemplates = wmoRenderer->getDoodadTemplates(modelId);
         if (doodadTemplates && !doodadTemplates->empty()) {
             PendingTransportDoodadBatch batch;
@@ -1384,6 +1385,8 @@ void EntitySpawner::processPendingTransportDoodads() {
             }
             m2Renderer->setSkipCollision(m2InstanceId, true);
             m2Renderer->setInstanceDrawWithHull(m2InstanceId, true);
+            // A lamp in a cabin lights the cabin, not the outside of its walls.
+            if (doodadTemplate.inRoom) m2Renderer->setInstanceLightStaysInRoom(m2InstanceId, true);
             // Ship WMO children use the dedicated transport animation states:
             // 162=ShipStart, 163=ShipMoving, 164=ShipStop. Leaving them on the
             // first sequence freezes the icebreaker paddle (its sequence 0 is

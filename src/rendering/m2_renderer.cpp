@@ -359,6 +359,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                                        glm::vec4* outColorIntensity,
                                        uint32_t maxLights) const {
     lastFireLightCount_ = 0;
+    lastRoomHaloMask_ = 0;
     for (const size_t i : fireVolumeInstances_) {
         if (i < instances.size()) instances[i].flameParticleFade = 1.0f;
     }
@@ -433,6 +434,11 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         // its radius negative, and the building shader keeps it to rooms. A
         // candle in a window niche lit the outside of the abbey round it.
         bool roomOnly = false;
+        // ...and that room has this light baked into its walls, so it is drawn
+        // weaker. A ship's cabin is kept to its rooms without being one of these.
+        bool bakedRoom = false;
+        // Kept to its rooms, but its halo still shows in the air outside.
+        bool keepsHalo = false;
     };
     std::vector<Candidate> candidates;
     std::vector<Candidate> fires;
@@ -534,7 +540,9 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             fires.push_back({.distSq = distSq, .posRadius = glm::vec4(worldPos, radius),
                              .colorIntensity = glm::vec4(fl.color, fl.intensity),
                              .flame = true, .slowFlicker = fl.lamp, .phaseSeed = instance.position,
-                             .roomOnly = instance.roomAmbient.w > 0.5f});
+                             .roomOnly = instance.roomAmbient.w > 0.5f || instance.lightStaysInRoom,
+                                  .bakedRoom = instance.roomAmbient.w > 0.5f,
+                                  .keepsHalo = instance.lightStaysInRoom});
             FireGroup group;
             group.volume = hearthLike;
             group.boxMin = instance.worldBoundsMin;
@@ -554,7 +562,9 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                 candidates.push_back({.distSq = distSq, .posRadius = glm::vec4(worldPos, radius),
                                       .colorIntensity = glm::vec4(1.0f, 0.28f, 0.035f, 1.75f),
                                       .flame = false, .phaseSeed = instance.position,
-                                      .roomOnly = instance.roomAmbient.w > 0.5f});
+                                      .roomOnly = instance.roomAmbient.w > 0.5f || instance.lightStaysInRoom,
+                                  .bakedRoom = instance.roomAmbient.w > 0.5f,
+                                  .keepsHalo = instance.lightStaysInRoom});
             }
         }
 
@@ -605,7 +615,9 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             candidates.push_back({.distSq = distSq, .posRadius = glm::vec4(worldPos, radius),
                                   .colorIntensity = glm::vec4(color, intensity), .flame = true,
                                   .phaseSeed = instance.position,
-                                  .roomOnly = instance.roomAmbient.w > 0.5f});
+                                  .roomOnly = instance.roomAmbient.w > 0.5f || instance.lightStaysInRoom,
+                                  .bakedRoom = instance.roomAmbient.w > 0.5f,
+                                  .keepsHalo = instance.lightStaysInRoom});
             hasBatchLight = true;
         }
 
@@ -667,7 +679,9 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                         .colorIntensity = glm::vec4(color, intensity),
                         .flame = true, .slowFlicker = model->hasLanternGlass,
                         .phaseSeed = instance.position,
-                        .roomOnly = instance.roomAmbient.w > 0.5f});
+                        .roomOnly = instance.roomAmbient.w > 0.5f || instance.lightStaysInRoom,
+                                  .bakedRoom = instance.roomAmbient.w > 0.5f,
+                                  .keepsHalo = instance.lightStaysInRoom});
                 }
             }
         }
@@ -719,11 +733,12 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             const Candidate& c = fires[fireOrder[i]];
             outPosRadius[i] = c.posRadius;
             if (c.roomOnly) outPosRadius[i].w = -outPosRadius[i].w;
+            if (c.keepsHalo && i < 64) lastRoomHaloMask_ |= uint64_t{1} << i;
             outColorIntensity[i] = c.colorIntensity;
             outColorIntensity[i].w *= c.slowFlicker
                 ? lanternBreath(c.phaseSeed)
                 : fireFlicker(c.phaseSeed, fireParams_.seconds, fireParams_.flicker);
-            if (c.slowFlicker && !c.roomOnly) outColorIntensity[i].w *= headsetNightLamp();
+            if (c.slowFlicker && !c.bakedRoom) outColorIntensity[i].w *= headsetNightLamp();
         }
         outPosRadius += fireCount;
         outColorIntensity += fireCount;
@@ -741,6 +756,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
     for (uint32_t i = 0; i < count; ++i) {
         outPosRadius[i] = candidates[i].posRadius;
         if (candidates[i].roomOnly) outPosRadius[i].w = -outPosRadius[i].w;
+        if (candidates[i].keepsHalo && fireCount + i < 64) lastRoomHaloMask_ |= uint64_t{1} << (fireCount + i);
         outColorIntensity[i] = candidates[i].colorIntensity;
         if (candidates[i].flame) {
             // A flame behind a lantern's glass breathes, with its glass.
@@ -749,7 +765,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                 : lampFlicker(candidates[i].phaseSeed, flickerSeconds, 0.82f, 0.12f, 0.06f);
             // A lamp is lit for the night: by day its pool is lost in the sun.
             // Not in a room, which has no sun to lose it in and no night either.
-            if (!candidates[i].roomOnly) outColorIntensity[i].w *= (1.0f + 0.6f * nightGlow_) * headsetNightLamp();
+            if (!candidates[i].bakedRoom) outColorIntensity[i].w *= (1.0f + 0.6f * nightGlow_) * headsetNightLamp();
         }
     }
     return fireCount + count;

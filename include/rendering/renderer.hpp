@@ -703,6 +703,7 @@ private:
     glm::vec4 windowPanes_[32]{};
     uint32_t windowPaneCount_ = 0;
     bool fogCameraInRoom_ = false;
+    uint64_t roomHaloMask_ = 0;  // see VolumetricFog::Inputs::roomHaloMask
     /// 0 to 1: how low the sun stands - 1 just over the horizon, 0 from
     /// about twenty degrees up, and 0 again once it has set.
     float lowSun() const;

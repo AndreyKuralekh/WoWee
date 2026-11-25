@@ -434,6 +434,12 @@ void M2Renderer::setInstanceCarriesParticles(uint32_t instanceId, bool carries) 
     instances[idxIt->second].carriesParticles = carries;
 }
 
+void M2Renderer::setInstanceLightStaysInRoom(uint32_t instanceId, bool stays) {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) return;
+    instances[idxIt->second].lightStaysInRoom = stays;
+}
+
 void M2Renderer::setSkipCollision(uint32_t instanceId, bool skip) {
     for (auto& inst : instances) {
         if (inst.id == instanceId) {

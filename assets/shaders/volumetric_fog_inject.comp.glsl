@@ -43,6 +43,7 @@ layout(set = 1, binding = 0) uniform VolumeParams {
     vec4 haze;           // x = low-sun haze (0..), the broad warm glow toward the sun
     vec4 windowColor;    // rgb = glow of a lit pane, w = its strength; y of haze = how many panes
     vec4 windowPanes[32]; // xyz = world position, w = radius
+    uvec4 roomHalo;       // xy = the room lights that glow in the air all the same, a bit each
 } vol;
 
 layout(set = 1, binding = 1) uniform sampler2D uShadowDepth;
@@ -178,7 +179,9 @@ void main() {
         vec3 toLight = localLightPosRadius[i].xyz - p;
         // Negative: a light standing in a room. Its glow stays in the room: the
         // volume knows no walls, and from the street it shone through the stone.
-        if (localLightPosRadius[i].w < 0.0 && vol.haze.z < 0.5) continue;
+        // Except a transport's cabin lamps: their halo shows round the ship.
+        bool keepsHalo = ((i < 32 ? vol.roomHalo.x >> i : vol.roomHalo.y >> (i - 32)) & 1u) != 0u;
+        if (localLightPosRadius[i].w < 0.0 && vol.haze.z < 0.5 && !keepsHalo) continue;
         float radius = abs(localLightPosRadius[i].w);
         float distSq = dot(toLight, toLight);
         if (radius <= 0.0 || distSq >= radius * radius) continue;

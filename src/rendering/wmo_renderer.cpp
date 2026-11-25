@@ -1062,6 +1062,7 @@ WMORenderer::ModelLoadResult WMORenderer::loadModelIncremental(
     // Store doodad templates (M2 models placed in WMO) for instancing later
     if (!model.doodadSets.empty() && !model.doodads.empty()) {
         const auto& doodadSet = model.doodadSets[0];  // Use first doodad set
+        const std::vector<pipeline::DoodadRoomLight> roomLights = pipeline::doodadRoomLights(model);
         for (uint32_t di = 0; di < doodadSet.count; di++) {
             uint32_t doodadIdx = doodadSet.startIndex + di;
             if (doodadIdx >= model.doodads.size()) break;
@@ -1087,6 +1088,7 @@ WMORenderer::ModelLoadResult WMORenderer::loadModelIncremental(
             DoodadTemplate doodadTemplate;
             doodadTemplate.m2Path = m2Path;
             doodadTemplate.localTransform = localTransform;
+            doodadTemplate.inRoom = doodadIdx < roomLights.size() && roomLights[doodadIdx].inRoom;
             modelData.doodadTemplates.push_back(doodadTemplate);
 
         }
@@ -2453,6 +2455,21 @@ void WMORenderer::destroyGroupGPU(GroupResources& group, bool defer) {
                 if (m.ubo) vmaDestroyBuffer(allocator, m.ubo, m.uboAlloc);
             }
         });
+    }
+}
+
+void WMORenderer::markTransportRooms(uint32_t modelId) {
+    const auto modelIt = loadedModels.find(modelId);
+    if (modelIt == loadedModels.end() || !vkCtx_) return;
+    constexpr uint32_t kGroupInterior = 0x2000;
+    for (auto& group : modelIt->second.groups) {
+        if (!(group.groupFlags & kGroupInterior)) continue;
+        for (auto& batch : group.mergedBatches) {
+            if (!batch.materialUBOAlloc) continue;
+            VmaAllocationInfo info{};
+            vmaGetAllocationInfo(vkCtx_->getAllocator(), batch.materialUBOAlloc, &info);
+            if (info.pMappedData) static_cast<WMOMaterialUBO*>(info.pMappedData)->isTransportRoom = 1;
+        }
     }
 }
 

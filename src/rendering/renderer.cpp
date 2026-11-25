@@ -780,12 +780,15 @@ void Renderer::updatePerFrameUBO() {
             });
         }
     }
+    roomHaloMask_ = 0;
     if (m2Renderer && localLightCount < MAX_LOCAL_LIGHTS) {
+        const uint32_t m2LightsFrom = localLightCount;
         localLightCount += m2Renderer->gatherLocalLights(camera->getPosition(),
             currentFrameData.localLightPosRadius + localLightCount,
             currentFrameData.localLightColorIntensity + localLightCount,
             MAX_LOCAL_LIGHTS - localLightCount);
         fireLightCount = m2Renderer->lastFireLightCount();
+        if (m2LightsFrom < 64) roomHaloMask_ = m2Renderer->lastRoomHaloMask() << m2LightsFrom;
     }
     currentFrameData.localLightMeta = glm::ivec4(
         static_cast<int32_t>(localLightCount),
@@ -5654,6 +5657,7 @@ void Renderer::renderVolumetricFog() {
     in.windowPanes = windowPanes_;
     in.windowPaneCount = windowPaneCount_;
     in.cameraInRoom = fogCameraInRoom_;
+    in.roomHaloMask = roomHaloMask_;
     in.windowColor = glm::vec4(1.0f, 0.74f, 0.42f, kWindowGlowStrength * windowGlow_);
     volumetricFog_->record(currentCmd, frame, perFrameDescSets[frame], in);
     if (vkCtx) vkCtx->gpuMark(currentCmd, "volumetric fog");

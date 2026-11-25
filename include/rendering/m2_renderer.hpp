@@ -452,6 +452,8 @@ struct M2Instance {
     glm::vec3 hullOrigin{0.0f};  // the carrying hull's position, when drawWithHull
     // Its live particles move with it: a flame in a lantern someone is carrying.
     bool carriesParticles = false;
+    // Stands in a room of a moving hull: its light is kept off the hull's outside.
+    bool lightStaysInRoom = false;
 
     void recomputeCachedCullFactors();
 
@@ -625,6 +627,9 @@ public:
     /** How many of the lights the last gatherLocalLights returned are fires
      *  (they are the first ones). */
     [[nodiscard]] uint32_t lastFireLightCount() const { return lastFireLightCount_; }
+    /** Of the lights the last gatherLocalLights returned, bit i for light i:
+     *  kept to its rooms for surfaces, glowing in the air all the same. */
+    [[nodiscard]] uint64_t lastRoomHaloMask() const { return lastRoomHaloMask_; }
     /** Share of a fire light an interior WMO group takes on top of its baked
      *  light (fire_lights.cfg `interior_mix`). */
     [[nodiscard]] static float fireInteriorMix();
@@ -825,6 +830,8 @@ public:
     void setInstanceHullOrigin(uint32_t instanceId, const glm::vec3& origin);
     /// Move this instance's live particles with it when it moves.
     void setInstanceCarriesParticles(uint32_t instanceId, bool carries);
+    /// Its light reaches a building's rooms and not the outside of its walls.
+    void setInstanceLightStaysInRoom(uint32_t instanceId, bool stays);
     void setSkipCollision(uint32_t instanceId, bool skip);
     void setSkipWallCollision(uint32_t instanceId, bool skip);
     /// A WMO doodad standing in a room (pipeline::doodadRoomLights): drawn
@@ -1487,6 +1494,7 @@ private:
         return fireParams_.enabled ? 1.0f - 0.15f * nightGlow_ : 1.0f;
     }
     mutable uint32_t lastFireLightCount_ = 0;
+    mutable uint64_t lastRoomHaloMask_ = 0;
     FireVolumeParams fireVolumeParams_;
     struct FireVolume {
         glm::vec3 boxMin{0.0f};

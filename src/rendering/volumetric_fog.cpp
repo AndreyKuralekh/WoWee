@@ -30,6 +30,7 @@ struct VolumeParamsGPU {
     glm::vec4 haze;           // x = low-sun haze: the broad warm glow toward a low sun, y = pane count, z = camera in a room
     glm::vec4 windowColor;    // rgb = glow of a lit pane, w = its strength
     glm::vec4 windowPanes[VolumetricFog::kMaxWindowPanes];  // xyz = world position, w = radius
+    glm::uvec4 roomHalo;      // xy = which of the 64 local lights glow in the air although they stand in a room
 };
 
 constexpr uint32_t kInjectGroup = 4;     // 4x4x4, volumetric_fog_inject.comp.glsl
@@ -453,6 +454,8 @@ void VolumetricFog::record(VkCommandBuffer cmd, uint32_t frame, VkDescriptorSet 
     for (uint32_t i = 0; i < kMaxWindowPanes; ++i) {
         p.windowPanes[i] = i < panes ? in.windowPanes[i] : glm::vec4(0.0f);
     }
+    p.roomHalo = glm::uvec4(static_cast<uint32_t>(in.roomHaloMask & 0xFFFFFFFFu),
+                            static_cast<uint32_t>(in.roomHaloMask >> 32), 0u, 0u);
 
     // Into the buffer in the command stream rather than through its mapping:
     // a second build in the frame would otherwise rewrite the first one's

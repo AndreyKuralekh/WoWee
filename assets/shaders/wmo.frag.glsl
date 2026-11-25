@@ -45,7 +45,7 @@ layout(set = 1, binding = 1) uniform WMOMaterial {
     float wmoAmbientB;
     int emissive;
     int hasVertexColors;
-    int padding1;
+    int isTransportRoom;  // a transport's cabin: its lamps are not baked into the walls
     int padding2;
 };
 
@@ -110,7 +110,8 @@ vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo, bool interior, b
         attenuation *= attenuation;
         float wrappedDiffuse = 0.22 + 0.78 * max(dot(normal, lightVector), 0.0);
         // A room's candles are baked into its walls just as its fires are.
-        float share = (interior && (roomLight || (i >= localLightMeta.y && i < localLightMeta.z)))
+        float share = (interior && ((roomLight && isTransportRoom == 0) ||
+                                    (i >= localLightMeta.y && i < localLightMeta.z)))
                     ? interiorFireShare : 1.0;
         sum += albedo * localLightColorIntensity[i].rgb *
                (localLightColorIntensity[i].w * attenuation * wrappedDiffuse * share);

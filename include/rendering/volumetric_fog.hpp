@@ -103,6 +103,10 @@ public:
         glm::vec4 windowColor{0.0f};
         /// The camera is in a room: the lights standing in rooms glow in the air.
         bool cameraInRoom = false;
+        /// Lights of the frame's list (bit i, light i) that stand in a room and
+        /// glow in the air anyway: a transport's cabins, whose lamps have no
+        /// walls of stone round them to keep the glow in.
+        uint64_t roomHaloMask = 0;
     };
 
     VolumetricFog() = default;
