@@ -250,6 +250,17 @@ struct DoodadRoomLight {
 // groups, which keep the sun. Needs the groups loaded (their MODR lists).
 std::vector<DoodadRoomLight> doodadRoomLights(const WMOModel& model);
 
+// Lit at least as the walls round it are: `wall` is the room's baked vertex
+// light there (as the room shader draws it, the loader's halving undone). A
+// building replaced with a later one's (the Reforged houses of Goldshire)
+// brings rooms baked warm and bright but keeps the old doodad list, whose
+// colours were made for the old dark rooms; where the two were baked together
+// they agree and the doodad's own light stands.
+inline void raiseToWallLight(glm::vec3& ambient, glm::vec3& direct, const glm::vec3& wall) {
+    direct = glm::max(direct, wall);
+    ambient = glm::max(ambient, wall * 0.5f);
+}
+
 class WMOLoader {
 public:
     /**

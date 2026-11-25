@@ -755,6 +755,8 @@ std::vector<DoodadRoomLight> doodadRoomLights(const WMOModel& model) {
     // from above and a little aside, as the client's default interior sun.
     const glm::vec3 kFromAbove = glm::normalize(glm::vec3(0.30822f, 0.30822f, 0.9f));
     constexpr float kNearLight = 30.0f;
+    constexpr uint32_t kHasVertexColors = 0x4;
+    size_t roomDoodads = 0, litByWalls = 0;
     for (const auto& group : model.groups) {
         if ((group.flags & kExterior) || !(group.flags & kInterior) || (group.flags & kExteriorLit)) continue;
         for (uint16_t ref : group.doodadRefs) {
@@ -765,6 +767,32 @@ std::vector<DoodadRoomLight> doodadRoomLights(const WMOModel& model) {
             light.ambient = model.ambientColor;
             light.direct = glm::vec3(doodad.color);
             light.toLight = kFromAbove;
+            ++roomDoodads;
+            // The light baked into the room round it (raiseToWallLight): the
+            // wardrobe and the paintings of a Reforged house drew near black
+            // against its lit walls. The vertex colours, which the loader
+            // halves and the room shader doubles.
+            if (group.flags & kHasVertexColors) {
+                glm::vec3 sum(0.0f);
+                size_t count = 0;
+                for (float radius : {4.0f, 8.0f}) {
+                    sum = glm::vec3(0.0f);
+                    count = 0;
+                    for (const auto& v : group.vertices) {
+                        const glm::vec3 d = v.position - doodad.position;
+                        if (glm::dot(d, d) > radius * radius) continue;
+                        sum += glm::vec3(v.color) * 2.0f;
+                        ++count;
+                    }
+                    if (count >= 8) break;
+                }
+                if (count > 0) {
+                    const glm::vec3 wall = glm::clamp(sum / static_cast<float>(count), 0.0f, 1.0f);
+                    const glm::vec3 before = light.direct;
+                    raiseToWallLight(light.ambient, light.direct, wall);
+                    if (glm::any(glm::greaterThan(light.direct, before + 0.05f))) ++litByWalls;
+                }
+            }
             // The nearest light of its own room: the building's nearest may
             // hang in the next room, behind the wall the doodad is on - a
             // shop's painting was lit from behind and drew in the ambient alone.
@@ -779,6 +807,9 @@ std::vector<DoodadRoomLight> doodadRoomLights(const WMOModel& model) {
                 }
             }
         }
+    }
+    if (litByWalls > 0) {
+        LOG_INFO("WMO room doodads lit by their walls: ", litByWalls, " of ", roomDoodads);
     }
     return out;
 }
