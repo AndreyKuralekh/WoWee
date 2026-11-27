@@ -2826,6 +2826,7 @@ int WMORenderer::findCameraGroup(const ModelData& model, const glm::vec3& localP
         // on the cull threads.
         g.getTrianglesInRange(localPos.x, localPos.y, localPos.x, localPos.y, tris);
         float floorZ = -std::numeric_limits<float>::max();
+        bool roofed = false;
         for (uint32_t t : tris) {
             if (t + 2 >= g.collisionIndices.size()) continue;
             const glm::vec3& a = g.collisionVertices[g.collisionIndices[t]];
@@ -2839,10 +2840,17 @@ int WMORenderer::findCameraGroup(const ModelData& model, const glm::vec3& localP
             if (u < 0.0f || v < 0.0f || u + v > 1.0f) continue;
             const float z = u * a.z + v * b.z + (1.0f - u - v) * c.z;
             if (z <= localPos.z + 0.05f && z > floorZ) floorZ = z;
+            if (z > localPos.z + 0.05f) roofed = true;
         }
         if (floorZ == -std::numeric_limits<float>::max()) continue;
         const float gap = localPos.z - floorZ;
         const bool interior = (g.groupFlags & 0x2000) != 0 && (g.groupFlags & 0x8) == 0;
+        // A room has a ceiling over the camera, not only a floor somewhere under
+        // it. Goldshire inn's cellar box reaches out past the walls, and a
+        // camera standing in the street behind the inn found the cellar floor
+        // far below, was taken to be in the cellar, and the portal walk drew the
+        // rooms from there and hid the street - the inn seen inside out.
+        if (interior && !roofed) continue;
         // The nearest floor wins; at the same floor (a doorway's threshold,
         // shared by the room and the street) the interior does.
         if (gap < bestGap - 0.05f || (std::abs(gap - bestGap) <= 0.05f && interior && !bestInterior)) {
