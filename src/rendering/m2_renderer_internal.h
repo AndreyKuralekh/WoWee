@@ -141,6 +141,21 @@ inline void getTightCollisionBounds(const M2ModelGPU& model, glm::vec3& outMin, 
     outMax = center + half;
 }
 
+/// The box an instance is filed and broad-phased under: the tight guess above,
+/// grown to take in the model's own collision mesh when it ships one. The guess
+/// squeezes an unclassified model's height to three quarters about its middle,
+/// and a tree sixty units tall lost the bottom of its box - Elwynn's
+/// ElwynnTreeCanopy04 began 3.7 yards above its roots - so the trunk was under
+/// the box, the feet were too, and the broad phase skipped the tree outright:
+/// it was walked through. The narrow tests still use the tight box.
+inline void getInstanceCollisionBounds(const M2ModelGPU& model, glm::vec3& outMin, glm::vec3& outMax) {
+    getTightCollisionBounds(model, outMin, outMax);
+    if (model.collision.valid()) {
+        outMin = glm::min(outMin, model.collision.boundsMin);
+        outMax = glm::max(outMax, model.collision.boundsMax);
+    }
+}
+
 inline float getEffectiveCollisionTopLocal(const M2ModelGPU& model,
                                            const glm::vec3& localPos,
                                            const glm::vec3& localMin,

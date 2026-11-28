@@ -148,7 +148,7 @@ uint32_t M2Renderer::createInstance(uint32_t modelId, const glm::vec3& position,
     instance.scale = scale;
     instance.updateModelMatrix();
     glm::vec3 localMin, localMax;
-    getTightCollisionBounds(mdlRef, localMin, localMax);
+    getInstanceCollisionBounds(mdlRef, localMin, localMax);
     transformAABB(instance.modelMatrix, localMin, localMax, instance.worldBoundsMin, instance.worldBoundsMax);
 
     // Cache model flags on instance to avoid per-frame hash lookups
@@ -254,7 +254,7 @@ uint32_t M2Renderer::createInstanceWithMatrix(uint32_t modelId, const glm::mat4&
     instance.modelMatrix = modelMatrix;
     instance.invModelMatrix = glm::inverse(modelMatrix);
     glm::vec3 localMin, localMax;
-    getTightCollisionBounds(models[modelId], localMin, localMax);
+    getInstanceCollisionBounds(models[modelId], localMin, localMax);
     transformAABB(instance.modelMatrix, localMin, localMax, instance.worldBoundsMin, instance.worldBoundsMax);
     // Cache model flags on instance to avoid per-frame hash lookups
     const auto& mdl2 = models[modelId];

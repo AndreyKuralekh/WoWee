@@ -1922,6 +1922,8 @@ void M2ModelGPU::CollisionMesh::build() {
         bmax = glm::max(bmax, v);
     }
 
+    boundsMin = bmin;
+    boundsMax = bmax;
     gridOrigin = glm::vec2(bmin.x, bmin.y);
     gridCellsX = std::max(1, std::min(32, static_cast<int>(std::ceil((bmax.x - bmin.x) / CELL_SIZE))));
     gridCellsY = std::max(1, std::min(32, static_cast<int>(std::ceil((bmax.y - bmin.y) / CELL_SIZE))));

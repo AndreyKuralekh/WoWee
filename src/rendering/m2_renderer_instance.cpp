@@ -51,7 +51,7 @@ void M2Renderer::setInstancePosition(uint32_t instanceId, const glm::vec3& posit
     // at addInstance and stays valid as long as the instance exists.
     if (inst.cachedModel) {
         glm::vec3 localMin, localMax;
-        getTightCollisionBounds(*inst.cachedModel, localMin, localMax);
+        getInstanceCollisionBounds(*inst.cachedModel, localMin, localMax);
         transformAABB(inst.modelMatrix, localMin, localMax, inst.worldBoundsMin, inst.worldBoundsMax);
         inst.recomputeCachedCullFactors();
     }
@@ -326,7 +326,7 @@ void M2Renderer::setInstanceTransform(uint32_t instanceId, const glm::mat4& tran
     // Update bounds via the cached model pointer
     if (inst.cachedModel) {
         glm::vec3 localMin, localMax;
-        getTightCollisionBounds(*inst.cachedModel, localMin, localMax);
+        getInstanceCollisionBounds(*inst.cachedModel, localMin, localMax);
         transformAABB(inst.modelMatrix, localMin, localMax, inst.worldBoundsMin, inst.worldBoundsMax);
         inst.recomputeCachedCullFactors();
     }
@@ -1449,62 +1449,83 @@ bool M2Renderer::checkCollision(const glm::vec3& from, const glm::vec3& to,
                 std::max(localFrom.y, localPos.y) + localRadius + 1.0f,
                 tl_m2_collisionTriScratch);
 
-            constexpr float PLAYER_HEIGHT = 2.0f;
-            constexpr float MAX_TOTAL_PUSH = 0.02f; // Cap total push per instance
+            // Hard, not soft. This pushed by 8% of the overlap, at most 0.015
+            // of a yard a triangle and 0.02 a model, so a step of 0.12-0.2
+            // a frame went on into the mesh; past its surface - the middle of
+            // a Reforged tree's trunk is more than a body's radius from its
+            // bark - nothing pushed at all, and the trunk was walked through.
+            // Now the whole overlap is pushed out, a few passes for corners,
+            // and a move longer than half the radius is taken in parts: from
+            // outside, the centre then never jumps a surface. Sliding comes
+            // with it - only the part of the move into the surface is undone.
+            //
+            // In the model's own units, like the radius: a placement scales
+            // the model, and Elwynn's CanopyLessTree01 stands at 0.22-0.36. A
+            // body of two model units was a body under half a yard tall, and
+            // the trunk above its knees was cut off by height and walked
+            // through.
+            const float invScale = 1.0f / instance.scale;
+            const float PLAYER_HEIGHT = 2.0f * invScale;
+            const float MAX_STEP_UP = 1.2f * invScale;   // rising past a low edge: a jump
+            const float STEP_OVER = 0.5f * invScale;     // a root or a kerb is stepped over
+            constexpr int kPasses = 3;
             bool pushed = false;
-            float totalPushX = 0.0f, totalPushY = 0.0f;
 
-            for (uint32_t ti : tl_m2_collisionTriScratch) {
-                if (ti >= model.collision.triCount) continue;
-                if (localPos.z + PLAYER_HEIGHT < model.collision.triBounds[ti].minZ ||
-                    localPos.z > model.collision.triBounds[ti].maxZ) continue;
+            const auto resolveAt = [&](glm::vec3& pos) {
+                const bool rising = (pos.z > localFrom.z + 0.05f);
+                for (int pass = 0; pass < kPasses; ++pass) {
+                    bool any = false;
+                    for (uint32_t ti : tl_m2_collisionTriScratch) {
+                        if (ti >= model.collision.triCount) continue;
+                        const auto& tb = model.collision.triBounds[ti];
+                        if (pos.z + PLAYER_HEIGHT < tb.minZ || pos.z > tb.maxZ) continue;
+                        if (tb.maxZ <= pos.z + STEP_OVER) continue;
+                        if (rising && pos.z + MAX_STEP_UP >= tb.maxZ) continue;
 
-                // Step-up: only skip wall when player is rising (jumping over it)
-                constexpr float MAX_STEP_UP = 1.2f;
-                bool rising = (localPos.z > localFrom.z + 0.05f);
-                if (rising && localPos.z + MAX_STEP_UP >= model.collision.triBounds[ti].maxZ) continue;
+                        const auto& verts = model.collision.vertices;
+                        const auto& idx   = model.collision.indices;
+                        const auto& v0 = verts[idx[ti * 3]];
+                        const auto& v1 = verts[idx[ti * 3 + 1]];
+                        const auto& v2 = verts[idx[ti * 3 + 2]];
 
-                // Early out if we already pushed enough this instance
-                float totalPushSoFar = std::sqrt(totalPushX * totalPushX + totalPushY * totalPushY);
-                if (totalPushSoFar >= MAX_TOTAL_PUSH) break;
-
-                const auto& verts = model.collision.vertices;
-                const auto& idx   = model.collision.indices;
-                const auto& v0 = verts[idx[ti * 3]];
-                const auto& v1 = verts[idx[ti * 3 + 1]];
-                const auto& v2 = verts[idx[ti * 3 + 2]];
-
-                glm::vec3 closest = closestPointOnTriangle(localPos, v0, v1, v2);
-                glm::vec3 diff = localPos - closest;
-                float distXY = std::sqrt(diff.x * diff.x + diff.y * diff.y);
-
-                if (distXY < localRadius && distXY > 1e-4f) {
-                    // Gentle push - very small fraction of penetration
-                    float penetration = localRadius - distXY;
-                    float pushDist = std::clamp(penetration * 0.08f, 0.001f, 0.015f);
-                    float dx = (diff.x / distXY) * pushDist;
-                    float dy = (diff.y / distXY) * pushDist;
-                    localPos.x += dx;
-                    localPos.y += dy;
-                    totalPushX += dx;
-                    totalPushY += dy;
-                    pushed = true;
-                } else if (distXY < 1e-4f) {
-                    // On the plane - soft push along triangle normal XY
-                    glm::vec3 n = glm::cross(v1 - v0, v2 - v0);
-                    float nxyLen = std::sqrt(n.x * n.x + n.y * n.y);
-                    if (nxyLen > 1e-4f) {
-                        float pushDist = std::min(localRadius, 0.015f);
-                        float dx = (n.x / nxyLen) * pushDist;
-                        float dy = (n.y / nxyLen) * pushDist;
-                        localPos.x += dx;
-                        localPos.y += dy;
-                        totalPushX += dx;
-                        totalPushY += dy;
+                        const glm::vec3 closest = closestPointOnTriangle(pos, v0, v1, v2);
+                        const glm::vec2 diff(pos.x - closest.x, pos.y - closest.y);
+                        const float distXY = glm::length(diff);
+                        if (distXY >= localRadius) continue;
+                        glm::vec2 dir;
+                        if (distXY > 1e-4f) {
+                            dir = diff / distXY;
+                        } else {
+                            // On the surface: out to the side the move came from.
+                            const glm::vec3 n = glm::cross(v1 - v0, v2 - v0);
+                            glm::vec2 nxy(n.x, n.y);
+                            const float nLen = glm::length(nxy);
+                            if (nLen < 1e-4f) continue;
+                            nxy /= nLen;
+                            if (glm::dot(glm::vec2(localFrom.x - v0.x, localFrom.y - v0.y), nxy) < 0.0f) nxy = -nxy;
+                            dir = nxy;
+                        }
+                        const float push = localRadius - distXY;
+                        pos.x += dir.x * push;
+                        pos.y += dir.y * push;
+                        any = true;
                         pushed = true;
                     }
+                    if (!any) break;
                 }
+            };
+
+            const glm::vec3 move = localPos - localFrom;
+            const float moveLen = glm::length(glm::vec2(move.x, move.y));
+            const int parts = std::clamp(static_cast<int>(std::ceil(moveLen / (localRadius * 0.5f))), 1, 8);
+            glm::vec3 at = localFrom;
+            for (int k = 1; k <= parts; ++k) {
+                glm::vec3 next = at + move / static_cast<float>(parts);
+                resolveAt(next);
+                at = next;
             }
+            localPos.x = at.x;
+            localPos.y = at.y;
 
             if (pushed) {
                 glm::vec3 worldPos = glm::vec3(instance.modelMatrix * glm::vec4(localPos, 1.0f));

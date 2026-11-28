@@ -199,6 +199,8 @@ struct M2ModelGPU {
 
         struct TriBounds { float minZ, maxZ; };
         std::vector<TriBounds> triBounds;
+        glm::vec3 boundsMin{0.0f};  // of all the vertices, set by build()
+        glm::vec3 boundsMax{0.0f};
 
         static constexpr float CELL_SIZE = 4.0f;
         glm::vec2 gridOrigin{0.0f};
